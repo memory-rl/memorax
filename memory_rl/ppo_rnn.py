@@ -1,26 +1,22 @@
 import os
 from dataclasses import dataclass
+from functools import partial
 
-import jax
-
-import jax.numpy as jnp
-import flax.linen as nn
-from flax.training.train_state import TrainState
-import optax
-from optax import linear_schedule
 import chex
 import distrax
+import flax.linen as nn
 import gymnax
-from gymnax.wrappers import FlattenObservationWrapper
+import jax
+import jax.numpy as jnp
+import optax
 import tyro
-from popjaxrl.envs import make
-from popjaxrl.envs.wrappers import AliasPrevActionV2
-import wandb
+from flax.training.train_state import TrainState
+from gymnax.wrappers import FlattenObservationWrapper
+from optax import linear_schedule
 
-
-from gae import compute_recurrent_gae as compute_gae
-from wrapper import LogWrapper
 from networks import MaskedGRUCell, MaskedRNN
+from utils import LogWrapper
+from utils import compute_recurrent_gae as compute_gae
 
 
 @dataclass(frozen=True)
@@ -39,13 +35,13 @@ class Args:
     """if toggled, this experiment will run in debug mode"""
 
     # Algorithm specific arguments
-    env_id: str = "CartPole-v1"
+    env_id: str = "Breakout-MinAtar"
     """the id of the environment"""
-    total_timesteps: int = 500000
+    total_timesteps: int = 1_000_000
     """total timesteps of the experiments"""
-    learning_rate: float = 2.5e-4
+    learning_rate: float = 5e-3
     """the learning rate of the optimizer"""
-    num_envs: int = 4
+    num_envs: int = 64
     """the number of parallel game environments"""
     num_steps: int = 128
     """the number of steps to run in each environment per policy rollout"""
@@ -55,7 +51,7 @@ class Args:
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the general advantage estimation"""
-    num_minibatches: int = 4
+    num_minibatches: int = 8
     """the number of mini-batches"""
     update_epochs: int = 4
     """the K epochs to update the policy"""
@@ -71,10 +67,6 @@ class Args:
     """coefficient of the value function"""
     max_grad_norm: float = 0.5
     """the maximum norm for the gradient clipping"""
-    target_kl: float | None = None
-    """the target KL divergence threshold"""
-    cell_size: int = 128
-    """the size of the LSTM cell"""
 
     @property
     def batch_size(self):
@@ -97,42 +89,37 @@ class Agent(nn.Module):
     def __call__(
         self,
         x: jnp.ndarray,
-        mask: jax.Array,
-        initial_carry=None,
+        mask: jnp.ndarray,
+        initial_carry: jnp.ndarray | None = None,
     ):
-
         x = nn.Dense(
             64,
             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
             bias_init=nn.initializers.constant(0.0),
         )(x)
         x = nn.relu(x)
-
         h, x = MaskedRNN(
             self.cell,
             time_major=True,
             return_carry=True,
         )(x, mask, initial_carry=initial_carry)
-
         x = nn.Dense(
             64,
             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
             bias_init=nn.initializers.constant(0.0),
         )(x)
         x = nn.relu(x)
-
         logits = nn.Dense(
             self.action_dim,
             kernel_init=nn.initializers.orthogonal(scale=0.01),
             bias_init=nn.initializers.constant(0.0),
         )(x)
-
         value = nn.Dense(
             1,
             kernel_init=nn.initializers.orthogonal(scale=1.0),
             bias_init=nn.initializers.constant(0.0),
         )(x)
-        return h, logits, value.squeeze()
+        return h, logits.squeeze(), value.squeeze()
 
 
 @chex.dataclass(frozen=True)
@@ -146,14 +133,10 @@ class Transition:
     value: chex.Array
 
 
-def make_train(
-    args: Args,
-):
+def make_train(args: Args):
 
     env, env_params = gymnax.make(args.env_id)
-    # env = FlattenObservationWrapper(env)
-    # env, env_params = make(args.env_id)
-    # env = AliasPrevActionV2(env)
+    env = FlattenObservationWrapper(env)
     env = LogWrapper(env)
 
     key = jax.random.key(args.seed)
@@ -170,37 +153,32 @@ def make_train(
             args.num_iterations * args.update_epochs * args.num_minibatches
         ),
     )
-    agent = Agent(
-        action_dim=env.action_space(env_params).n,
-        cell=MaskedGRUCell(
-            args.cell_size,
-        ),
-    )
+
+    learning_rate = lr_schedule if args.anneal_lr else args.learning_rate
+
+    agent = Agent(action_dim=env.action_space(env_params).n, cell=MaskedGRUCell(128))
     agent_state = TrainState.create(
         apply_fn=agent.apply,
         params=agent.init(agent_key, jnp.expand_dims(obs, 0), jnp.expand_dims(done, 0)),
         tx=optax.chain(
             optax.clip_by_global_norm(args.max_grad_norm),
-            optax.adam(
-                learning_rate=lr_schedule if args.anneal_lr else args.learning_rate,
-                eps=1e-5,
-            ),
+            optax.adam(learning_rate=learning_rate, eps=1e-5),
         ),
     )
 
-    def train(key: chex.PRNGKey, agent_state: TrainState):
+    @partial(jax.jit, static_argnums=(2,))
+    def train(key, agent_state, num_steps):
         key, reset_key = jax.random.split(key)
 
         reset_key = jax.random.split(reset_key, args.num_envs)
         obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
         done = jax.vmap(env.is_terminal, in_axes=(0, None))(state.env_state, env_params)
-
         initial_hidden = agent.cell.initialize_carry(key, obs.shape)
 
         def update_step(carry: tuple, _):
 
             def step(carry: tuple, _):
-                key, obs, done, state, agent_state, hidden = carry
+                key, obs, state, done, agent_state, hidden = carry
 
                 key, action_key, step_key = jax.random.split(key, 3)
 
@@ -210,16 +188,14 @@ def make_train(
                     jnp.expand_dims(done, 0),
                     hidden,
                 )
-
                 probs = distrax.Categorical(logits=logits)
-                action = probs.sample(seed=action_key).squeeze()
-                log_prob = probs.log_prob(action).squeeze()
+                action = probs.sample(seed=action_key)
+                log_prob = probs.log_prob(action)
 
                 step_key = jax.random.split(step_key, args.num_envs)
-                next_obs, next_state, reward, next_done, info = jax.vmap(
+                next_obs, state, reward, next_done, info = jax.vmap(
                     env.step, in_axes=(0, 0, 0, None)
                 )(step_key, state, action, env_params)
-
                 transition = Transition(
                     observation=obs,  # type: ignore
                     action=action,  # type: ignore
@@ -233,22 +209,21 @@ def make_train(
                 carry = (
                     key,
                     next_obs,
+                    state,
                     next_done,
-                    next_state,
                     agent_state,
                     hidden,
                 )
                 return carry, transition
 
             *_, initial_hidden = carry
-            (key, final_obs, final_done, state, agent_state, hidden), transitions = (
+            (key, final_obs, state, final_done, agent_state, hidden), transitions = (
                 jax.lax.scan(
                     step,
                     carry,
                     length=args.num_steps,
                 )
             )
-
             _, _, final_value = agent_state.apply_fn(
                 agent_state.params,
                 jnp.expand_dims(final_obs, 0),
@@ -270,19 +245,19 @@ def make_train(
                     carry
                 )
 
-                def update_minibatch(agent_state, minibatch: tuple):
+                def update_minibatch(agent_state: TrainState, minibatch: tuple):
                     initial_hidden, transitions, advantages, returns = minibatch
 
                     def loss_fn(
                         params, initial_hidden, transitions, advantages, returns
                     ):
-
                         _, logits, value = agent_state.apply_fn(
                             params,
                             transitions.observation,
                             transitions.done,
                             initial_hidden.squeeze(0),
                         )
+
                         probs = distrax.Categorical(logits=logits)
                         log_prob = probs.log_prob(transitions.action)
                         entropy = probs.entropy().mean()
@@ -303,29 +278,28 @@ def make_train(
                             )
                             clipped_critic_loss = jnp.square(clipped_value - returns)
                             critic_loss = (
-                                0.5
+                                1
+                                / 2
                                 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
                             )
                         else:
-                            critic_loss = 0.5 * jnp.square(value - returns).mean()
+                            critic_loss = 1 / 2 * jnp.square(value - returns).mean()
 
-                        loss = (
+                        return (
                             actor_loss
                             + args.vf_coef * critic_loss
                             - args.ent_coef * entropy
                         )
-                        return loss, (actor_loss, critic_loss, entropy.mean())
 
-                    agent_grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-                    (loss, (actor_loss, critic_loss, entropy)), grads = agent_grad_fn(
+                    grad_fn = jax.value_and_grad(loss_fn)
+                    loss, agent_grads = grad_fn(
                         agent_state.params,
                         initial_hidden,
                         transitions,
                         advantages,
                         returns,
                     )
-                    agent_state = agent_state.apply_gradients(grads=grads)
-
+                    agent_state = agent_state.apply_gradients(grads=agent_grads)
                     return agent_state, loss
 
                 key, permutation_key = jax.random.split(key)
@@ -353,7 +327,6 @@ def make_train(
                     agent_state,
                     minibatches,
                 )
-
                 return (
                     key,
                     agent_state,
@@ -399,16 +372,16 @@ def make_train(
             return (
                 key,
                 final_obs,
-                final_done,
                 state,
+                final_done,
                 agent_state,
                 hidden,
             ), transitions.info
 
         (key, _, _, _, agent_state, _), info = jax.lax.scan(
             update_step,
-            (key, obs, done, state, agent_state, initial_hidden),
-            length=args.num_iterations,
+            (key, obs, state, done, agent_state, initial_hidden),
+            length=num_steps,
         )
 
         return key, agent_state, info
@@ -416,8 +389,53 @@ def make_train(
     return train, agent_state
 
 
+def make_evaluate(args: Args):
+    env, env_params = gymnax.make(args.env_id)
+    env = FlattenObservationWrapper(env)
+    env = LogWrapper(env)
+
+    @partial(jax.jit, static_argnums=(2))
+    def evaluate(key, agent_state, num_steps):
+
+        key, reset_key = jax.random.split(key)
+        reset_key = jax.random.split(reset_key, 4)
+        obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+        done = jax.vmap(env.is_terminal, in_axes=(0, None))(state.env_state, env_params)
+        # initial_hidden = agent.cell.initialize_carry(key, obs.shape)
+        initial_hidden = MaskedGRUCell(128).initialize_carry(key, obs.shape)
+
+        def step(carry, _):
+            key, obs, state, done, hidden = carry
+
+            hidden, logits, _ = agent_state.apply_fn(
+                agent_state.params,
+                jnp.expand_dims(obs, 0),
+                jnp.expand_dims(done, 0),
+                hidden,
+            )
+            action = jnp.argmax(logits, axis=-1)
+
+            key, step_key = jax.random.split(key)
+            step_key = jax.random.split(step_key, 4)
+            obs, state, _, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
+                step_key, state, action, env_params
+            )
+
+            return (key, obs, state, done, hidden), info
+
+        (key, *_), info = jax.lax.scan(
+            step, (key, obs, state, done, initial_hidden), length=num_steps
+        )
+
+        return key, info
+
+    return evaluate
+
+
 if __name__ == "__main__":
     args = tyro.cli(Args)
+
+    import wandb
 
     if args.track:
         wandb.init(
@@ -427,12 +445,12 @@ if __name__ == "__main__":
         )
 
     train, agent_state = make_train(args)
-    train = jax.jit(train)
-    import time
+    evaluate = make_evaluate(args)
 
-    start_time = time.time()
     key = jax.random.key(args.seed)
-    key, agent_state, info = train(key, agent_state)
+    key, agent_state, info = train(key, agent_state, args.num_iterations)
+    key, info = evaluate(key, agent_state, 1000)
 
-    end_time = time.time()
-    print(f"Total time: {end_time - start_time}")
+    returns = info["returned_episode_returns"][info["returned_episode"]].mean()
+
+    print("Mean Episodic Return: ", returns)

@@ -22,7 +22,7 @@ def epsilon_greedy(key, env, env_params, num_envs, q_network, q_state, epsilon, 
 
 
 def recurrent_epsilon_greedy(
-    key, env, env_params, num_envs, q_network, q_state, epsilon, obs, done
+    key, env, env_params, num_envs, q_state, epsilon, obs, done
 ):
     key, action_key, sample_key = jax.random.split(key, 3)
 
@@ -31,12 +31,18 @@ def recurrent_epsilon_greedy(
         sample_key
     )
 
-    q_values = q_network.apply(q_state.params, obs, done)
-    greedy_action = q_values.argmax(axis=-1)
+    hidden_state, q_values = q_network.apply(
+        q_state.params,
+        jnp.expand_dims(obs, 0),
+        jnp.expand_dims(done, 0),
+        q_state.hidden_state,
+    )
+    greedy_action = q_values.squeeze(0).argmax(axis=-1)
 
+    mask = jax.random.uniform(action_key, greedy_action.shape) < epsilon
     action = jnp.where(
-        jax.random.uniform(action_key, greedy_action.shape) < epsilon,
+        mask,
         random_action,
         greedy_action,
     )
-    return action
+    return action, hidden_state

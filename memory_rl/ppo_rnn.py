@@ -153,7 +153,7 @@ def make_train(args: Args):
     env = LogWrapper(env)
 
     key = jax.random.key(args.seed)
-    key, reset_key = jax.random.split(key, 3)
+    key, reset_key = jax.random.split(key, 2)
 
     reset_key = jax.random.split(reset_key, args.num_envs)
     obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)

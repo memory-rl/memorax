@@ -1,25 +1,27 @@
 import os
-import jax
-import jax.numpy as jnp
-from typing import Any
 from dataclasses import dataclass
+from functools import partial
+from typing import Any, Callable
 
 import chex
+import flashbax as fbx
 import flax
-import wandb
-import optax
 import flax.linen as nn
+import gymnax
+import jax
+import jax.numpy as jnp
+import optax
+import tyro
+from flax import core, struct
 from flax.training.train_state import TrainState
 from gymnax.wrappers.purerl import FlattenObservationWrapper
-import gymnax
-import flashbax as fbx
-import tyro
-from popjaxrl.envs import make
-from popjaxrl.envs.wrappers import AliasPrevActionV2
 
-from wrapper import LogWrapper
-from networks import MaskedRNN, MaskedLSTMCell
-from exploration import recurrent_epsilon_greedy as epsilon_greedy
+import wandb
+from networks import MaskedLSTMCell, MaskedOptimizedLSTMCell, MaskedRNN
+from utils import LogWrapper
+
+# from popjaxrl.envs import make
+# from popjaxrl.envs.wrappers import AliasPrevActionV2
 
 
 @dataclass(frozen=True)
@@ -32,7 +34,7 @@ class Args:
     """the number of increasing seeds"""
     track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "jax"
+    wandb_project_name: str = "memory_rl"
     """the wandb's project name"""
     wandb_entity: str = "noahfarr"
     """the entity (team) of wandb's project"""
@@ -64,6 +66,8 @@ class Args:
     """the timesteps it takes to update the target network"""
     batch_size: int = 128
     """the batch size of sample from the reply memory"""
+    sample_sequence_length: int | None = None
+    """the sequence length of the replay memory"""
     start_e: float = 1
     """the starting epsilon for exploration"""
     end_e: float = 0.05
@@ -82,144 +86,194 @@ class Args:
 
 class QNetwork(nn.Module):
     action_dim: int
+    cell: nn.RNNCellBase
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, mask: jnp.ndarray):
+    def __call__(
+        self, x: jnp.ndarray, mask: jnp.ndarray, initial_carry: jax.Array | None = None
+    ):
         x = nn.Dense(128)(x)
         x = nn.relu(x)
-        x = MaskedRNN(
-            MaskedLSTMCell(128),
-        )(x, mask)
+        h, x = MaskedRNN(  # type: ignore
+            self.cell,
+            return_carry=True,
+        )(x, mask, initial_carry=initial_carry)
         x = nn.Dense(128)(x)
         x = nn.relu(x)
         x = nn.Dense(self.action_dim)(x)
-        return x
+        return h, x
 
 
 @chex.dataclass(frozen=True)
 class Transition:
     obs: chex.Array
+    done: chex.Array
     action: chex.Array
     reward: chex.Array
-    done: chex.Array
+    next_obs: chex.Array
+    next_done: chex.Array
 
 
 class TrainState(TrainState):
-    target_params: flax.core.FrozenDict
+    target_params: core.FrozenDict
+    hidden_state: tuple
+    initialize_carry: Callable = struct.field(pytree_node=False)
     timesteps: int
     n_updates: int
 
 
-def make_train(args):
-
+def make_env(args):
     env, env_params = gymnax.make(args.env_id)
-    # env, env_params = make(args.env_id)
-    # env = AliasPrevActionV2(env)
+    env = FlattenObservationWrapper(env)
     env = LogWrapper(env)
 
-    key = jax.random.key(args.seed)
+    return env, env_params
 
-    # buffer = fbx.make_flat_buffer(
-    #     max_length=args.buffer_size,
-    #     min_length=args.batch_size,
-    #     sample_batch_size=args.batch_size,
-    #     add_sequences=False,
-    #     add_batch_size=args.num_envs,
-    # )
+
+def make_train(args):
+
+    env, env_params = make_env(args)
+
+    q_network = QNetwork(
+        action_dim=env.action_space(env_params).n,
+        cell=MaskedOptimizedLSTMCell(
+            128,
+            kernel_init=nn.initializers.orthogonal(scale=1.0),
+            bias_init=nn.initializers.constant(0),
+        ),
+    )
+
+    sample_sequence_length: int = (  # type: ignore
+        args.sample_sequence_length or env_params.max_steps_in_episode
+    )
+    assert (
+        sample_sequence_length <= env_params.max_steps_in_episode
+    ), "sample_sequence_length must be less than or equal to max_steps_in_episode"
     buffer = fbx.make_trajectory_buffer(
         add_batch_size=args.num_envs,
         sample_batch_size=args.num_envs,
-        sample_sequence_length=args.batch_size,
-        period=args.batch_size - 1,
-        min_length_time_axis=0,
-        max_size=args.buffer_size,
+        sample_sequence_length=sample_sequence_length,
+        period=sample_sequence_length,
+        min_length_time_axis=sample_sequence_length,
+        max_length_time_axis=args.buffer_size,
     )
 
-    action = env.action_space().sample(key)
-    _, state = env.reset(key, env_params)
-    obs, _, reward, done, _ = env.step(key, state, action, env_params)
-    transition = Transition(obs=obs, action=action, reward=reward, done=done)  # type: ignore
-    buffer_state = buffer.init(transition)
+    def make_train_state(key):
+        key, reset_key, q_key = jax.random.split(key, 3)
 
-    key, reset_key, q_key = jax.random.split(key, 3)
-    reset_key = jax.random.split(reset_key, args.num_envs)
-    obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
-    done = jax.vmap(env.is_terminal, in_axes=(0, None))(state.env_state, env_params)
+        reset_key = jax.random.split(reset_key, args.num_envs)
+        obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+        done = jax.vmap(env.is_terminal, in_axes=(0, None))(state.env_state, env_params)
+        initial_hidden_state = q_network.cell.initialize_carry(
+            key, (args.num_envs, 128)
+        )
 
-    q_network = QNetwork(action_dim=env.action_space(env_params).n)
-    q_state = TrainState.create(
-        apply_fn=q_network.apply,
-        params=q_network.init(q_key, obs, done),
-        target_params=q_network.init(q_key, obs, done),
-        tx=optax.adam(
-            learning_rate=args.learning_rate,
-        ),
-        timesteps=0,
-        n_updates=0,
-    )
+        q_state = TrainState.create(
+            apply_fn=q_network.apply,
+            params=q_network.init(
+                q_key,
+                jnp.expand_dims(obs, 1),
+                jnp.expand_dims(done, 1),
+                initial_hidden_state,
+            ),
+            target_params=q_network.init(
+                q_key,
+                jnp.expand_dims(obs, 1),
+                jnp.expand_dims(done, 1),
+                initial_hidden_state,
+            ),
+            hidden_state=initial_hidden_state,
+            tx=optax.adam(
+                learning_rate=args.learning_rate,
+            ),
+            initialize_carry=q_network.cell.initialize_carry,
+            timesteps=0,
+            n_updates=0,
+        )
+
+        # Initialize buffer
+
+        action = env.action_space().sample(key)
+        _, state = env.reset(key, env_params)
+        obs, _, reward, done, _ = env.step(key, state, action, env_params)
+        transition = Transition(obs=obs, done=done, action=action, reward=reward, next_obs=obs, next_done=done)  # type: ignore
+        buffer_state = buffer.init(transition)
+
+        return key, q_state, buffer_state
 
     def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
         slope = (end_e - start_e) / duration
         return jnp.maximum(slope * t + start_e, end_e)
 
-    def train(key, q_state, buffer_state):
+    @partial(jax.jit, static_argnums=(3))
+    def train(key, q_state, buffer_state, num_steps):
 
         key, reset_key = jax.random.split(key)
 
         reset_key = jax.random.split(reset_key, args.num_envs)
         obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
         done = jax.vmap(env.is_terminal, in_axes=(0, None))(state.env_state, env_params)
+        q_state = q_state.replace(
+            hidden_state=q_network.cell.initialize_carry(key, (args.num_envs, 128))
+        )
 
         def update_step(carry, _):
 
             key, q_state, buffer_state, state, obs, done = carry
 
-            key, exploration_key, step_key = jax.random.split(key, 3)
             epsilon = linear_schedule(
                 args.start_e,
                 args.end_e,
                 args.exploration_fraction * args.total_timesteps,
                 q_state.timesteps,
             )
-            action = epsilon_greedy(
-                exploration_key,
-                env,
-                env_params,
-                args.num_envs,
-                q_network,
-                q_state,
-                epsilon,
-                obs,
-                done,
+
+            key, step_key, action_key, sample_key = jax.random.split(key, 4)
+
+            sample_key = jax.random.split(sample_key, args.num_envs)
+            random_action = jax.vmap(env.action_space(env_params).sample)(sample_key)
+
+            hidden_state, q_values = q_network.apply(
+                q_state.params,
+                jnp.expand_dims(obs, 1),
+                jnp.expand_dims(done, 1),
+                q_state.hidden_state,
+            )
+            q_state = q_state.replace(hidden_state=hidden_state)
+            greedy_action = q_values.squeeze(1).argmax(axis=-1)
+
+            action = jnp.where(
+                jax.random.uniform(action_key, greedy_action.shape) < epsilon,
+                random_action,
+                greedy_action,
             )
 
             step_key = jax.random.split(step_key, args.num_envs)
-            next_obs, state, reward, done, info = jax.vmap(
+            next_obs, state, reward, next_done, info = jax.vmap(
                 env.step, in_axes=(0, 0, 0, None)
             )(step_key, state, action, env_params)
             q_state = q_state.replace(timesteps=q_state.timesteps + args.num_envs)
 
-            transition = Transition(obs=obs, action=action, reward=reward, done=done)  # type: ignore
-            transition = jax.tree.map(lambda x: jnp.expand_dims(x, axis=0), transition)
+            transition = Transition(obs=obs, done=done, action=action, reward=reward, next_obs=next_obs, next_done=next_done)  # type: ignore
+            transition = jax.tree.map(lambda x: jnp.expand_dims(x, axis=1), transition)
+
             buffer_state = buffer.add(buffer_state, transition)
-            exit()
 
             def update(key, q_state):
 
                 batch = buffer.sample(buffer_state, key).experience
 
-                q_next_target = q_network.apply(
-                    q_state.target_params, batch.second.obs, batch.second.done
+                _, q_next_target = q_state.apply_fn(
+                    q_state.target_params, batch.next_obs, batch.next_done
                 )
                 q_next_target = jnp.max(q_next_target, axis=-1)
                 next_q_value = (
-                    batch.first.reward
-                    + (1 - batch.first.done) * args.gamma * q_next_target
+                    batch.reward + (1 - batch.next_done) * args.gamma * q_next_target
                 )
 
                 def loss_fn(params):
-                    q_value = q_network.apply(params, batch.first.obs, batch.first.done)
-                    action = jnp.expand_dims(batch.first.action, axis=-1)
+                    _, q_value = q_state.apply_fn(params, batch.obs, batch.done)
+                    action = jnp.expand_dims(batch.action, axis=-1)
                     q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
                     return jnp.square(q_value - next_q_value).mean()
 
@@ -255,13 +309,6 @@ def make_train(args):
                 operand=q_state,
             )
 
-            metrics = {
-                "timesteps": q_state.timesteps,
-                "updates": q_state.n_updates,
-                "loss": loss.mean(),
-                "returns": info["returned_episode_returns"].mean(),
-            }
-
             if args.debug:
 
                 def callback(info):
@@ -275,35 +322,53 @@ def make_train(args):
                         print(
                             f"global step={timesteps[t]}, episodic return={return_values[t]}"
                         )
-                        wandb.log(
-                            {"episodic return": return_values[t]}, step=timesteps[t]
-                        )
+                        if args.track:
+                            wandb.log(
+                                {"episodic return": return_values[t]}, step=timesteps[t]
+                            )
 
                 jax.debug.callback(callback, info)
 
-            return (key, q_state, buffer_state, state, next_obs, done), metrics
+            return (
+                key,
+                q_state,
+                buffer_state,
+                state,
+                next_obs,
+                next_done,
+            ), info
 
-        runner_state, metrics = jax.lax.scan(
+        (key, q_state, buffer_state, *_), info = jax.lax.scan(
             update_step,
             (key, q_state, buffer_state, state, obs, done),
-            length=args.num_updates,
+            length=num_steps,
         )
-        return {"runner_state": runner_state, "metrics": metrics}
+        return key, q_state, buffer_state, info
 
-    return train, q_state, buffer_state
+    return train, make_train_state
 
 
 def main():
     args = tyro.cli(Args)
 
-    if args.debug:
+    if args.track:
         wandb.init(project=args.wandb_project_name, entity=args.wandb_entity)
 
-    train, q_state, buffer_state = make_train(args)
-    train = jax.jit(train)
+    train, make_train_state = make_train(args)
 
     key = jax.random.key(args.seed)
-    train(key, q_state, buffer_state)
+
+    key, q_state, buffer_state = make_train_state(key)
+    key, q_state, buffer_state, info = train(
+        key, q_state, buffer_state, args.num_updates
+    )
+
+    import matplotlib.pyplot as plt
+
+    plt.plot(info["returned_episode_returns"].mean(-1).reshape(-1))
+    plt.xlabel("Update Step")
+    plt.ylabel("Return")
+    plt.show()
 
 
 if __name__ == "__main__":

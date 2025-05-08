@@ -26,9 +26,11 @@ class Args:
     """the name of this experiment"""
     seed: int = 1
     """seed of the experiment"""
+    num_seeds: int = 1
+    """the number of seeds to run the experiment with"""
     track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "jax_ppo"
+    wandb_project_name: str = "memory_rl"
     """the wandb's project name"""
     wandb_entity: str = "noahfarr"
     """the entity (team) of wandb's project"""
@@ -46,6 +48,8 @@ class Args:
     """the number of parallel game environments"""
     num_steps: int = 128
     """the number of steps to run in each environment per policy rollout"""
+    num_eval_steps: int = 1000
+    """the number of steps to run in each environment per evaluation rollout"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
     gamma: float = 0.99
@@ -135,24 +139,30 @@ def make_train(args: Args):
     reset_key = jax.random.split(reset_key, args.num_envs)
     obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
 
-    lr_schedule = linear_schedule(
-        init_value=args.learning_rate,
-        end_value=0.0,
-        transition_steps=(
-            args.num_iterations * args.update_epochs * args.num_minibatches
-        ),
-    )
-    learning_rate = lr_schedule if args.anneal_lr else args.learning_rate
-
     agent = Agent(action_dim=env.action_space(env_params).n)
-    agent_state = TrainState.create(
-        apply_fn=agent.apply,
-        params=agent.init(agent_key, obs),
-        tx=optax.chain(
-            optax.clip_by_global_norm(args.max_grad_norm),
-            optax.adam(learning_rate=learning_rate, eps=1e-5),
-        ),
-    )
+
+    def make_train_state(key):
+        if args.anneal_lr:
+            learning_rate = linear_schedule(
+                init_value=args.learning_rate,
+                end_value=0.0,
+                transition_steps=(
+                    args.num_iterations * args.update_epochs * args.num_minibatches
+                ),
+            )
+        else:
+            learning_rate = args.learning_rate
+
+        key, agent_key = jax.random.split(key)
+        agent_state = TrainState.create(
+            apply_fn=agent.apply,
+            params=agent.init(agent_key, obs),
+            tx=optax.chain(
+                optax.clip_by_global_norm(args.max_grad_norm),
+                optax.adam(learning_rate=learning_rate, eps=1e-5),
+            ),
+        )
+        return key, agent_state
 
     @partial(jax.jit, static_argnums=(2,))
     def train(key, agent_state, num_steps):
@@ -328,7 +338,7 @@ def make_train(args: Args):
 
         return key, agent_state, info
 
-    return train, agent_state
+    return train, make_train_state
 
 
 def make_evaluate(args: Args):
@@ -340,7 +350,7 @@ def make_evaluate(args: Args):
     def evaluate(key, agent_state, num_steps):
 
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, 4)
+        reset_key = jax.random.split(reset_key, args.num_envs)
         obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
 
         def step(carry, _):
@@ -350,7 +360,7 @@ def make_evaluate(args: Args):
             action = jnp.argmax(logits, axis=-1)
 
             key, step_key = jax.random.split(key)
-            step_key = jax.random.split(step_key, 4)
+            step_key = jax.random.split(step_key, args.num_envs)
             obs, state, _, _, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
                 step_key, state, action, env_params
             )
@@ -378,12 +388,18 @@ if __name__ == "__main__":
             name=args.exp_name,
         )
 
-    train, agent_state = make_train(args)
+    train, make_train_state = make_train(args)
     evaluate = make_evaluate(args)
 
     key = jax.random.key(args.seed)
-    key, agent_state, info = train(key, agent_state, args.num_iterations)
-    key, info = evaluate(key, agent_state, 1000)
+    keys = jax.random.split(key, args.num_seeds)
+    keys, agent_state = jax.vmap(make_train_state)(keys)
+    keys, agent_state, info = jax.vmap(train, in_axes=(0, 0, None))(
+        keys, agent_state, args.num_iterations
+    )
+    keys, info = jax.vmap(evaluate, in_axes=(0, 0, None))(
+        keys, agent_state, args.num_eval_steps
+    )
 
     returns = info["returned_episode_returns"][info["returned_episode"]].mean()
 

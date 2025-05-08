@@ -1,7 +1,6 @@
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
-from typing import Any
 
 
 class MaskedGRUCell(nn.GRUCell):

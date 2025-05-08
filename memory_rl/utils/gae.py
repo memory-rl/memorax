@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 
 
+@jax.jit
 def compute_gae(gamma: float, gae_lambda: float, final_value: jax.Array, transitions):
     """Compute Generalized Advantage Estimates (GAE) for a trajectory."""
 
@@ -23,6 +24,7 @@ def compute_gae(gamma: float, gae_lambda: float, final_value: jax.Array, transit
     return advantages, returns
 
 
+@jax.jit
 def compute_recurrent_gae(
     gamma: float,
     gae_lambda: float,

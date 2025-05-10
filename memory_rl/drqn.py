@@ -124,17 +124,11 @@ class TrainState(TrainState):
     n_updates: int
 
 
-def make_env(args):
+def make_train(args):
+
     env, env_params = gymnax.make(args.env_id)
     env = FlattenObservationWrapper(env)
     env = LogWrapper(env)
-
-    return env, env_params
-
-
-def make_train(args):
-
-    env, env_params = make_env(args)
 
     q_network = QNetwork(
         action_dim=env.action_space(env_params).n,
@@ -161,7 +155,7 @@ def make_train(args):
         keys = jax.random.split(reset_key, args.num_envs)
         obs, env_state = jax.vmap(env.reset, in_axes=(0, None))(keys, env_params)
         action = jax.vmap(env.action_space(env_params).sample)(keys)
-        _, env_state, reward, done, _ = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
+        *_, done, _ = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
             keys, env_state, action, env_params
         )
         hidden_state = q_network.cell.initialize_carry(key, (args.num_envs, 128))
@@ -192,6 +186,10 @@ def make_train(args):
             n_updates=0,
         )
 
+        obs, env_state = env.reset(key, env_params)
+        action = env.action_space(env_params).sample(key)
+        _, env_state, reward, done, _ = env.step(key, env_state, action, env_params)
+        hidden_state = (jnp.zeros(128), jnp.zeros(128))
         transition = Transition(obs=obs, done=done, hidden_state=hidden_state, action=action, reward=reward, next_obs=obs, next_done=done, next_hidden_state=hidden_state)  # type: ignore
         buffer_state = buffer.init(transition)
 
@@ -274,15 +272,11 @@ def make_train(args):
 
                 batch = buffer.sample(buffer_state, key).experience
 
-                # jax.debug.print("{}", batch.next_hidden_state[0].shape)
                 _, q_next_target = q_state.apply_fn(
                     q_state.target_params,
                     batch.next_obs,
                     batch.next_done,
-                    (
-                        batch.next_hidden_state[0].squeeze(2),
-                        batch.next_hidden_state[1].squeeze(2),
-                    ),
+                    jax.tree_map(lambda h: h[:, 0, :], batch.next_hidden_state),
                 )
                 q_next_target = jnp.max(q_next_target, axis=-1)
                 next_q_value = (
@@ -294,10 +288,7 @@ def make_train(args):
                         params,
                         batch.obs,
                         batch.done,
-                        (
-                            batch.hidden_state[0].squeeze(2),
-                            batch.hidden_state[1].squeeze(2),
-                        ),
+                        jax.tree_map(lambda h: h[:, 0, :], batch.hidden_state),
                     )
                     action = jnp.expand_dims(batch.action, axis=-1)
                     q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)

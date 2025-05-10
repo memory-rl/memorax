@@ -5,7 +5,6 @@ from typing import Any, Callable
 
 import chex
 import flashbax as fbx
-import flax
 import flax.linen as nn
 import gymnax
 import jax
@@ -19,9 +18,6 @@ from gymnax.wrappers.purerl import FlattenObservationWrapper
 import wandb
 from networks import MaskedLSTMCell, MaskedOptimizedLSTMCell, MaskedRNN
 from utils import LogWrapper
-
-# from popjaxrl.envs import make
-# from popjaxrl.envs.wrappers import AliasPrevActionV2
 
 
 @dataclass(frozen=True)
@@ -38,14 +34,10 @@ class Args:
     """the wandb's project name"""
     wandb_entity: str = "noahfarr"
     """the entity (team) of wandb's project"""
-    capture_video: bool = False
-    """whether to capture videos of the agent performances (check out `videos` folder)"""
-    save_model: bool = False
-    """whether to save model into the `runs/{run_name}` folder"""
-    upload_model: bool = False
-    """whether to upload the saved model to huggingface"""
     debug: bool = False
     """whether to print debug information"""
+    plot: bool = False
+    """whether to plot the returns"""
 
     # Algorithm specific arguments
     env_id: str = "CartPole-v1"
@@ -54,7 +46,7 @@ class Args:
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
     """the learning rate of the optimizer"""
-    num_envs: int = 4
+    num_envs: int = 1
     """the number of parallel game environments"""
     buffer_size: int = 10000
     """the replay memory buffer size"""
@@ -66,8 +58,10 @@ class Args:
     """the timesteps it takes to update the target network"""
     batch_size: int = 128
     """the batch size of sample from the reply memory"""
-    sample_sequence_length: int | None = None
-    """the sequence length of the replay memory"""
+    sample_sequence_length: int = 8
+    """the sequence length for TBPTT"""
+    burn_in_length: int = 8
+    """the length of burn-in"""
     start_e: float = 1
     """the starting epsilon for exploration"""
     end_e: float = 0.05
@@ -82,6 +76,14 @@ class Args:
     @property
     def num_updates(self):
         return self.total_timesteps // self.num_envs
+
+    @property
+    def burn_in_mask(self):
+        mask = (
+            jnp.arange(self.sample_sequence_length + self.burn_in_length)
+            >= self.burn_in_length
+        ).astype(jnp.float32)
+        return jnp.expand_dims(mask, axis=0)
 
 
 class QNetwork(nn.Module):
@@ -98,8 +100,6 @@ class QNetwork(nn.Module):
             self.cell,
             return_carry=True,
         )(x, mask, initial_carry=initial_carry)
-        x = nn.Dense(128)(x)
-        x = nn.relu(x)
         x = nn.Dense(self.action_dim)(x)
         return h, x
 
@@ -108,10 +108,12 @@ class QNetwork(nn.Module):
 class Transition:
     obs: chex.Array
     done: chex.Array
+    hidden_state: tuple
     action: chex.Array
     reward: chex.Array
     next_obs: chex.Array
     next_done: chex.Array
+    next_hidden_state: tuple
 
 
 class TrainState(TrainState):
@@ -143,17 +145,12 @@ def make_train(args):
         ),
     )
 
-    sample_sequence_length: int = (  # type: ignore
-        args.sample_sequence_length or env_params.max_steps_in_episode
-    )
-    assert (
-        sample_sequence_length <= env_params.max_steps_in_episode
-    ), "sample_sequence_length must be less than or equal to max_steps_in_episode"
+    sample_sequence_length: int = args.sample_sequence_length + args.burn_in_length
     buffer = fbx.make_trajectory_buffer(
         add_batch_size=args.num_envs,
-        sample_batch_size=args.num_envs,
+        sample_batch_size=args.batch_size,
         sample_sequence_length=sample_sequence_length,
-        period=sample_sequence_length,
+        period=1,
         min_length_time_axis=sample_sequence_length,
         max_length_time_axis=args.buffer_size,
     )
@@ -161,12 +158,13 @@ def make_train(args):
     def make_train_state(key):
         key, reset_key, q_key = jax.random.split(key, 3)
 
-        reset_key = jax.random.split(reset_key, args.num_envs)
-        obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
-        done = jax.vmap(env.is_terminal, in_axes=(0, None))(state.env_state, env_params)
-        initial_hidden_state = q_network.cell.initialize_carry(
-            key, (args.num_envs, 128)
+        keys = jax.random.split(reset_key, args.num_envs)
+        obs, env_state = jax.vmap(env.reset, in_axes=(0, None))(keys, env_params)
+        action = jax.vmap(env.action_space(env_params).sample)(keys)
+        _, env_state, reward, done, _ = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
+            keys, env_state, action, env_params
         )
+        hidden_state = q_network.cell.initialize_carry(key, (args.num_envs, 128))
 
         q_state = TrainState.create(
             apply_fn=q_network.apply,
@@ -174,52 +172,52 @@ def make_train(args):
                 q_key,
                 jnp.expand_dims(obs, 1),
                 jnp.expand_dims(done, 1),
-                initial_hidden_state,
+                hidden_state,
             ),
             target_params=q_network.init(
                 q_key,
                 jnp.expand_dims(obs, 1),
                 jnp.expand_dims(done, 1),
-                initial_hidden_state,
+                hidden_state,
             ),
-            hidden_state=initial_hidden_state,
-            tx=optax.adam(
-                learning_rate=args.learning_rate,
+            hidden_state=hidden_state,
+            tx=optax.chain(
+                optax.clip_by_global_norm(10.0),
+                optax.adam(
+                    learning_rate=args.learning_rate,
+                ),
             ),
             initialize_carry=q_network.cell.initialize_carry,
             timesteps=0,
             n_updates=0,
         )
 
-        # Initialize buffer
-
-        action = env.action_space().sample(key)
-        _, state = env.reset(key, env_params)
-        obs, _, reward, done, _ = env.step(key, state, action, env_params)
-        transition = Transition(obs=obs, done=done, action=action, reward=reward, next_obs=obs, next_done=done)  # type: ignore
+        transition = Transition(obs=obs, done=done, hidden_state=hidden_state, action=action, reward=reward, next_obs=obs, next_done=done, next_hidden_state=hidden_state)  # type: ignore
         buffer_state = buffer.init(transition)
 
-        return key, q_state, buffer_state
+        return key, env_state, q_state, buffer_state
 
     def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
         slope = (end_e - start_e) / duration
         return jnp.maximum(slope * t + start_e, end_e)
 
-    @partial(jax.jit, static_argnums=(3))
-    def train(key, q_state, buffer_state, num_steps):
+    @partial(jax.jit, static_argnums=(4))
+    def train(key, env_state, q_state, buffer_state, num_steps):
 
         key, reset_key = jax.random.split(key)
 
         reset_key = jax.random.split(reset_key, args.num_envs)
-        obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
-        done = jax.vmap(env.is_terminal, in_axes=(0, None))(state.env_state, env_params)
+        obs, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+        done = jax.vmap(env.is_terminal, in_axes=(0, None))(
+            env_state.env_state, env_params
+        )
         q_state = q_state.replace(
             hidden_state=q_network.cell.initialize_carry(key, (args.num_envs, 128))
         )
 
         def update_step(carry, _):
 
-            key, q_state, buffer_state, state, obs, done = carry
+            key, q_state, buffer_state, env_state, obs, done = carry
 
             epsilon = linear_schedule(
                 args.start_e,
@@ -239,7 +237,6 @@ def make_train(args):
                 jnp.expand_dims(done, 1),
                 q_state.hidden_state,
             )
-            q_state = q_state.replace(hidden_state=hidden_state)
             greedy_action = q_values.squeeze(1).argmax(axis=-1)
 
             action = jnp.where(
@@ -249,22 +246,43 @@ def make_train(args):
             )
 
             step_key = jax.random.split(step_key, args.num_envs)
-            next_obs, state, reward, next_done, info = jax.vmap(
+            next_obs, env_state, reward, next_done, info = jax.vmap(
                 env.step, in_axes=(0, 0, 0, None)
-            )(step_key, state, action, env_params)
-            q_state = q_state.replace(timesteps=q_state.timesteps + args.num_envs)
+            )(step_key, env_state, action, env_params)
 
-            transition = Transition(obs=obs, done=done, action=action, reward=reward, next_obs=next_obs, next_done=next_done)  # type: ignore
-            transition = jax.tree.map(lambda x: jnp.expand_dims(x, axis=1), transition)
+            transition = Transition(
+                obs=jnp.expand_dims(obs, 1),
+                done=jnp.expand_dims(done, 1),
+                hidden_state=jax.tree_map(
+                    lambda x: jnp.expand_dims(x, 1), q_state.hidden_state
+                ),
+                action=jnp.expand_dims(action, 1),
+                reward=jnp.expand_dims(reward, 1),
+                next_obs=jnp.expand_dims(next_obs, 1),
+                next_done=jnp.expand_dims(next_done, 1),
+                next_hidden_state=jax.tree_map(
+                    lambda x: jnp.expand_dims(x, 1), hidden_state
+                ),
+            )
 
+            q_state = q_state.replace(
+                timesteps=q_state.timesteps + args.num_envs, hidden_state=hidden_state
+            )
             buffer_state = buffer.add(buffer_state, transition)
 
             def update(key, q_state):
 
                 batch = buffer.sample(buffer_state, key).experience
 
+                # jax.debug.print("{}", batch.next_hidden_state[0].shape)
                 _, q_next_target = q_state.apply_fn(
-                    q_state.target_params, batch.next_obs, batch.next_done
+                    q_state.target_params,
+                    batch.next_obs,
+                    batch.next_done,
+                    (
+                        batch.next_hidden_state[0].squeeze(2),
+                        batch.next_hidden_state[1].squeeze(2),
+                    ),
                 )
                 q_next_target = jnp.max(q_next_target, axis=-1)
                 next_q_value = (
@@ -272,10 +290,19 @@ def make_train(args):
                 )
 
                 def loss_fn(params):
-                    _, q_value = q_state.apply_fn(params, batch.obs, batch.done)
+                    _, q_value = q_state.apply_fn(
+                        params,
+                        batch.obs,
+                        batch.done,
+                        (
+                            batch.hidden_state[0].squeeze(2),
+                            batch.hidden_state[1].squeeze(2),
+                        ),
+                    )
                     action = jnp.expand_dims(batch.action, axis=-1)
                     q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
-                    return jnp.square(q_value - next_q_value).mean()
+                    loss = jnp.square(q_value - next_q_value)
+                    return (args.burn_in_mask * loss).sum() / args.burn_in_mask.sum()
 
                 loss, grads = jax.value_and_grad(loss_fn)(q_state.params)
                 q_state = q_state.apply_gradients(grads=grads)
@@ -333,23 +360,30 @@ def make_train(args):
                 key,
                 q_state,
                 buffer_state,
-                state,
+                env_state,
                 next_obs,
                 next_done,
             ), info
 
         (key, q_state, buffer_state, *_), info = jax.lax.scan(
             update_step,
-            (key, q_state, buffer_state, state, obs, done),
-            length=num_steps,
+            (key, q_state, buffer_state, env_state, obs, done),
+            length=(num_steps // args.num_envs),
         )
-        return key, q_state, buffer_state, info
+        return key, env_state, q_state, buffer_state, info
 
     return train, make_train_state
 
 
 def main():
     args = tyro.cli(Args)
+
+    assert (
+        args.train_frequency % args.num_envs == 0
+    ), f"train_frequency must be divisible by num_envs, but got {args.train_frequency} and {args.num_envs}"
+    assert (
+        args.target_network_frequency % args.num_envs == 0
+    ), f"target_network_frequency must be divisible by num_envs, but got {args.target_network_frequency} and {args.num_envs}"
 
     if args.track:
         wandb.init(project=args.wandb_project_name, entity=args.wandb_entity)
@@ -358,17 +392,18 @@ def main():
 
     key = jax.random.key(args.seed)
 
-    key, q_state, buffer_state = make_train_state(key)
-    key, q_state, buffer_state, info = train(
-        key, q_state, buffer_state, args.num_updates
+    key, env_state, q_state, buffer_state = make_train_state(key)
+    key, env_state, q_state, buffer_state, info = train(
+        key, env_state, q_state, buffer_state, args.total_timesteps
     )
 
-    import matplotlib.pyplot as plt
+    if args.plot:
+        import matplotlib.pyplot as plt
 
-    plt.plot(info["returned_episode_returns"].mean(-1).reshape(-1))
-    plt.xlabel("Update Step")
-    plt.ylabel("Return")
-    plt.show()
+        plt.plot(info["returned_episode_returns"].mean(-1).reshape(-1))
+        plt.xlabel("Update Step")
+        plt.ylabel("Return")
+        plt.show()
 
 
 if __name__ == "__main__":

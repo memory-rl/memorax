@@ -58,6 +58,9 @@ class MaskedOptimizedLSTMCell(nn.OptimizedLSTMCell):
 
 
 class MaskedRNN(nn.RNN):
+
+    return_carry_history: bool = False
+
     def __call__(
         self,
         inputs: jax.Array,
@@ -67,6 +70,7 @@ class MaskedRNN(nn.RNN):
         init_key=None,
         seq_lengths=None,
         return_carry=None,
+        return_carry_history=None,
         time_major=None,
         reverse=None,
         keep_order=None,
@@ -74,6 +78,8 @@ class MaskedRNN(nn.RNN):
 
         if return_carry is None:
             return_carry = self.return_carry
+        if return_carry_history is None:
+            return_carry_history = self.return_carry_history
         if time_major is None:
             time_major = self.time_major
         if reverse is None:
@@ -134,7 +140,7 @@ class MaskedRNN(nn.RNN):
             # so that we can select the last carry for each sequence later.
             # This uses more memory but is faster than using jnp.where at each
             # iteration. As a small optimization do this when we really need it.
-            if slice_carry:
+            if slice_carry or return_carry_history:
                 return carry, (carry, y)
             else:
                 return carry, y
@@ -142,7 +148,9 @@ class MaskedRNN(nn.RNN):
         scan = nn.transforms.scan(
             scan_fn,
             in_axes=(time_axis, time_axis),
-            out_axes=(0, time_axis) if slice_carry else time_axis,
+            out_axes=(
+                (0, time_axis) if (slice_carry or return_carry_history) else time_axis
+            ),
             unroll=self.unroll,
             variable_axes=self.variable_axes,
             variable_broadcast=self.variable_broadcast,
@@ -161,6 +169,8 @@ class MaskedRNN(nn.RNN):
             # seq_lengths[None] expands the shape of the mask to match the
             # number of dimensions of the carry.
             carry = nn._select_last_carry(carries, seq_lengths)
+        elif return_carry_history:
+            _, (carry, outputs) = scan_output
         else:
             carry, outputs = scan_output
 
@@ -175,7 +185,7 @@ class MaskedRNN(nn.RNN):
                 outputs,
             )
 
-        if return_carry:
+        if return_carry or return_carry_history:
             return carry, outputs
         else:
             return outputs

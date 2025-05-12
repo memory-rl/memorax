@@ -4,7 +4,6 @@ from functools import partial
 from typing import Any, Callable
 
 import chex
-import flashbax as fbx
 import flax.linen as nn
 import gymnax
 import jax
@@ -17,7 +16,7 @@ from gymnax.wrappers.purerl import FlattenObservationWrapper
 
 import wandb
 from networks import MaskedLSTMCell, MaskedOptimizedLSTMCell, MaskedRNN
-from utils import LogWrapper
+from utils import LogWrapper, make_trajectory_buffer
 
 
 @dataclass(frozen=True)
@@ -58,10 +57,12 @@ class Args:
     """the timesteps it takes to update the target network"""
     batch_size: int = 128
     """the batch size of sample from the reply memory"""
-    sample_sequence_length: int = 8
+    sample_sequence_length: int = 4
     """the sequence length for TBPTT"""
     burn_in_length: int = 8
     """the length of burn-in"""
+    update_hidden_states: bool = False
+    """whether to update the hidden states of the recurrent network"""
     start_e: float = 1
     """the starting epsilon for exploration"""
     end_e: float = 0.05
@@ -92,16 +93,23 @@ class QNetwork(nn.Module):
 
     @nn.compact
     def __call__(
-        self, x: jnp.ndarray, mask: jnp.ndarray, initial_carry: jax.Array | None = None
+        self,
+        x: jnp.ndarray,
+        mask: jnp.ndarray,
+        initial_carry: jax.Array | None = None,
+        return_carry_history: bool = False,
     ):
         x = nn.Dense(128)(x)
         x = nn.relu(x)
-        h, x = MaskedRNN(  # type: ignore
-            self.cell,
-            return_carry=True,
-        )(x, mask, initial_carry=initial_carry)
-        x = nn.Dense(self.action_dim)(x)
-        return h, x
+        (c, h), x = MaskedRNN(self.cell, return_carry=True)(  # type: ignore
+            x,
+            mask,
+            initial_carry=initial_carry,
+            return_carry_history=return_carry_history,
+        )
+        q_values = nn.Dense(self.action_dim)(x)
+
+        return (c, h), q_values
 
 
 @chex.dataclass(frozen=True)
@@ -140,7 +148,7 @@ def make_train(args):
     )
 
     sample_sequence_length: int = args.sample_sequence_length + args.burn_in_length
-    buffer = fbx.make_trajectory_buffer(
+    buffer = make_trajectory_buffer(
         add_batch_size=args.num_envs,
         sample_batch_size=args.batch_size,
         sample_sequence_length=sample_sequence_length,
@@ -268,15 +276,19 @@ def make_train(args):
             )
             buffer_state = buffer.add(buffer_state, transition)
 
-            def update(key, q_state):
+            def update(key, q_state, buffer_state):
 
-                batch = buffer.sample(buffer_state, key).experience
+                sample = buffer.sample(buffer_state, key)
+                batch = sample.experience
 
+                initial_carry = jax.tree_map(
+                    lambda x: x[:, 0, :], batch.next_hidden_state
+                )
                 _, q_next_target = q_state.apply_fn(
                     q_state.target_params,
                     batch.next_obs,
                     batch.next_done,
-                    jax.tree_map(lambda h: h[:, 0, :], batch.next_hidden_state),
+                    initial_carry=initial_carry,
                 )
                 q_next_target = jnp.max(q_next_target, axis=-1)
                 next_q_value = (
@@ -284,31 +296,53 @@ def make_train(args):
                 )
 
                 def loss_fn(params):
-                    _, q_value = q_state.apply_fn(
+                    initial_carry = jax.tree_map(
+                        lambda x: x[:, 0, :], batch.hidden_state
+                    )
+                    hidden_states, q_value = q_state.apply_fn(
                         params,
                         batch.obs,
                         batch.done,
-                        jax.tree_map(lambda h: h[:, 0, :], batch.hidden_state),
+                        initial_carry=initial_carry,
+                        return_carry_history=args.update_hidden_states,
                     )
                     action = jnp.expand_dims(batch.action, axis=-1)
                     q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
                     loss = jnp.square(q_value - next_q_value)
-                    return (args.burn_in_mask * loss).sum() / args.burn_in_mask.sum()
+                    return (
+                        args.burn_in_mask * loss
+                    ).sum() / args.burn_in_mask.sum(), hidden_states
 
-                loss, grads = jax.value_and_grad(loss_fn)(q_state.params)
+                (loss, hidden_states), grads = jax.value_and_grad(
+                    loss_fn, has_aux=True
+                )(q_state.params)
                 q_state = q_state.apply_gradients(grads=grads)
                 q_state = q_state.replace(n_updates=q_state.n_updates + 1)
-                return q_state, loss
+
+                if args.update_hidden_states:
+                    batch = batch.replace(
+                        hidden_state=jax.tree.map(
+                            lambda x: jnp.swapaxes(x, 0, 1), hidden_states
+                        )
+                    )
+                    buffer_state = buffer.update(
+                        buffer_state,
+                        batch,
+                        sample.sampled_batch_indices,
+                        sample.traj_time_indices,
+                    )
+
+                return q_state, buffer_state, loss
 
             key, update_key = jax.random.split(key)
-            q_state, loss = jax.lax.cond(
+            q_state, buffer_state, loss = jax.lax.cond(
                 (
                     buffer.can_sample(buffer_state)
                     & (q_state.timesteps > args.learning_starts)
                     & (q_state.timesteps % args.train_frequency == 0)
                 ),
-                lambda key, q_state: update(key, q_state),
-                lambda _, q_state: (q_state, jnp.array(0.0)),
+                lambda key, q_state: update(key, q_state, buffer_state),
+                lambda _, q_state: (q_state, buffer_state, jnp.array(0.0)),
                 update_key,
                 q_state,
             )

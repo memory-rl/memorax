@@ -39,15 +39,15 @@ class Args:
     """whether to plot the returns"""
 
     # Algorithm specific arguments
-    env_id: str = "CartPole-v1"
+    env_id: str = "Breakout-MinAtar"
     """the id of the environment"""
-    total_timesteps: int = 500000
+    total_timesteps: int = 1_000_000
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
     """the learning rate of the optimizer"""
-    num_envs: int = 1
+    num_envs: int = 10
     """the number of parallel game environments"""
-    buffer_size: int = 10000
+    buffer_size: int = 100000
     """the replay memory buffer size"""
     gamma: float = 0.99
     """the discount factor gamma"""
@@ -59,7 +59,7 @@ class Args:
     """the batch size of sample from the reply memory"""
     sample_sequence_length: int = 4
     """the sequence length for TBPTT"""
-    burn_in_length: int = 8
+    burn_in_length: int = 4
     """the length of burn-in"""
     update_hidden_states: bool = False
     """whether to update the hidden states of the recurrent network"""
@@ -78,14 +78,6 @@ class Args:
     def num_updates(self):
         return self.total_timesteps // self.num_envs
 
-    @property
-    def burn_in_mask(self):
-        mask = (
-            jnp.arange(self.sample_sequence_length + self.burn_in_length)
-            >= self.burn_in_length
-        ).astype(jnp.float32)
-        return jnp.expand_dims(mask, axis=0)
-
 
 class QNetwork(nn.Module):
     action_dim: int
@@ -98,6 +90,7 @@ class QNetwork(nn.Module):
         mask: jnp.ndarray,
         initial_carry: jax.Array | None = None,
         return_carry_history: bool = False,
+        burn_in_length: int = 0,
     ):
         x = nn.Dense(128)(x)
         x = nn.relu(x)
@@ -106,6 +99,7 @@ class QNetwork(nn.Module):
             mask,
             initial_carry=initial_carry,
             return_carry_history=return_carry_history,
+            burn_in_length=burn_in_length,
         )
         q_values = nn.Dense(self.action_dim)(x)
 
@@ -237,7 +231,7 @@ def make_train(args):
             sample_key = jax.random.split(sample_key, args.num_envs)
             random_action = jax.vmap(env.action_space(env_params).sample)(sample_key)
 
-            hidden_state, q_values = q_network.apply(
+            hidden_state, q_values = q_state.apply_fn(
                 q_state.params,
                 jnp.expand_dims(obs, 1),
                 jnp.expand_dims(done, 1),
@@ -284,16 +278,19 @@ def make_train(args):
                 initial_carry = jax.tree_map(
                     lambda x: x[:, 0, :], batch.next_hidden_state
                 )
+
                 _, q_next_target = q_state.apply_fn(
                     q_state.target_params,
                     batch.next_obs,
                     batch.next_done,
                     initial_carry=initial_carry,
+                    burn_in_length=args.burn_in_length,
                 )
                 q_next_target = jnp.max(q_next_target, axis=-1)
-                next_q_value = (
-                    batch.reward + (1 - batch.next_done) * args.gamma * q_next_target
-                )
+
+                reward = batch.reward[:, args.burn_in_length :]
+                next_done = batch.next_done[:, args.burn_in_length :]
+                next_q_value = reward + (1 - next_done) * args.gamma * q_next_target
 
                 def loss_fn(params):
                     initial_carry = jax.tree_map(
@@ -305,13 +302,13 @@ def make_train(args):
                         batch.done,
                         initial_carry=initial_carry,
                         return_carry_history=args.update_hidden_states,
+                        burn_in_length=args.burn_in_length,
                     )
-                    action = jnp.expand_dims(batch.action, axis=-1)
+                    action = batch.action[:, args.burn_in_length :]
+                    action = jnp.expand_dims(action, axis=-1)
                     q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
-                    loss = jnp.square(q_value - next_q_value)
-                    return (
-                        args.burn_in_mask * loss
-                    ).sum() / args.burn_in_mask.sum(), hidden_states
+                    loss = jnp.square(q_value - next_q_value).mean()
+                    return loss, hidden_states
 
                 (loss, hidden_states), grads = jax.value_and_grad(
                     loss_fn, has_aux=True

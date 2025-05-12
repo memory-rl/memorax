@@ -60,6 +60,7 @@ class MaskedOptimizedLSTMCell(nn.OptimizedLSTMCell):
 class MaskedRNN(nn.RNN):
 
     return_carry_history: bool = False
+    burn_in_length: int = 0
 
     def __call__(
         self,
@@ -74,6 +75,7 @@ class MaskedRNN(nn.RNN):
         time_major=None,
         reverse=None,
         keep_order=None,
+        burn_in_length=None,
     ):
 
         if return_carry is None:
@@ -86,6 +88,8 @@ class MaskedRNN(nn.RNN):
             reverse = self.reverse
         if keep_order is None:
             keep_order = self.keep_order
+        if burn_in_length is None:
+            burn_in_length = self.burn_in_length
 
         # Infer the number of batch dimensions from the input shape.
         # Cells like ConvLSTM have additional spatial dimensions.
@@ -157,6 +161,13 @@ class MaskedRNN(nn.RNN):
             variable_carry=self.variable_carry,
             split_rngs=self.split_rngs,
         )
+
+        if burn_in_length > 0:
+            burn_in_inputs, inputs = jnp.split(inputs, [burn_in_length], axis=time_axis)
+            burn_in_mask, mask = jnp.split(mask, [burn_in_length], axis=time_axis)
+
+            carry, _ = scan(self.cell, carry, burn_in_inputs, burn_in_mask)
+            carry = jax.tree.map(jax.lax.stop_gradient, carry)
 
         scan_output = scan(self.cell, carry, inputs, mask)
 

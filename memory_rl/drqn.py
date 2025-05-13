@@ -43,7 +43,7 @@ class Args:
     """the id of the environment"""
     total_timesteps: int = 1_000_000
     """total timesteps of the experiments"""
-    learning_rate: float = 2.5e-4
+    learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
     num_envs: int = 10
     """the number of parallel game environments"""
@@ -59,10 +59,12 @@ class Args:
     """the batch size of sample from the reply memory"""
     sample_sequence_length: int = 4
     """the sequence length for TBPTT"""
-    burn_in_length: int = 4
+    burn_in_length: int = 0
     """the length of burn-in"""
-    update_hidden_states: bool = False
+    update_hidden_states: bool = True
     """whether to update the hidden states of the recurrent network"""
+    initalize_hidden_state: bool = True
+    """whether to initialize the hidden states of the recurrent network in the update"""
     start_e: float = 1
     """the starting epsilon for exploration"""
     end_e: float = 0.05
@@ -73,10 +75,18 @@ class Args:
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
+    num_epoch_steps: int = 50_000
+    """the number of steps for each epoch"""
+    num_evaluation_steps: int = 5_000
+    """the number of steps for each evaluation"""
 
     @property
     def num_updates(self):
         return self.total_timesteps // self.num_envs
+
+    @property
+    def num_epochs(self):
+        return self.total_timesteps // self.num_epoch_steps
 
 
 class QNetwork(nn.Module):
@@ -148,7 +158,7 @@ def make_train(args):
         sample_sequence_length=sample_sequence_length,
         period=1,
         min_length_time_axis=sample_sequence_length,
-        max_length_time_axis=args.buffer_size,
+        max_size=args.buffer_size,
     )
 
     def make_train_state(key):
@@ -275,15 +285,20 @@ def make_train(args):
                 sample = buffer.sample(buffer_state, key)
                 batch = sample.experience
 
-                initial_carry = jax.tree_map(
-                    lambda x: x[:, 0, :], batch.next_hidden_state
+                initial_carry = (
+                    jax.tree_map(lambda x: x[:, 0, :], batch.next_hidden_state)
+                    if args.initalize_hidden_state
+                    else q_state.initialize_carry(
+                        jax.random.key(0), (args.num_envs, 128)
+                    )
                 )
 
-                _, q_next_target = q_state.apply_fn(
+                next_hidden_states, q_next_target = q_state.apply_fn(
                     q_state.target_params,
                     batch.next_obs,
                     batch.next_done,
                     initial_carry=initial_carry,
+                    return_carry_history=args.update_hidden_states,
                     burn_in_length=args.burn_in_length,
                 )
                 q_next_target = jnp.max(q_next_target, axis=-1)
@@ -293,8 +308,12 @@ def make_train(args):
                 next_q_value = reward + (1 - next_done) * args.gamma * q_next_target
 
                 def loss_fn(params):
-                    initial_carry = jax.tree_map(
-                        lambda x: x[:, 0, :], batch.hidden_state
+                    initial_carry = (
+                        jax.tree_map(lambda x: x[:, 0, :], batch.hidden_state)
+                        if args.initalize_hidden_state
+                        else q_state.initialize_carry(
+                            jax.random.key(0), (args.num_envs, 128)
+                        )
                     )
                     hidden_states, q_value = q_state.apply_fn(
                         params,
@@ -320,7 +339,10 @@ def make_train(args):
                     batch = batch.replace(
                         hidden_state=jax.tree.map(
                             lambda x: jnp.swapaxes(x, 0, 1), hidden_states
-                        )
+                        ),
+                        next_hidden_state=jax.tree.map(
+                            lambda x: jnp.swapaxes(x, 0, 1), next_hidden_states
+                        ),
                     )
                     buffer_state = buffer.update(
                         buffer_state,
@@ -397,6 +419,48 @@ def make_train(args):
     return train, make_train_state
 
 
+def make_evaluate(args: Args):
+    env, env_params = gymnax.make(args.env_id)
+    env = FlattenObservationWrapper(env)
+    env = LogWrapper(env)
+
+    @partial(jax.jit, static_argnums=(2))
+    def evaluate(key, agent_state, num_steps):
+
+        key, reset_key = jax.random.split(key)
+        reset_key = jax.random.split(reset_key, args.num_envs)
+        obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+        done = jax.vmap(env.is_terminal, in_axes=(0, None))(state.env_state, env_params)
+        initial_hidden_state = agent_state.initialize_carry(key, (args.num_envs, 128))
+
+        def step(carry, _):
+            key, obs, state, done, hidden_state = carry
+
+            hidden_state, q_values = agent_state.apply_fn(
+                agent_state.params,
+                jnp.expand_dims(obs, 1),
+                jnp.expand_dims(done, 1),
+                hidden_state,
+            )
+            action = q_values.squeeze(1).argmax(axis=-1)
+
+            key, step_key = jax.random.split(key)
+            step_key = jax.random.split(step_key, args.num_envs)
+            obs, state, _, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
+                step_key, state, action, env_params
+            )
+
+            return (key, obs, state, done, hidden_state), info
+
+        (key, *_), info = jax.lax.scan(
+            step, (key, obs, state, done, initial_hidden_state), length=num_steps
+        )
+
+        return key, info
+
+    return evaluate
+
+
 def main():
     args = tyro.cli(Args)
 
@@ -411,13 +475,23 @@ def main():
         wandb.init(project=args.wandb_project_name, entity=args.wandb_entity)
 
     train, make_train_state = make_train(args)
+    evaluate = make_evaluate(args)
 
     key = jax.random.key(args.seed)
 
     key, env_state, q_state, buffer_state = make_train_state(key)
-    key, env_state, q_state, buffer_state, info = train(
-        key, env_state, q_state, buffer_state, args.total_timesteps
-    )
+
+    key, info = evaluate(key, q_state, args.num_evaluation_steps)
+    print(f"Initial Return: {info['returned_episode_returns'].mean()}")
+
+    for epoch in range(1, args.num_epochs):
+        key, env_state, q_state, buffer_state, info = train(
+            key, env_state, q_state, buffer_state, args.num_epoch_steps
+        )
+        key, info = evaluate(key, q_state, args.num_evaluation_steps)
+        print(
+            f"Timestep: {epoch*args.num_epoch_steps}, Return: {info['returned_episode_returns'].mean()}"
+        )
 
     if args.plot:
         import matplotlib.pyplot as plt

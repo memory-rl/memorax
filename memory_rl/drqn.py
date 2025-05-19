@@ -59,7 +59,7 @@ class Args:
     """the batch size of sample from the reply memory"""
     sample_sequence_length: int = 4
     """the sequence length for TBPTT"""
-    burn_in_length: int = 0
+    burn_in_length: int = 4
     """the length of burn-in"""
     update_hidden_states: bool = True
     """whether to update the hidden states of the recurrent network"""
@@ -285,12 +285,8 @@ def make_train(args):
                 sample = buffer.sample(buffer_state, key)
                 batch = sample.experience
 
-                initial_carry = (
-                    jax.tree_map(lambda x: x[:, 0, :], batch.next_hidden_state)
-                    if args.initalize_hidden_state
-                    else q_state.initialize_carry(
-                        jax.random.key(0), (args.num_envs, 128)
-                    )
+                initial_carry = jax.tree_map(
+                    lambda x: x[:, 0, :], batch.next_hidden_state
                 )
 
                 next_hidden_states, q_next_target = q_state.apply_fn(
@@ -308,12 +304,8 @@ def make_train(args):
                 next_q_value = reward + (1 - next_done) * args.gamma * q_next_target
 
                 def loss_fn(params):
-                    initial_carry = (
-                        jax.tree_map(lambda x: x[:, 0, :], batch.hidden_state)
-                        if args.initalize_hidden_state
-                        else q_state.initialize_carry(
-                            jax.random.key(0), (args.num_envs, 128)
-                        )
+                    initial_carry = jax.tree_map(
+                        lambda x: x[:, 0, :], batch.hidden_state
                     )
                     hidden_states, q_value = q_state.apply_fn(
                         params,
@@ -336,13 +328,32 @@ def make_train(args):
                 q_state = q_state.replace(n_updates=q_state.n_updates + 1)
 
                 if args.update_hidden_states:
+
+                    hidden_states = jax.tree.map(
+                        lambda x: jnp.swapaxes(x, 0, 1), hidden_states
+                    )
+                    hidden_states = jax.tree.map(
+                        lambda batch, hidden_states: batch.at[
+                            :, args.burn_in_length :
+                        ].set(hidden_states),
+                        batch.hidden_state,
+                        hidden_states,
+                    )
+                    next_hidden_states = jax.tree.map(
+                        lambda x: jnp.swapaxes(x, 0, 1), next_hidden_states
+                    )
+
+                    next_hidden_states = jax.tree.map(
+                        lambda batch, next_hidden_states: batch.at[
+                            :, args.burn_in_length :
+                        ].set(next_hidden_states),
+                        batch.next_hidden_state,
+                        next_hidden_states,
+                    )
+
                     batch = batch.replace(
-                        hidden_state=jax.tree.map(
-                            lambda x: jnp.swapaxes(x, 0, 1), hidden_states
-                        ),
-                        next_hidden_state=jax.tree.map(
-                            lambda x: jnp.swapaxes(x, 0, 1), next_hidden_states
-                        ),
+                        hidden_state=hidden_states,
+                        next_hidden_state=next_hidden_states,
                     )
                     buffer_state = buffer.update(
                         buffer_state,

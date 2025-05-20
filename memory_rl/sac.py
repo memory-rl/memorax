@@ -16,7 +16,13 @@ from gymnax.wrappers.purerl import FlattenObservationWrapper
 
 import wandb
 from networks import MaskedLSTMCell, MaskedOptimizedLSTMCell, MaskedRNN
-from utils import BraxGymnaxWrapper, LogWrapper, make_trajectory_buffer
+from utils import (
+    BraxGymnaxWrapper,
+    LogWrapper,
+    delayed_update,
+    make_trajectory_buffer,
+    periodic_incremental_update,
+)
 
 
 @dataclass(frozen=True)
@@ -45,18 +51,14 @@ class Args:
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
-    num_envs: int = 1
+    num_envs: int = 10
     """the number of parallel game environments"""
     buffer_size: int = 1_000_000
     """the replay memory buffer size"""
-    sample_sequence_length: int = 4
-    """the length of the sequence to sample from the replay memory"""
     gamma: float = 0.99
     """the discount factor gamma"""
     tau: float = 0.005
     """the target network update rate"""
-    policy_frequency: int = 2
-    """the timesteps it takes to update the policy"""
     target_network_frequency: int = 1
     """the timesteps it takes to update the target network"""
     batch_size: int = 256
@@ -67,7 +69,7 @@ class Args:
     """timestep to start learning"""
     num_epoch_steps: int = 50_000
     """the number of steps for each epoch"""
-    num_evaluation_steps: int = 5_000
+    num_evaluation_steps: int = 10_000
     """the number of steps for each evaluation"""
 
     @property
@@ -101,7 +103,7 @@ class Actor(nn.Module):
     action_dim: int
     action_scale: float
     action_bias: float
-    LOG_STD_MIN: float = -20
+    LOG_STD_MIN: float = -5
     LOG_STD_MAX: float = 2
 
     @nn.compact
@@ -130,8 +132,10 @@ class Actor(nn.Module):
         squashed_action = jnp.tanh(raw_action)
         action = self.action_scale * squashed_action + self.action_bias
         log_prob = probs.log_prob(raw_action)
-        log_prob -= jnp.log(self.action_scale * (1 - squashed_action**2) + 1e-6)
-        log_prob = log_prob.sum(axis=-1, keepdims=True)
+        log_prob -= jnp.log(
+            self.action_scale * (1 - jnp.square(squashed_action)) + 1e-6
+        )
+        log_prob = log_prob.sum(axis=-1)
         return action, log_prob
 
 
@@ -152,8 +156,8 @@ class SACState:
     q1_target_params: core.FrozenDict[str, Any]
     q2_target_params: core.FrozenDict[str, Any]
     actor_params: core.FrozenDict[str, Any]
-    log_entropy_coefficient: float
-    entropy_coefficient: float
+    log_entropy_coefficient: chex.Array
+    entropy_coefficient: chex.Array
     qf1_optimizer_state: optax.OptState
     qf2_optimizer_state: optax.OptState
     actor_optimizer_state: optax.OptState
@@ -318,7 +322,8 @@ def make_sac(args):
                 state,
             ), info
 
-        def update_critic(key, state, batch):
+        def update_critic(key, state):
+            batch = buffer.sample(state.buffer_state, key).experience
 
             probs = actor.apply(state.actor_params, batch.second.obs)
             next_action, next_log_prob = actor.get_action(key, probs)
@@ -362,30 +367,17 @@ def make_sac(args):
             )
             q2_params = optax.apply_updates(state.q2_params, q2_updates)
 
-            q1_target_params = optax.periodic_update(
-                state.q1_target_params,
-                optax.incremental_update(q1_params, state.q1_target_params, args.tau),
-                state.step.squeeze(),
-                args.target_network_frequency,
-            )
-            q2_target_params = optax.periodic_update(
-                state.q2_target_params,
-                optax.incremental_update(q2_params, state.q2_target_params, args.tau),
-                state.step.squeeze(),
-                args.target_network_frequency,
-            )
             state = state.replace(
                 q1_params=q1_params,
                 q2_params=q2_params,
-                q1_target_params=q1_target_params,
-                q2_target_params=q2_target_params,
                 qf1_optimizer_state=qf1_optimizer_state,
                 qf2_optimizer_state=qf2_optimizer_state,
             )
 
             return state, q1_loss + q2_loss
 
-        def update_actor(key, state, batch):
+        def update_actor(key, state):
+            batch = buffer.sample(state.buffer_state, key).experience
 
             def loss_fn(params):
 
@@ -423,7 +415,8 @@ def make_sac(args):
 
             return state, loss
 
-        def update_entropy(key, state, batch):
+        def update_entropy(key, state):
+            batch = buffer.sample(state.buffer_state, key).experience
             probs = actor.apply(
                 state.actor_params,
                 batch.first.obs,
@@ -450,43 +443,68 @@ def make_sac(args):
             )
             return state, loss
 
+        def update_targets(state):
+            q1_target_params = periodic_incremental_update(
+                state.q1_params,
+                state.q1_target_params,
+                state.step.squeeze(),
+                args.target_network_frequency,
+                args.tau,
+            )
+            q2_target_params = periodic_incremental_update(
+                state.q2_params,
+                state.q2_target_params,
+                state.step.squeeze(),
+                args.target_network_frequency,
+                args.tau,
+            )
+            return state.replace(
+                q1_target_params=q1_target_params,
+                q2_target_params=q2_target_params,
+            )
+
+        def update(key, state):
+            key, critic_key, actor_key, entropy_key = jax.random.split(key, 4)
+
+            state, critic_loss = update_critic(
+                critic_key,
+                state,
+            )
+
+            state, actor_loss = update_actor(
+                actor_key,
+                state,
+            )
+
+            state, entropy_loss = update_entropy(
+                entropy_key,
+                state,
+            )
+
+            state = update_targets(state)
+            return state, critic_loss, actor_loss, entropy_loss
+
         def update_step(carry, _):
 
             key, state = carry
 
             (key, state), info = step(key, state)
 
-            key, buffer_key, critic_key, actor_key, entropy_key = jax.random.split(
-                key, 5
-            )
+            key, update_key = jax.random.split(key)
 
-            batch = buffer.sample(state.buffer_state, buffer_key).experience
-            state, loss = jax.lax.cond(
+            state, critic_loss, actor_loss, entropy_loss = jax.lax.cond(
                 state.step.squeeze() < args.learning_starts,
-                lambda *_: (state, jnp.array(0.0)),
-                update_critic,
-                critic_key,
+                lambda *_: (state, jnp.array(0.0), jnp.array(0.0), jnp.array(0.0)),
+                update,
+                update_key,
                 state,
-                batch,
             )
 
-            state, loss = jax.lax.cond(
-                (state.step.squeeze() < args.learning_starts)
-                | (state.step.squeeze() % args.policy_frequency != 0),
-                lambda *_: (state, jnp.array(0.0)),
-                update_actor,
-                actor_key,
-                state,
-                batch,
-            )
-            state, loss = jax.lax.cond(
-                (state.step.squeeze() < args.learning_starts),
-                lambda *_: (state, jnp.array(0.0)),
-                update_entropy,
-                entropy_key,
-                state,
-                batch,
-            )
+            info |= {
+                "critic_loss": jnp.mean(critic_loss),
+                "actor_loss": jnp.mean(actor_loss),
+                "entropy_loss": jnp.mean(entropy_loss),
+            }
 
             return (
                 key,
@@ -535,7 +553,9 @@ def make_sac(args):
 
             return (key, obs, env_state), info
 
-        (key, *_), info = jax.lax.scan(step, (key, obs, env_state), length=num_steps)
+        (key, *_), info = jax.lax.scan(
+            step, (key, obs, env_state), length=num_steps / args.num_envs
+        )
 
         return key, info
 

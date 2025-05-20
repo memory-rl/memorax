@@ -4,18 +4,16 @@ from functools import partial
 from typing import Any, Callable
 
 import chex
-import flashbax as fbx
 import flax.linen as nn
 import gymnax
 import jax
 import jax.numpy as jnp
 import optax
-from flax import core, struct
+from flax import core
 from gymnax.wrappers.purerl import FlattenObservationWrapper
 
-import wandb
-from networks import MaskedLSTMCell, MaskedOptimizedLSTMCell, MaskedRNN
-from utils import LogWrapper, make_trajectory_buffer
+from networks import MaskedOptimizedLSTMCell, MaskedRNN
+from utils import LogWrapper, make_trajectory_buffer, periodic_incremental_update
 
 
 @dataclass(frozen=True)
@@ -58,6 +56,8 @@ class Args:
     """the target network update rate"""
     target_network_frequency: int = 500
     """the timesteps it takes to update the target network"""
+    update_hidden_state: bool = True
+    """whether to update the hidden state of the network"""
     batch_size: int = 128
     """the batch size of sample from the reply memory"""
     start_e: float = 1
@@ -70,9 +70,9 @@ class Args:
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
-    num_epoch_steps: int = 50_000
+    num_epoch_steps: int = 100_000
     """the number of steps for each epoch"""
-    num_evaluation_steps: int = 5_000
+    num_evaluation_steps: int = 10_000
     """the number of steps for each evaluation"""
 
     @property
@@ -96,6 +96,7 @@ class QNetwork(nn.Module):
         initial_carry: jax.Array | None = None,
         return_carry_history: bool = False,
     ):
+        # TODO: Figure out how to use CNNs with RNNs
         x = nn.Dense(128)(x)
         x = nn.relu(x)
         h, x = MaskedRNN(self.cell, return_carry=True)(  # type: ignore
@@ -114,13 +115,6 @@ class QNetwork(nn.Module):
 
 
 @chex.dataclass(frozen=True)
-class DRQN:
-    init: Callable
-    train: Callable
-    evaluate: Callable
-
-
-@chex.dataclass(frozen=True)
 class DRQNState:
     step: int
     obs: chex.Array
@@ -131,6 +125,15 @@ class DRQNState:
     target_params: core.FrozenDict[str, Any]
     optimizer_state: optax.OptState
     buffer_state: Any
+
+
+@chex.dataclass(frozen=True)
+class DRQN:
+    init: Callable[[chex.PRNGKey], DRQNState]
+    train: Callable[
+        [chex.PRNGKey, DRQNState, int], tuple[chex.PRNGKey, DRQNState, dict]
+    ]
+    evaluate: Callable[[chex.PRNGKey, DRQNState, int], tuple[chex.PRNGKey, dict]]
 
 
 @chex.dataclass(frozen=True)
@@ -145,7 +148,7 @@ class Transition:
     next_hidden_state: tuple
 
 
-def make_drqn(args):
+def make_drqn(args: Args) -> DRQN:
 
     env, env_params = gymnax.make(args.env_id)
     env = FlattenObservationWrapper(env)
@@ -173,7 +176,7 @@ def make_drqn(args):
         args.learning_starts,
     )
 
-    def init(key):
+    def init(key: chex.PRNGKey) -> tuple[chex.PRNGKey, DRQNState]:
         key, reset_key, sample_key, step_key, q_key = jax.random.split(key, 5)
         reset_keys = jax.random.split(reset_key, args.num_envs)
         sample_keys = jax.random.split(sample_key, args.num_envs)
@@ -216,12 +219,14 @@ def make_drqn(args):
 
     @partial(jax.jit, static_argnums=(2))
     def train(
-        key,
+        key: chex.PRNGKey,
         state: DRQNState,
-        num_steps,
-    ):
+        num_steps: int,
+    ) -> tuple[chex.PRNGKey, DRQNState, dict]:
 
-        def step(carry, _):
+        def step(
+            carry: tuple[chex.PRNGKey, DRQNState], _
+        ) -> tuple[tuple[chex.PRNGKey, DRQNState], dict]:
 
             (
                 key,
@@ -284,15 +289,16 @@ def make_drqn(args):
                 state,
             ), info
 
-        def update(key, state):
+        def update(key: chex.PRNGKey, state: DRQNState) -> tuple[DRQNState, chex.Array]:
 
             batch = buffer.sample(state.buffer_state, key)
 
-            _, q_next_target = q_network.apply(
+            next_hidden_state, q_next_target = q_network.apply(
                 state.target_params,
                 batch.experience.next_obs,
                 batch.experience.next_done,
                 jax.tree_map(lambda x: x[:, 0, :], batch.experience.next_hidden_state),
+                return_carry_history=args.update_hidden_state,
             )
             q_next_target = jnp.max(q_next_target, axis=-1)
 
@@ -302,28 +308,52 @@ def make_drqn(args):
             )
 
             def loss_fn(params):
-                _, q_value = q_network.apply(
+                hidden_state, q_value = q_network.apply(
                     params,
                     batch.experience.obs,
                     batch.experience.done,
                     jax.tree_map(lambda x: x[:, 0, :], batch.experience.hidden_state),
+                    return_carry_history=args.update_hidden_state,
                 )
                 action = jnp.expand_dims(batch.experience.action, axis=-1)
                 q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
                 loss = jnp.square(q_value - next_q_value).mean()
-                return loss
+                return loss, hidden_state
 
-            (loss), grads = jax.value_and_grad(loss_fn)(state.params)
+            (loss, hidden_state), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+                state.params
+            )
             updates, optimizer_state = optimizer.update(
                 grads, state.optimizer_state, state.params
             )
             params = optax.apply_updates(state.params, updates)
-            target_params = optax.periodic_update(
+            target_params = periodic_incremental_update(
+                params,
                 state.target_params,
-                optax.incremental_update(params, state.target_params, args.tau),
                 state.step.squeeze(),
                 args.target_network_frequency,
+                args.tau,
             )
+
+            if args.update_hidden_state:
+                hidden_state = jax.tree.map(
+                    lambda x: jnp.swapaxes(x, 0, 1), hidden_state
+                )
+                next_hidden_state = jax.tree.map(
+                    lambda x: jnp.swapaxes(x, 0, 1), next_hidden_state
+                )
+                experience = batch.experience.replace(
+                    hidden_state=hidden_state,
+                    next_hidden_state=next_hidden_state,
+                )
+                state = state.replace(
+                    buffer_state=buffer.update(
+                        state.buffer_state,
+                        experience,
+                        batch.sampled_batch_indices,
+                        batch.traj_time_indices,
+                    )
+                )
 
             state = state.replace(
                 params=params,
@@ -333,7 +363,9 @@ def make_drqn(args):
 
             return state, loss
 
-        def update_step(carry, _):
+        def update_step(
+            carry: tuple[chex.PRNGKey, DRQNState], _
+        ) -> tuple[tuple[chex.PRNGKey, DRQNState], dict]:
 
             (key, state), info = jax.lax.scan(
                 step, carry, length=args.train_frequency // args.num_envs
@@ -373,7 +405,9 @@ def make_drqn(args):
         )
 
     @partial(jax.jit, static_argnums=(2))
-    def evaluate(key, state, num_steps):
+    def evaluate(
+        key: chex.PRNGKey, state: DRQNState, num_steps: int
+    ) -> tuple[chex.PRNGKey, dict]:
 
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, args.num_envs)
@@ -383,7 +417,10 @@ def make_drqn(args):
         )
         hidden_state = q_network.initialize_carry((args.num_envs, args.cell_size))
 
-        def step(carry, _):
+        def step(
+            carry: tuple[chex.PRNGKey, chex.Array, chex.Array, tuple, gymnax.EnvState],
+            _,
+        ):
             key, obs, done, hidden_state, env_state = carry
 
             hidden_state, q_values = q_network.apply(
@@ -403,18 +440,14 @@ def make_drqn(args):
             return (key, obs, done, hidden_state, env_state), info
 
         (key, *_), info = jax.lax.scan(
-            step, (key, obs, done, hidden_state, env_state), length=num_steps
+            step,
+            (key, obs, done, hidden_state, env_state),
+            length=num_steps // args.num_envs,
         )
 
         return key, info
 
     return DRQN(
-        env=env,
-        env_params=env_params,
-        q_network=q_network,
-        optimizer=optimizer,
-        buffer=buffer,
-        epsilon_schedule=epsilon_schedule,
         init=init,
         train=train,
         evaluate=evaluate,

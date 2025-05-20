@@ -10,10 +10,9 @@ import gymnax
 import jax
 import jax.numpy as jnp
 import optax
-from flax import core, struct
+from flax import core
 from gymnax.wrappers.purerl import FlattenObservationWrapper
 
-import wandb
 from utils import LogWrapper
 
 
@@ -39,13 +38,13 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "Breakout-MinAtar"
     """the id of the environment"""
-    total_timesteps: int = 500_000
+    total_timesteps: int = 1_000_000
     """total timesteps of the experiments"""
-    learning_rate: float = 2.5e-4
+    learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
     num_envs: int = 10
     """the number of parallel game environments"""
-    buffer_size: int = 10_000
+    buffer_size: int = 100_000
     """the replay memory buffer size"""
     gamma: float = 0.99
     """the discount factor gamma"""
@@ -57,7 +56,7 @@ class Args:
     """the batch size of sample from the reply memory"""
     start_e: float = 1
     """the starting epsilon for exploration"""
-    end_e: float = 0.05
+    end_e: float = 0.01
     """the ending epsilon for exploration"""
     exploration_fraction: float = 0.5
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
@@ -65,9 +64,9 @@ class Args:
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
-    num_epoch_steps: int = 50_000
+    num_epoch_steps: int = 100_000
     """the number of steps for each epoch"""
-    num_evaluation_steps: int = 5_000
+    num_evaluation_steps: int = 10_000
     """the number of steps for each evaluation"""
 
     @property
@@ -103,13 +102,6 @@ class QNetwork(nn.Module):
 
 
 @chex.dataclass(frozen=True)
-class DQN:
-    init: Callable
-    train: Callable
-    evaluate: Callable
-
-
-@chex.dataclass(frozen=True)
 class DQNState:
     step: int
     obs: chex.Array
@@ -121,6 +113,13 @@ class DQNState:
 
 
 @chex.dataclass(frozen=True)
+class DQN:
+    init: Callable[[chex.PRNGKey], DQNState]
+    train: Callable[[chex.PRNGKey, DQNState, int], tuple[chex.PRNGKey, DQNState, dict]]
+    evaluate: Callable[[chex.PRNGKey, DQNState, int], tuple[chex.PRNGKey, dict]]
+
+
+@chex.dataclass(frozen=True)
 class Transition:
     obs: chex.Array
     action: chex.Array
@@ -128,41 +127,7 @@ class Transition:
     done: chex.Array
 
 
-def make_env_state(key, env, env_params, num_envs):
-    key, reset_key = jax.random.split(key)
-    reset_key = jax.random.split(reset_key, num_envs)
-    obs, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
-    return key, obs, env_state
-
-
-def make_buffer_state(key, buffer, env, env_params):
-    obs, env_state = env.reset(key, env_params)
-    action = env.action_space(env_params).sample(key)
-    _, env_state, reward, done, _ = env.step(key, env_state, action, env_params)
-    transition = Transition(obs=obs, action=action, reward=reward, done=done)  # type: ignore
-    buffer_state = buffer.init(transition)
-    return key, buffer_state
-
-
-def make_train_state(key, q_network, optimizer, env, env_params, num_envs):
-    key, reset_key, q_key = jax.random.split(key, 3)
-
-    keys = jax.random.split(reset_key, num_envs)
-    obs, _ = jax.vmap(env.reset, in_axes=(0, None))(keys, env_params)
-
-    params = q_network.init(
-        q_key,
-        obs,
-    )
-    target_params = q_network.init(
-        q_key,
-        obs,
-    )
-    optimizer_state = optimizer.init(params)
-    return key, params, target_params, optimizer_state
-
-
-def make_dqn(args):
+def make_dqn(args: Args) -> DQN:
 
     env, env_params = gymnax.make(args.env_id)
     # env = FlattenObservationWrapper(env)
@@ -186,12 +151,31 @@ def make_dqn(args):
         args.learning_starts,
     )
 
-    def init(key):
-        key, obs, env_state = make_env_state(key, env, env_params, args.num_envs)
-        key, params, target_params, optimizer_state = make_train_state(
-            key, q_network, optimizer, env, env_params, args.num_envs
+    def init(key: chex.PRNGKey) -> tuple[chex.PRNGKey, DQNState]:
+        key, reset_key, sample_key, step_key, q_key = jax.random.split(key, 5)
+
+        reset_keys = jax.random.split(reset_key, args.num_envs)
+        sample_keys = jax.random.split(sample_key, args.num_envs)
+        step_keys = jax.random.split(step_key, args.num_envs)
+        obs, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_keys, env_params)
+        action = jax.vmap(env.action_space(env_params).sample)(sample_keys)
+        _, _, reward, done, _ = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
+            step_keys, env_state, action, env_params
         )
-        key, buffer_state = make_buffer_state(key, buffer, env, env_params)
+
+        params = q_network.init(
+            q_key,
+            obs,
+        )
+        target_params = q_network.init(
+            q_key,
+            obs,
+        )
+        optimizer_state = optimizer.init(params)
+
+        transition = Transition(obs=obs[0], action=action[0], reward=reward[0], done=done[0])  # type: ignore
+        buffer_state = buffer.init(transition)
+
         return key, DQNState(
             step=0,
             obs=obs,
@@ -204,10 +188,10 @@ def make_dqn(args):
 
     @partial(jax.jit, static_argnums=(2))
     def train(
-        key,
+        key: chex.PRNGKey,
         state: DQNState,
-        num_steps,
-    ):
+        num_steps: int,
+    ) -> tuple[chex.PRNGKey, DQNState, dict]:
 
         def step(carry, _):
 
@@ -258,7 +242,7 @@ def make_dqn(args):
                 state,
             ), info
 
-        def update(key, state):
+        def update(key: chex.PRNGKey, state: DQNState) -> tuple[DQNState, chex.Array]:
 
             batch = buffer.sample(state.buffer_state, key).experience
 
@@ -288,8 +272,8 @@ def make_dqn(args):
             )
             params = optax.apply_updates(state.params, updates)
             target_params = optax.periodic_update(
-                state.target_params,
                 optax.incremental_update(params, state.target_params, args.tau),
+                state.target_params,
                 state.step.squeeze(),
                 args.target_network_frequency,
             )
@@ -302,7 +286,9 @@ def make_dqn(args):
 
             return state, loss
 
-        def update_step(carry, _):
+        def update_step(
+            carry: tuple[chex.PRNGKey, DQNState], _
+        ) -> tuple[tuple[chex.PRNGKey, DQNState], dict]:
 
             (key, state), info = jax.lax.scan(
                 step, carry, length=args.train_frequency // args.num_envs
@@ -342,13 +328,15 @@ def make_dqn(args):
         )
 
     @partial(jax.jit, static_argnums=(2))
-    def evaluate(key, state, num_steps):
+    def evaluate(
+        key: chex.PRNGKey, state: DQNState, num_steps: int
+    ) -> tuple[chex.PRNGKey, dict]:
 
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, args.num_envs)
         obs, env_state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
 
-        def step(carry, _):
+        def step(carry: tuple[chex.PRNGKey, chex.Array, gymnax.EnvState], _):
             key, obs, env_state = carry
 
             q_values = q_network.apply(
@@ -365,17 +353,13 @@ def make_dqn(args):
 
             return (key, obs, env_state), info
 
-        (key, *_), info = jax.lax.scan(step, (key, obs, env_state), length=num_steps)
+        (key, *_), info = jax.lax.scan(
+            step, (key, obs, env_state), length=num_steps // args.num_envs
+        )
 
         return key, info
 
     return DQN(
-        env=env,
-        env_params=env_params,
-        q_network=q_network,
-        optimizer=optimizer,
-        buffer=buffer,
-        epsilon_schedule=epsilon_schedule,
         init=init,
         train=train,
         evaluate=evaluate,

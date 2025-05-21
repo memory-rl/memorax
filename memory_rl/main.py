@@ -24,10 +24,10 @@ def main():
 
     key = jax.random.key(args.seed)
 
-    # algorithm: Algorithm = make_dqn(args)
-    algorithm: Algorithm = make_drqn(args)
+    # algorithm = make_dqn(args)
+    algorithm = make_drqn(args)
     # alg: Algorithm = make_sac(args)
-    key, state = algorithm.init(key)
+    key, state = algorithm.create(key)
 
     key, info = algorithm.evaluate(key, state, num_steps=args.num_evaluation_steps)
     episodic_return = info["returned_episode_returns"][info["returned_episode"]].mean()

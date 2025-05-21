@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from functools import partial
+from typing import Any
 
 import chex
 import distrax
@@ -9,10 +10,8 @@ import gymnax
 import jax
 import jax.numpy as jnp
 import optax
-import tyro
-from flax.training.train_state import TrainState
+from flax import core
 from gymnax.wrappers import FlattenObservationWrapper
-from optax import linear_schedule
 
 from utils import LogWrapper, RecordEpisodeStatistics, compute_gae
 
@@ -38,9 +37,9 @@ class Args:
     """if toggled, this experiment will run in debug mode"""
 
     # Algorithm specific arguments
-    env_id: str = "Breakout-MinAtar"
+    env_id: str = "SpaceInvaders-MinAtar"
     """the id of the environment"""
-    total_timesteps: int = 1_000_000
+    total_timesteps: int = 10_000_000
     """total timesteps of the experiments"""
     learning_rate: float = 5e-3
     """the learning rate of the optimizer"""
@@ -48,8 +47,6 @@ class Args:
     """the number of parallel game environments"""
     num_steps: int = 128
     """the number of steps to run in each environment per policy rollout"""
-    num_eval_steps: int = 1000
-    """the number of steps to run in each environment per evaluation rollout"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
     gamma: float = 0.99
@@ -72,21 +69,22 @@ class Args:
     """coefficient of the value function"""
     max_grad_norm: float = 0.5
     """the maximum norm for the gradient clipping"""
+    learning_starts: int = 0
+    """the number of steps before learning starts"""
+    num_train_steps: int = 100_000
+    """the number of steps per epoch"""
+    num_evaluation_steps: int = 50_000
 
     @property
     def batch_size(self):
         return int(self.num_envs * self.num_steps)
 
     @property
-    def minibatch_size(self):
-        return int(self.batch_size // self.num_minibatches)
-
-    @property
-    def num_iterations(self):
-        return self.total_timesteps // self.batch_size
+    def num_epochs(self):
+        return self.total_timesteps // self.num_train_steps + 1
 
 
-class Agent(nn.Module):
+class Actor(nn.Module):
     action_dim: int
 
     @nn.compact
@@ -108,12 +106,34 @@ class Agent(nn.Module):
             kernel_init=nn.initializers.orthogonal(scale=0.01),
             bias_init=nn.initializers.constant(0.0),
         )(x)
+        probs = distrax.Categorical(logits=logits)
+
+        return probs
+
+
+class Critic(nn.Module):
+
+    @nn.compact
+    def __call__(self, x: chex.Array):
+        x = nn.Dense(
+            64,
+            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+            bias_init=nn.initializers.constant(0.0),
+        )(x)
+        x = nn.relu(x)
+        x = nn.Dense(
+            64,
+            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+            bias_init=nn.initializers.constant(0.0),
+        )(x)
+        x = nn.relu(x)
+
         value = nn.Dense(
             1,
             kernel_init=nn.initializers.orthogonal(scale=1.0),
             bias_init=nn.initializers.constant(0.0),
         )(x)
-        return logits.squeeze(), value.squeeze()
+        return value.squeeze(-1)
 
 
 @chex.dataclass(frozen=True)
@@ -127,68 +147,81 @@ class Transition:
     value: chex.Array
 
 
-def make_train(args: Args):
+@chex.dataclass(frozen=True)
+class PPOState:
+    step: int
+    obs: chex.Array
+    env_state: chex.Array
+    actor_params: core.FrozenDict[str, Any]
+    actor_optimizer_state: optax.OptState
+    critic_params: core.FrozenDict[str, Any]
+    critic_optimizer_state: optax.OptState
+    network_updates: int
 
-    env, env_params = gymnax.make(args.env_id)
-    env = LogWrapper(env)
-    env = FlattenObservationWrapper(env)
 
-    key = jax.random.key(args.seed)
-    key, reset_key, agent_key = jax.random.split(key, 3)
+@chex.dataclass(frozen=True)
+class PPO:
+    args: Args
+    env: gymnax.environments.environment.Environment
+    env_params: gymnax.EnvParams
+    actor: Actor
+    critic: Critic
+    optimizer: optax.GradientTransformation
 
-    reset_key = jax.random.split(reset_key, args.num_envs)
-    obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+    def create(self, key):
+        key, env_key, actor_key, critic_key = jax.random.split(key, 4)
 
-    agent = Agent(action_dim=env.action_space(env_params).n)
+        env_keys = jax.random.split(env_key, self.args.num_envs)
+        obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
+            env_keys, self.env_params
+        )
 
-    def make_train_state(key):
-        if args.anneal_lr:
-            learning_rate = linear_schedule(
-                init_value=args.learning_rate,
-                end_value=0.0,
-                transition_steps=(
-                    args.num_iterations * args.update_epochs * args.num_minibatches
-                ),
-            )
-        else:
-            learning_rate = args.learning_rate
+        actor_params = self.actor.init(actor_key, obs)
+        actor_optimizer_state = self.optimizer.init(actor_params)
 
-        key, agent_key = jax.random.split(key)
-        agent_state = TrainState.create(
-            apply_fn=agent.apply,
-            params=agent.init(agent_key, obs),
-            tx=optax.chain(
-                optax.clip_by_global_norm(args.max_grad_norm),
-                optax.adam(learning_rate=learning_rate, eps=1e-5),
+        critic_params = self.critic.init(critic_key, obs)
+        critic_optimizer_state = self.optimizer.init(critic_params)
+
+        return (
+            key,
+            PPOState(
+                step=0,  # type: ignore
+                obs=obs,  # type: ignore
+                env_state=env_state,  # type: ignore
+                actor_params=actor_params,  # type: ignore
+                actor_optimizer_state=actor_optimizer_state,  # type: ignore
+                critic_params=critic_params,  # type: ignore
+                critic_optimizer_state=critic_optimizer_state,  # type: ignore
+                network_updates=0,  # type: ignore
             ),
         )
-        return key, agent_state
 
-    @partial(jax.jit, static_argnums=(2,))
-    def train(key, agent_state, num_steps):
-        key, reset_key = jax.random.split(key)
+    def warmup(self, key, state, num_steps):
+        """No warmup needed for PPO"""
+        return key, state
 
-        reset_key = jax.random.split(reset_key, args.num_envs)
-        obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+    def train(self, key, state, num_steps):
 
         def update_step(carry: tuple, _):
 
             def step(carry: tuple, _):
-                key, obs, state, agent_state = carry
+                key, state = carry
 
                 key, action_key, step_key = jax.random.split(key, 3)
 
-                logits, value = agent_state.apply_fn(agent_state.params, obs)
-                probs = distrax.Categorical(logits=logits)
+                probs = self.actor.apply(state.actor_params, state.obs)
                 action = probs.sample(seed=action_key)
                 log_prob = probs.log_prob(action)
 
-                step_key = jax.random.split(step_key, args.num_envs)
-                next_obs, state, reward, done, info = jax.vmap(
-                    env.step, in_axes=(0, 0, 0, None)
-                )(step_key, state, action, env_params)
+                value = self.critic.apply(state.critic_params, state.obs)
+
+                step_key = jax.random.split(step_key, self.args.num_envs)
+                next_obs, env_state, reward, done, info = jax.vmap(
+                    self.env.step, in_axes=(0, 0, 0, None)
+                )(step_key, state.env_state, action, self.env_params)
+
                 transition = Transition(
-                    observation=obs,  # type: ignore
+                    observation=state.obs,  # type: ignore
                     action=action,  # type: ignore
                     reward=reward,  # type: ignore
                     done=done,  # type: ignore
@@ -197,26 +230,29 @@ def make_train(args: Args):
                     value=value,  # type: ignore
                 )
 
+                state = state.replace(
+                    step=state.step + self.args.num_envs,
+                    obs=next_obs,
+                    env_state=env_state,
+                )
                 carry = (
                     key,
-                    next_obs,
                     state,
-                    agent_state,
                 )
                 return carry, transition
 
-            (key, final_obs, state, agent_state), transitions = jax.lax.scan(
+            (key, state), transitions = jax.lax.scan(
                 step,
                 carry,
-                length=args.num_steps,
+                length=self.args.num_steps,
             )
-            _, final_value = agent_state.apply_fn(agent_state.params, final_obs)
+            final_value = self.critic.apply(state.critic_params, state.obs)
 
             advantages, returns = compute_gae(
-                args.gamma, args.gae_lambda, final_value, transitions
+                self.args.gamma, self.args.gae_lambda, final_value, transitions
             )
 
-            if args.norm_adv:
+            if self.args.norm_adv:
                 advantages = (advantages - advantages.mean()) / (
                     advantages.std() + 1e-8
                 )
@@ -224,59 +260,82 @@ def make_train(args: Args):
             batch = (transitions, advantages, returns)
 
             def update_epoch(carry: tuple, _):
-                key, agent_state, batch = carry
+                key, state, batch = carry
 
-                def update_minibatch(agent_state: TrainState, minibatch: tuple):
+                def update_minibatch(state, minibatch: tuple):
                     transitions, advantages, returns = minibatch
 
-                    def loss_fn(params, transitions, advantages, returns):
-                        logits, value = agent_state.apply_fn(
-                            params, transitions.observation
-                        )
-
-                        probs = distrax.Categorical(logits=logits)
+                    def actor_loss_fn(params, transitions, advantages):
+                        probs = self.actor.apply(params, transitions.observation)
                         log_prob = probs.log_prob(transitions.action)
                         entropy = probs.entropy().mean()
 
                         ratio = jnp.exp(log_prob - transitions.log_prob)
                         actor_loss = -jnp.minimum(
                             ratio * advantages,
-                            jnp.clip(ratio, 1.0 - args.clip_coef, 1.0 + args.clip_coef)
+                            jnp.clip(
+                                ratio,
+                                1.0 - self.args.clip_coef,
+                                1.0 + self.args.clip_coef,
+                            )
                             * advantages,
                         ).mean()
+                        return actor_loss - self.args.ent_coef * entropy
 
-                        if args.clip_vloss:
+                    def critic_loss_fn(params, transitions, advantages, returns):
+                        value = self.critic.apply(params, transitions.observation)
+
+                        if self.args.clip_vloss:
                             critic_loss = jnp.square(value - returns)
                             clipped_value = transitions.value + jnp.clip(
                                 (value - transitions.value),
-                                -args.clip_coef,
-                                args.clip_coef,
+                                -self.args.clip_coef,
+                                self.args.clip_coef,
                             )
                             clipped_critic_loss = jnp.square(clipped_value - returns)
                             critic_loss = (
-                                1
-                                / 2
+                                0.5
                                 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
                             )
                         else:
-                            critic_loss = 1 / 2 * jnp.square(value - returns).mean()
+                            critic_loss = 0.5 * jnp.square(value - returns).mean()
 
-                        return (
-                            actor_loss
-                            + args.vf_coef * critic_loss
-                            - args.ent_coef * entropy
-                        )
+                        return self.args.vf_coef * critic_loss
 
-                    grad_fn = jax.value_and_grad(loss_fn)
-                    loss, agent_grads = grad_fn(
-                        agent_state.params, transitions, advantages, returns
+                    actor_loss, actor_grads = jax.value_and_grad(actor_loss_fn)(
+                        state.actor_params, transitions, advantages
                     )
-                    agent_state = agent_state.apply_gradients(grads=agent_grads)
-                    return agent_state, loss
+                    actor_updates, actor_optimizer_state = self.optimizer.update(
+                        actor_grads, state.actor_optimizer_state, state.actor_params
+                    )
+                    acotr_params = optax.apply_updates(
+                        state.actor_params, actor_updates
+                    )
+
+                    critic_loss, critic_grads = jax.value_and_grad(critic_loss_fn)(
+                        state.critic_params, transitions, advantages, returns
+                    )
+                    critic_updates, critic_optimizer_state = self.optimizer.update(
+                        critic_grads, state.critic_optimizer_state, state.critic_params
+                    )
+                    critic_params = optax.apply_updates(
+                        state.critic_params, critic_updates
+                    )
+
+                    state = state.replace(
+                        actor_params=acotr_params,
+                        actor_optimizer_state=actor_optimizer_state,
+                        critic_params=critic_params,
+                        critic_optimizer_state=critic_optimizer_state,
+                        network_updates=state.network_updates + 1,
+                    )
+                    return state, actor_loss + critic_loss
 
                 key, permutation_key = jax.random.split(key)
 
-                permutation = jax.random.permutation(permutation_key, args.batch_size)
+                permutation = jax.random.permutation(
+                    permutation_key, self.args.batch_size
+                )
                 flattened_batch = jax.tree.map(
                     lambda x: x.reshape(-1, *x.shape[2:]), batch
                 )
@@ -285,122 +344,115 @@ def make_train(args: Args):
                 )
                 minibatches = jax.tree.map(
                     lambda x: jnp.reshape(
-                        x, [args.num_minibatches, -1] + list(x.shape[1:])
+                        x, [self.args.num_minibatches, -1] + list(x.shape[1:])
                     ),
                     shuffled_batch,
                 )
 
-                agent_state, loss = jax.lax.scan(
+                state, loss = jax.lax.scan(
                     update_minibatch,
-                    agent_state,
+                    state,
                     minibatches,
                 )
                 return (
                     key,
-                    agent_state,
+                    state,
                     batch,
                 ), loss
 
-            (key, agent_state, batch), _ = jax.lax.scan(
+            (key, state, batch), loss = jax.lax.scan(
                 update_epoch,
-                (key, agent_state, batch),
-                length=args.update_epochs,
+                (key, state, batch),
+                length=self.args.update_epochs,
             )
             transitions, *_ = batch
 
-            if args.debug:
+            if self.args.debug:
 
-                def callback(info):
+                def callback(info, loss):
                     return_values = info["returned_episode_returns"][
                         info["returned_episode"]
                     ]
                     timesteps = (
-                        info["timestep"][info["returned_episode"]] * args.num_envs
+                        info["timestep"][info["returned_episode"]] * self.args.num_envs
                     )
                     for t in range(len(timesteps)):
                         print(
                             f"global step={timesteps[t]}, episodic return={return_values[t]}"
                         )
-                        if args.track:
-                            wandb.log(
-                                {"episodic return": return_values[t]}, step=timesteps[t]
-                            )
 
-                jax.debug.callback(callback, transitions.info)
+                jax.debug.callback(
+                    callback,
+                    transitions.info,
+                    loss,
+                )
 
-            return (key, final_obs, state, agent_state), transitions.info
+            return (key, state), transitions.info
 
-        (key, _, _, agent_state), info = jax.lax.scan(
+        (key, state), info = jax.lax.scan(
             update_step,
-            (key, obs, state, agent_state),
-            length=num_steps,
+            (key, state),
+            length=num_steps // (self.args.num_envs * self.args.num_steps),
         )
 
-        return key, agent_state, info
+        return key, state, info
 
-    return train, make_train_state
-
-
-def make_evaluate(args: Args):
-    env, env_params = gymnax.make(args.env_id)
-    env = FlattenObservationWrapper(env)
-    env = LogWrapper(env)
-
-    @partial(jax.jit, static_argnums=(2))
-    def evaluate(key, agent_state, num_steps):
-
+    def evaluate(self, key, state, num_steps):
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, args.num_envs)
-        obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+        reset_key = jax.random.split(reset_key, self.args.num_envs)
+        obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
+            reset_key, self.env_params
+        )
 
         def step(carry, _):
-            key, obs, state = carry
+            key, obs, env_state = carry
 
-            logits, _ = agent_state.apply_fn(agent_state.params, obs)
-            action = jnp.argmax(logits, axis=-1)
+            probs = self.actor.apply(state.actor_params, obs)
+            action = jnp.argmax(probs.logits, axis=-1)
 
             key, step_key = jax.random.split(key)
-            step_key = jax.random.split(step_key, args.num_envs)
-            obs, state, _, _, info = jax.vmap(env.step, in_axes=(0, 0, 0, None))(
-                step_key, state, action, env_params
-            )
+            step_key = jax.random.split(step_key, self.args.num_envs)
+            obs, env_state, _, _, info = jax.vmap(
+                self.env.step, in_axes=(0, 0, 0, None)
+            )(step_key, env_state, action, self.env_params)
 
-            return (key, obs, state), info
+            return (key, obs, env_state), info
 
-        (key, obs, state), info = jax.lax.scan(
-            step, (key, obs, state), length=num_steps
+        (key, obs, env_state), info = jax.lax.scan(
+            step, (key, obs, env_state), length=num_steps
         )
 
         return key, info
 
-    return evaluate
 
+def make_ppo(args: Args):
 
-if __name__ == "__main__":
-    args = tyro.cli(Args)
+    env, env_params = gymnax.make(args.env_id)
+    env = LogWrapper(env)
+    env = FlattenObservationWrapper(env)
 
-    import wandb
+    actor = Actor(action_dim=env.action_space(env_params).n)
+    critic = Critic()
 
-    if args.track:
-        wandb.init(
-            project=args.wandb_project_name,
-            entity=args.wandb_entity,
-            name=args.exp_name,
+    if args.anneal_lr:
+        learning_rate = optax.linear_schedule(
+            init_value=args.learning_rate,
+            end_value=0.0,
+            transition_steps=(args.total_timesteps // (args.num_envs * args.num_steps))
+            * args.update_epochs
+            * args.num_minibatches,
         )
-
-    train, make_train_state = make_train(args)
-    evaluate = make_evaluate(args)
-
-    key = jax.random.key(args.seed)
-    keys = jax.random.split(key, args.num_seeds)
-    keys, agent_state = jax.vmap(make_train_state)(keys)
-    keys, agent_state, info = jax.vmap(train, in_axes=(0, 0, None))(
-        keys, agent_state, args.num_iterations
+    else:
+        learning_rate = args.learning_rate
+    optimizer = optax.chain(
+        optax.clip_by_global_norm(args.max_grad_norm),
+        optax.adam(learning_rate=learning_rate, eps=1e-5),
     )
-    keys, info = jax.vmap(evaluate, in_axes=(0, 0, None))(
-        keys, agent_state, args.num_eval_steps
+    return PPO(
+        args=args,
+        env=env,
+        env_params=env_params,
+        actor=actor,
+        critic=critic,
+        optimizer=optimizer,
     )
-
-    returns = info["returned_episode_returns"][info["returned_episode"]].mean()
-
-    print("Mean Episodic Return: ", returns)

@@ -29,7 +29,7 @@ class Args:
     """the wandb's project name"""
     wandb_entity: str = "noahfarr"
     """the entity (team) of wandb's project"""
-    debug: bool = True
+    debug: bool = False
     """whether to print debug information"""
     plot: bool = False
     """whether to plot the returns"""
@@ -177,6 +177,63 @@ class DQN:
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
+    def warmup(
+        self, key: chex.PRNGKey, state: DQNState, num_steps: int
+    ) -> tuple[chex.PRNGKey, DQNState]:
+
+        def step(carry, _):
+
+            key, state = carry
+
+            key, sample_key, step_key = jax.random.split(key, 3)
+
+            sample_key = jax.random.split(sample_key, self.args.num_envs)
+            action = jax.vmap(self.env.action_space(self.env_params).sample)(sample_key)
+
+            step_key = jax.random.split(step_key, self.args.num_envs)
+            next_obs, env_state, reward, done, info = jax.vmap(
+                self.env.step, in_axes=(0, 0, 0, None)
+            )(step_key, state.env_state, action, self.env_params)
+
+            transition = Transition(
+                obs=state.obs,  # type: ignore
+                action=action,  # type: ignore
+                reward=reward,  # type: ignore
+                done=done,  # type: ignore
+            )
+
+            buffer_state = self.buffer.add(state.buffer_state, transition)
+            state = state.replace(
+                step=state.step + self.args.num_envs,
+                obs=next_obs,  # type: ignore
+                env_state=env_state,  # type: ignore
+                buffer_state=buffer_state,
+            )
+
+            if self.args.debug:
+
+                def callback(info):
+                    return_values = info["returned_episode_returns"][
+                        info["returned_episode"]
+                    ]
+                    timesteps = (
+                        info["timestep"][info["returned_episode"]] * self.args.num_envs
+                    )
+                    for t in range(len(timesteps)):
+                        print(
+                            f"global step={timesteps[t]}, episodic return={return_values[t]}"
+                        )
+
+                jax.debug.callback(callback, info)
+
+            return (key, state), info
+
+        (key, state), _ = jax.lax.scan(
+            step, (key, state), length=num_steps // self.args.num_envs
+        )
+        return key, state
+
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(
         self,
         key: chex.PRNGKey,
@@ -203,10 +260,7 @@ class DQN:
 
         def step(carry, _):
 
-            (
-                key,
-                state,
-            ) = carry
+            key, state = carry
 
             key, step_key, action_key, sample_key = jax.random.split(key, 4)
 
@@ -215,10 +269,7 @@ class DQN:
                 sample_key
             )
 
-            q_values = self.q_network.apply(
-                state.params,
-                state.obs,
-            )
+            q_values = self.q_network.apply(state.params, state.obs)
             greedy_action = q_values.argmax(axis=-1)
 
             epsilon = self.epsilon_schedule(state.step)
@@ -248,10 +299,7 @@ class DQN:
                 buffer_state=buffer_state,
             )
 
-            return (
-                key,
-                state,
-            ), info
+            return (key, state), info
 
         def update(key: chex.PRNGKey, state: DQNState) -> tuple[DQNState, chex.Array]:
 
@@ -298,7 +346,7 @@ class DQN:
 
             return state, loss
 
-        def update_step(
+        def learn(
             carry: tuple[chex.PRNGKey, DQNState], _
         ) -> tuple[tuple[chex.PRNGKey, DQNState], dict]:
 
@@ -307,36 +355,32 @@ class DQN:
             )
 
             key, update_key = jax.random.split(key)
+            state, loss = update(update_key, state)
 
-            state, loss = jax.lax.cond(
-                state.step < self.args.learning_starts,
-                lambda *_: (state, jnp.array(0.0)),
-                update,
-                update_key,
-                state,
-            )
+            if self.args.debug:
 
-            return (
-                key,
-                state,
-            ), info
+                def callback(info):
+                    return_values = info["returned_episode_returns"][
+                        info["returned_episode"]
+                    ]
+                    timesteps = (
+                        info["timestep"][info["returned_episode"]] * self.args.num_envs
+                    )
+                    for t in range(len(timesteps)):
+                        print(
+                            f"global step={timesteps[t]}, episodic return={return_values[t]}"
+                        )
 
-        (
-            key,
-            state,
-        ), info = jax.lax.scan(
-            update_step,
-            (
-                key,
-                state,
-            ),
+                jax.debug.callback(callback, info)
+
+            return (key, state), info
+
+        (key, state), info = jax.lax.scan(
+            learn,
+            (key, state),
             length=(num_steps // self.args.train_frequency),
         )
-        return (
-            key,
-            state,
-            info,
-        )
+        return key, state, info
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(

@@ -32,13 +32,13 @@ class Args:
     """the wandb's project name"""
     wandb_entity: str = "noahfarr"
     """the entity (team) of wandb's project"""
-    debug: bool = True
+    debug: bool = False
     """whether to print debug information"""
     plot: bool = False
     """whether to plot the returns"""
 
     # Algorithm specific arguments
-    env_id: str = "Breakout-MinAtar"
+    env_id: str = "BattleshipEasy"
     """the id of the environment"""
     total_timesteps: int = 1_000_000
     """total timesteps of the experiments"""
@@ -74,7 +74,7 @@ class Args:
     """the frequency of training"""
     num_epoch_steps: int = 100_000
     """the number of steps for each epoch"""
-    num_evaluation_steps: int = 1_000
+    num_evaluation_steps: int = 100_000
     """the number of steps for each evaluation"""
 
     @property
@@ -188,6 +188,56 @@ class DRQN:
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
+    def warmup(
+        self, key: chex.PRNGKey, state: DRQNState, num_steps: int
+    ) -> tuple[chex.PRNGKey, DRQNState]:
+
+        def step(carry, _):
+
+            key, state = carry
+
+            key, sample_key, step_key = jax.random.split(key, 3)
+
+            sample_key = jax.random.split(sample_key, self.args.num_envs)
+            action = jax.vmap(self.env.action_space(self.env_params).sample)(sample_key)
+
+            step_key = jax.random.split(step_key, self.args.num_envs)
+            next_obs, env_state, reward, next_done, info = jax.vmap(
+                self.env.step, in_axes=(0, 0, 0, None)
+            )(step_key, state.env_state, action, self.env_params)
+
+            transition = Transition(
+                obs=jnp.expand_dims(state.obs, 1),  # type: ignore
+                done=jnp.expand_dims(state.done, 1),  # type: ignore
+                hidden_state=jax.tree.map(  # type: ignore
+                    lambda x: jnp.expand_dims(x, 1), state.hidden_state
+                ),
+                action=jnp.expand_dims(action, 1),  # type: ignore
+                reward=jnp.expand_dims(reward, 1),  # type: ignore
+                next_obs=jnp.expand_dims(next_obs, 1),  # type: ignore
+                next_done=jnp.expand_dims(next_done, 1),  # type: ignore
+                next_hidden_state=jax.tree.map(  # type: ignore
+                    lambda x: jnp.expand_dims(x, 1), state.hidden_state
+                ),
+            )
+
+            buffer_state = self.buffer.add(state.buffer_state, transition)
+            state = state.replace(
+                step=state.step + self.args.num_envs,
+                obs=next_obs,  # type: ignore
+                done=next_done,  # type: ignore
+                env_state=env_state,  # type: ignore
+                buffer_state=buffer_state,
+            )
+
+            return (key, state), info
+
+        (key, state), _ = jax.lax.scan(
+            step, (key, state), length=num_steps // self.args.num_envs
+        )
+        return key, state
+
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(
         self,
         key: chex.PRNGKey,
@@ -222,7 +272,7 @@ class DRQN:
                 < self.epsilon_schedule(state.step),
                 random_action,
                 greedy_action,
-            ).squeeze()
+            )
 
             step_key = jax.random.split(step_key, self.args.num_envs)
             next_obs, env_state, reward, next_done, info = jax.vmap(
@@ -335,44 +385,42 @@ class DRQN:
 
             return state, loss
 
-        def update_step(carry, _):
+        def learn(carry, _):
 
             (key, state), info = jax.lax.scan(
                 step, carry, length=self.args.train_frequency // self.args.num_envs
             )
 
             key, update_key = jax.random.split(key)
+            state, loss = update(update_key, state)
 
-            state, loss = jax.lax.cond(
-                state.step.squeeze() < self.args.learning_starts,
-                lambda *_: (state, jnp.array(0.0)),
-                update,
-                update_key,
-                state,
-            )
-            info["loss"] = loss
+            if self.args.debug:
 
-            return (
-                key,
-                state,
-            ), info
+                def callback(info):
+                    return_values = info["returned_episode_returns"][
+                        info["returned_episode"]
+                    ]
+                    timesteps = (
+                        info["timestep"][info["returned_episode"]] * self.args.num_envs
+                    )
+                    for t in range(len(timesteps)):
+                        print(
+                            f"global step={timesteps[t]}, episodic return={return_values[t]}"
+                        )
+
+                jax.debug.callback(callback, info)
+
+            return (key, state), info
 
         (
             key,
             state,
         ), info = jax.lax.scan(
-            update_step,
-            (
-                key,
-                state,
-            ),
+            learn,
+            (key, state),
             length=(num_steps // self.args.train_frequency),
         )
-        return (
-            key,
-            state,
-            info,
-        )
+        return key, state, info
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(
@@ -384,9 +432,7 @@ class DRQN:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        done = jax.vmap(self.env.is_terminal, in_axes=(0, None))(
-            env_state.env_state, self.env_params
-        )
+        done = jnp.zeros(self.args.num_envs, dtype=jnp.bool)
         hidden_state = self.q_network.initialize_carry(
             (self.args.num_envs, self.args.cell_size)
         )
@@ -399,15 +445,15 @@ class DRQN:
 
             hidden_state, q_values = self.q_network.apply(
                 state.params,
-                jnp.expand_dims(obs, 1),
-                jnp.expand_dims(done, 1),
-                hidden_state,
+                jnp.expand_dims(state.obs, 1),
+                jnp.expand_dims(state.done, 1),
+                state.hidden_state,
             )
             action = q_values.squeeze(1).argmax(axis=-1)
 
             key, step_key = jax.random.split(key)
             step_key = jax.random.split(step_key, self.args.num_envs)
-            obs, env_state, _, _, info = jax.vmap(
+            obs, env_state, _, done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, env_state, action, self.env_params)
 
@@ -436,8 +482,8 @@ class Transition:
 
 def make_drqn(args: Args) -> DRQN:
 
-    env, env_params = gymnax.make(args.env_id)
-    # env, env_params = make(args.env_id)
+    # env, env_params = gymnax.make(args.env_id)
+    env, env_params = make(args.env_id)
     env = FlattenObservationWrapper(env)
     env = LogWrapper(env)
 

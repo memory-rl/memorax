@@ -72,7 +72,7 @@ class Args:
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
-    num_epoch_steps: int = 100_000
+    num_train_steps: int = 100_000
     """the number of steps for each epoch"""
     num_evaluation_steps: int = 100_000
     """the number of steps for each evaluation"""
@@ -83,7 +83,7 @@ class Args:
 
     @property
     def num_epochs(self):
-        return self.total_timesteps // self.num_epoch_steps
+        return self.total_timesteps // self.num_train_steps
 
 
 class QNetwork(nn.Module):

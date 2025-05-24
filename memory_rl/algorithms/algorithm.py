@@ -2,7 +2,14 @@ from typing import Callable, Protocol
 
 import chex
 
-from memory_rl.algorithms import make_dqn, make_drqn, make_ppo, make_rppo, make_sac
+from memory_rl.algorithms import (
+    make_dqn,
+    make_drqn,
+    make_ppo,
+    make_rppo,
+    make_rsac,
+    make_sac,
+)
 
 register = {
     "dqn": make_dqn,
@@ -10,6 +17,7 @@ register = {
     "ppo": make_ppo,
     "rppo": make_rppo,
     "sac": make_sac,
+    "rsac": make_rsac,
 }
 
 

@@ -11,13 +11,13 @@ def main(cfg: DictConfig):
 
     if cfg.logger.track:
         name = (
-            f"{cfg.algorithm.name}_{cfg.env.env_id}_{cfg.seed}_{wandb.util.generate_id()}"
+            f"{cfg.algorithm.name}_{cfg.environment.env_id}_{cfg.seed}_{wandb.util.generate_id()}"
         ).lower()
         wandb.init(
             project=cfg.logger.project,
             entity=cfg.logger.entity,
             name=name,
-            group=f"{cfg.algorithm.name}_{cfg.env.env_id}",
+            group=f"{cfg.algorithm.name}_{cfg.environment.env_id}",
         )
 
     key = jax.random.key(cfg.seed)

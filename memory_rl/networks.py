@@ -83,16 +83,16 @@ class RecurrentCritic(nn.Module):
         return_carry_history: bool = False,
     ):
         inputs = jnp.concatenate([observations, actions], -1)
-        critic = MLP((*self.hidden_dims, 1), activations=self.activations)(inputs)
         hidden_state, critic = MaskedRNN(
             self.cell,
-            return_carry=False,
+            return_carry=True,
         )(
-            critic,
+            inputs,
             mask,
             initial_carry=initial_carry,
             return_carry_history=return_carry_history,
         )
+        critic = MLP((*self.hidden_dims, 1), activations=self.activations)(critic)
         return hidden_state, jnp.squeeze(critic, -1)
 
 

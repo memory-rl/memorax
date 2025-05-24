@@ -16,8 +16,8 @@ from flax import core, struct
 from flax.training.train_state import TrainState
 from gymnax.wrappers import FlattenObservationWrapper
 from optax import linear_schedule
+from recurrent_networks import MaskedGRUCell, MaskedRNN
 
-from networks import MaskedGRUCell, MaskedRNN
 from utils import LogWrapper
 from utils import compute_recurrent_gae as compute_gae
 

@@ -165,7 +165,6 @@ class DQN:
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
-                step=state.step + self.cfg.num_envs,
                 obs=next_obs,  # type: ignore
                 env_state=env_state,  # type: ignore
                 buffer_state=buffer_state,

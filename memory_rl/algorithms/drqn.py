@@ -12,8 +12,8 @@ import jax.numpy as jnp
 import optax
 from flax import core
 from gymnax.wrappers.purerl import FlattenObservationWrapper
-from networks import MaskedOptimizedLSTMCell, MaskedRNN
 from omegaconf import OmegaConf
+from recurrent_networks import MaskedOptimizedLSTMCell, MaskedRNN
 
 import wandb
 from popjaxrl.envs import make
@@ -177,7 +177,6 @@ class DRQN:
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
-                step=state.step + self.cfg.num_envs,
                 obs=next_obs,  # type: ignore
                 done=next_done,  # type: ignore
                 env_state=env_state,  # type: ignore

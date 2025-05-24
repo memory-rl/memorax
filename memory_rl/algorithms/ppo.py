@@ -12,76 +12,10 @@ import jax.numpy as jnp
 import optax
 from flax import core
 from gymnax.wrappers import FlattenObservationWrapper
+from omegaconf import OmegaConf
 
+import wandb
 from utils import LogWrapper, RecordEpisodeStatistics, compute_gae
-
-# from popjaxrl.envs import make
-# from popjaxrl.envs.wrappers import AliasPrevActionV2
-
-
-@dataclass(frozen=True)
-class Args:
-    exp_name: str = os.path.basename(__file__)[: -len(".py")]
-    """the name of this experiment"""
-    seed: int = 1
-    """seed of the experiment"""
-    num_seeds: int = 1
-    """the number of seeds to run the experiment with"""
-    track: bool = False
-    """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "memory_rl"
-    """the wandb's project name"""
-    wandb_entity: str = "noahfarr"
-    """the entity (team) of wandb's project"""
-    debug: bool = False
-    """if toggled, this experiment will run in debug mode"""
-
-    # Algorithm specific arguments
-    env_id: str = "SpaceInvaders-MinAtar"
-    """the id of the environment"""
-    total_timesteps: int = 10_000_000
-    """total timesteps of the experiments"""
-    learning_rate: float = 5e-3
-    """the learning rate of the optimizer"""
-    num_envs: int = 64
-    """the number of parallel game environments"""
-    num_steps: int = 128
-    """the number of steps to run in each environment per policy rollout"""
-    anneal_lr: bool = True
-    """Toggle learning rate annealing for policy and value networks"""
-    gamma: float = 0.99
-    """the discount factor gamma"""
-    gae_lambda: float = 0.95
-    """the lambda for the general advantage estimation"""
-    num_minibatches: int = 8
-    """the number of mini-batches"""
-    update_epochs: int = 4
-    """the K epochs to update the policy"""
-    norm_adv: bool = True
-    """Toggles advantages normalization"""
-    clip_coef: float = 0.2
-    """the surrogate clipping coefficient"""
-    clip_vloss: bool = True
-    """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
-    ent_coef: float = 0.01
-    """coefficient of the entropy"""
-    vf_coef: float = 0.5
-    """coefficient of the value function"""
-    max_grad_norm: float = 0.5
-    """the maximum norm for the gradient clipping"""
-    learning_starts: int = 0
-    """the number of steps before learning starts"""
-    num_train_steps: int = 100_000
-    """the number of steps per epoch"""
-    num_evaluation_steps: int = 50_000
-
-    @property
-    def batch_size(self):
-        return int(self.num_envs * self.num_steps)
-
-    @property
-    def num_epochs(self):
-        return self.total_timesteps // self.num_train_steps + 1
 
 
 class Actor(nn.Module):
@@ -148,6 +82,32 @@ class Transition:
 
 
 @chex.dataclass(frozen=True)
+class PPOConfig:
+    name: str
+    learning_rate: float
+    num_envs: int
+    num_eval_envs: int
+    num_steps: int
+    anneal_lr: bool
+    gamma: float
+    gae_lambda: float
+    num_minibatches: int
+    update_epochs: int
+    normalize_advantage: bool
+    clip_coef: float
+    clip_vloss: bool
+    ent_coef: float
+    vf_coef: float
+    max_grad_norm: float
+    learning_starts: int
+    track: bool
+
+    @property
+    def batch_size(self):
+        return self.num_envs * self.num_steps
+
+
+@chex.dataclass(frozen=True)
 class PPOState:
     step: int
     obs: chex.Array
@@ -156,22 +116,21 @@ class PPOState:
     actor_optimizer_state: optax.OptState
     critic_params: core.FrozenDict[str, Any]
     critic_optimizer_state: optax.OptState
-    network_updates: int
 
 
 @chex.dataclass(frozen=True)
 class PPO:
-    args: Args
+    cfg: PPOConfig
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
     actor: Actor
     critic: Critic
     optimizer: optax.GradientTransformation
 
-    def create(self, key):
+    def init(self, key):
         key, env_key, actor_key, critic_key = jax.random.split(key, 4)
 
-        env_keys = jax.random.split(env_key, self.args.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
@@ -192,7 +151,6 @@ class PPO:
                 actor_optimizer_state=actor_optimizer_state,  # type: ignore
                 critic_params=critic_params,  # type: ignore
                 critic_optimizer_state=critic_optimizer_state,  # type: ignore
-                network_updates=0,  # type: ignore
             ),
         )
 
@@ -215,7 +173,7 @@ class PPO:
 
                 value = self.critic.apply(state.critic_params, state.obs)
 
-                step_key = jax.random.split(step_key, self.args.num_envs)
+                step_key = jax.random.split(step_key, self.cfg.num_envs)
                 next_obs, env_state, reward, done, info = jax.vmap(
                     self.env.step, in_axes=(0, 0, 0, None)
                 )(step_key, state.env_state, action, self.env_params)
@@ -231,7 +189,7 @@ class PPO:
                 )
 
                 state = state.replace(
-                    step=state.step + self.args.num_envs,
+                    step=state.step + self.cfg.num_envs,
                     obs=next_obs,
                     env_state=env_state,
                 )
@@ -244,15 +202,18 @@ class PPO:
             (key, state), transitions = jax.lax.scan(
                 step,
                 carry,
-                length=self.args.num_steps,
+                length=self.cfg.num_steps,
             )
             final_value = self.critic.apply(state.critic_params, state.obs)
 
             advantages, returns = compute_gae(
-                self.args.gamma, self.args.gae_lambda, final_value, transitions
+                self.cfg.gamma,
+                self.cfg.gae_lambda,
+                final_value,
+                transitions,
             )
 
-            if self.args.norm_adv:
+            if self.cfg.normalize_advantage:
                 advantages = (advantages - advantages.mean()) / (
                     advantages.std() + 1e-8
                 )
@@ -275,22 +236,22 @@ class PPO:
                             ratio * advantages,
                             jnp.clip(
                                 ratio,
-                                1.0 - self.args.clip_coef,
-                                1.0 + self.args.clip_coef,
+                                1.0 - self.cfg.clip_coef,
+                                1.0 + self.cfg.clip_coef,
                             )
                             * advantages,
                         ).mean()
-                        return actor_loss - self.args.ent_coef * entropy
+                        return actor_loss - self.cfg.ent_coef * entropy
 
                     def critic_loss_fn(params, transitions, advantages, returns):
                         value = self.critic.apply(params, transitions.observation)
 
-                        if self.args.clip_vloss:
+                        if self.cfg.clip_vloss:
                             critic_loss = jnp.square(value - returns)
                             clipped_value = transitions.value + jnp.clip(
                                 (value - transitions.value),
-                                -self.args.clip_coef,
-                                self.args.clip_coef,
+                                -self.cfg.clip_coef,
+                                self.cfg.clip_coef,
                             )
                             clipped_critic_loss = jnp.square(clipped_value - returns)
                             critic_loss = (
@@ -300,7 +261,7 @@ class PPO:
                         else:
                             critic_loss = 0.5 * jnp.square(value - returns).mean()
 
-                        return self.args.vf_coef * critic_loss
+                        return self.cfg.vf_coef * critic_loss
 
                     actor_loss, actor_grads = jax.value_and_grad(actor_loss_fn)(
                         state.actor_params, transitions, advantages
@@ -327,14 +288,13 @@ class PPO:
                         actor_optimizer_state=actor_optimizer_state,
                         critic_params=critic_params,
                         critic_optimizer_state=critic_optimizer_state,
-                        network_updates=state.network_updates + 1,
                     )
-                    return state, actor_loss + critic_loss
+                    return state, (actor_loss, critic_loss)
 
                 key, permutation_key = jax.random.split(key)
 
                 permutation = jax.random.permutation(
-                    permutation_key, self.args.batch_size
+                    permutation_key, self.cfg.batch_size
                 )
                 flattened_batch = jax.tree.map(
                     lambda x: x.reshape(-1, *x.shape[2:]), batch
@@ -344,7 +304,7 @@ class PPO:
                 )
                 minibatches = jax.tree.map(
                     lambda x: jnp.reshape(
-                        x, [self.args.num_minibatches, -1] + list(x.shape[1:])
+                        x, [self.cfg.num_minibatches, -1] + list(x.shape[1:])
                     ),
                     shuffled_batch,
                 )
@@ -360,46 +320,26 @@ class PPO:
                     batch,
                 ), loss
 
-            (key, state, batch), loss = jax.lax.scan(
+            (key, state, batch), (actor_loss, critic_loss) = jax.lax.scan(
                 update_epoch,
                 (key, state, batch),
-                length=self.args.update_epochs,
+                length=self.cfg.update_epochs,
             )
             transitions, *_ = batch
-
-            if self.args.debug:
-
-                def callback(info, loss):
-                    return_values = info["returned_episode_returns"][
-                        info["returned_episode"]
-                    ]
-                    timesteps = (
-                        info["timestep"][info["returned_episode"]] * self.args.num_envs
-                    )
-                    for t in range(len(timesteps)):
-                        print(
-                            f"global step={timesteps[t]}, episodic return={return_values[t]}"
-                        )
-
-                jax.debug.callback(
-                    callback,
-                    transitions.info,
-                    loss,
-                )
 
             return (key, state), transitions.info
 
         (key, state), info = jax.lax.scan(
             update_step,
             (key, state),
-            length=num_steps // (self.args.num_envs * self.args.num_steps),
+            length=num_steps // self.cfg.num_envs // self.cfg.num_steps,
         )
 
         return key, state, info
 
     def evaluate(self, key, state, num_steps):
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.args.num_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
@@ -411,7 +351,7 @@ class PPO:
             action = jnp.argmax(probs.logits, axis=-1)
 
             key, step_key = jax.random.split(key)
-            step_key = jax.random.split(step_key, self.args.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.num_eval_envs)
             obs, env_state, _, _, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, env_state, action, self.env_params)
@@ -425,31 +365,35 @@ class PPO:
         return key, info
 
 
-def make_ppo(args: Args):
+def make_ppo(cfg):
 
-    env, env_params = gymnax.make(args.env_id)
+    env, env_params = gymnax.make(cfg.env.env_id)
     env = LogWrapper(env)
     env = FlattenObservationWrapper(env)
 
     actor = Actor(action_dim=env.action_space(env_params).n)
     critic = Critic()
 
-    if args.anneal_lr:
+    if cfg.algorithm.anneal_lr:
         learning_rate = optax.linear_schedule(
-            init_value=args.learning_rate,
+            init_value=cfg.algorithm.learning_rate,
             end_value=0.0,
-            transition_steps=(args.total_timesteps // (args.num_envs * args.num_steps))
-            * args.update_epochs
-            * args.num_minibatches,
+            transition_steps=(
+                cfg.total_timesteps // cfg.algorithm.num_envs // cfg.algorithm.num_steps
+            )
+            * cfg.algorithm.update_epochs
+            * cfg.algorithm.num_minibatches,
         )
     else:
-        learning_rate = args.learning_rate
+        learning_rate = cfg.algorithm.learning_rate
     optimizer = optax.chain(
-        optax.clip_by_global_norm(args.max_grad_norm),
+        optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
         optax.adam(learning_rate=learning_rate, eps=1e-5),
     )
+
+    algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
     return PPO(
-        args=args,
+        cfg=PPOConfig(**algorithm_cfg, track=cfg.logger.track),
         env=env,
         env_params=env_params,
         actor=actor,

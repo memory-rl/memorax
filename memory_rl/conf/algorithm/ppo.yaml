@@ -1,0 +1,17 @@
+name: ppo
+learning_rate:       3e-4
+num_envs:            64
+num_eval_envs:       32
+num_steps:           128
+anneal_lr:           true
+gamma:               0.99
+gae_lambda:          0.95
+num_minibatches:     8
+update_epochs:       4
+normalize_advantage:  true
+clip_coef:           0.2
+clip_vloss:          true
+ent_coef:            0.01
+vf_coef:             0.5
+max_grad_norm:       0.5
+learning_starts:     0

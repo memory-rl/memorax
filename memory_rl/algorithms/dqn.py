@@ -6,75 +6,16 @@ from typing import Any
 import chex
 import flashbax as fbx
 import flax.linen as nn
-from flax import core
 import gymnax
 import jax
 import jax.numpy as jnp
 import optax
+from flax import core
+from gymnax.wrappers import FlattenObservationWrapper
+from omegaconf import OmegaConf
 
+import wandb
 from utils import LogWrapper
-
-
-@dataclass(frozen=True)
-class Args:
-    exp_name: str = os.path.basename(__file__)[: -len(".py")]
-    """the name of this experiment"""
-    seed: int = 1
-    """seed of the experiment"""
-    num_seeds: int = 1
-    """the number of increasing seeds"""
-    track: bool = False
-    """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "memory_rl"
-    """the wandb's project name"""
-    wandb_entity: str = "noahfarr"
-    """the entity (team) of wandb's project"""
-    debug: bool = False
-    """whether to print debug information"""
-    plot: bool = False
-    """whether to plot the returns"""
-
-    # Algorithm specific arguments
-    env_id: str = "Breakout-MinAtar"
-    """the id of the environment"""
-    total_timesteps: int = 1_000_000
-    """total timesteps of the experiments"""
-    learning_rate: float = 3e-4
-    """the learning rate of the optimizer"""
-    num_envs: int = 10
-    """the number of parallel game environments"""
-    buffer_size: int = 100_000
-    """the replay memory buffer size"""
-    gamma: float = 0.99
-    """the discount factor gamma"""
-    tau: float = 1.0
-    """the target network update rate"""
-    target_network_frequency: int = 500
-    """the timesteps it takes to update the target network"""
-    batch_size: int = 128
-    """the batch size of sample from the reply memory"""
-    start_e: float = 1
-    """the starting epsilon for exploration"""
-    end_e: float = 0.01
-    """the ending epsilon for exploration"""
-    exploration_fraction: float = 0.5
-    """the fraction of `total-timesteps` it takes from start-e to go end-e"""
-    learning_starts: int = 10_000
-    """timestep to start learning"""
-    train_frequency: int = 10
-    """the frequency of training"""
-    num_train_steps: int = 100_000
-    """the number of steps for each epoch"""
-    num_evaluation_steps: int = 10_000
-    """the number of steps for each evaluation"""
-
-    @property
-    def num_updates(self):
-        return self.total_timesteps // self.num_envs
-
-    @property
-    def num_epochs(self):
-        return self.total_timesteps // self.num_train_steps
 
 
 class QNetwork(nn.Module):
@@ -89,18 +30,38 @@ class QNetwork(nn.Module):
         self,
         x: jnp.ndarray,
     ):
-        x = nn.Conv(
-            features=16,
-            kernel_size=(3, 3),
-            strides=(1, 1),
-        )(x)
+        # x = nn.Conv(
+        #     features=16,
+        #     kernel_size=(3, 3),
+        #     strides=(1, 1),
+        # )(x)
+        x = nn.Dense(128)(x)
         x = nn.relu(x)
-        x = x.reshape((x.shape[0], -1))
+        # x = x.reshape((x.shape[0], -1))
         x = nn.Dense(128)(x)
         x = nn.relu(x)
         q_values = nn.Dense(self.action_dim)(x)
 
         return q_values
+
+
+@chex.dataclass(frozen=True)
+class DQNConfig:
+    name: str
+    learning_rate: float
+    num_envs: int
+    num_eval_envs: int
+    buffer_size: int
+    gamma: float
+    tau: float
+    target_network_frequency: int
+    batch_size: int
+    start_e: float
+    end_e: float
+    exploration_fraction: float
+    train_frequency: int
+    learning_starts: int
+    track: bool
 
 
 @chex.dataclass(frozen=True)
@@ -124,7 +85,7 @@ class DQN:
     Deep Q-Network (DQN) reinforcement learning algorithm.
     """
 
-    args: Args
+    cfg: Any
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
     q_network: QNetwork
@@ -132,7 +93,7 @@ class DQN:
     buffer: fbx.trajectory_buffer.TrajectoryBuffer
     epsilon_schedule: optax.Schedule
 
-    def create(self, key) -> tuple[chex.PRNGKey, DQNState, chex.Array, gymnax.EnvState]:
+    def init(self, key) -> tuple[chex.PRNGKey, DQNState, chex.Array, gymnax.EnvState]:
         """
         Initialize environment, network parameters, optimizer, and replay buffer.
 
@@ -146,7 +107,7 @@ class DQN:
             env_state: Initial environment state.
         """
         key, env_key, q_key = jax.random.split(key, 3)
-        env_keys = jax.random.split(env_key, self.args.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
@@ -187,10 +148,10 @@ class DQN:
 
             key, sample_key, step_key = jax.random.split(key, 3)
 
-            sample_key = jax.random.split(sample_key, self.args.num_envs)
+            sample_key = jax.random.split(sample_key, self.cfg.num_envs)
             action = jax.vmap(self.env.action_space(self.env_params).sample)(sample_key)
 
-            step_key = jax.random.split(step_key, self.args.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.num_envs)
             next_obs, env_state, reward, done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
@@ -204,32 +165,16 @@ class DQN:
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
-                step=state.step + self.args.num_envs,
+                step=state.step + self.cfg.num_envs,
                 obs=next_obs,  # type: ignore
                 env_state=env_state,  # type: ignore
                 buffer_state=buffer_state,
             )
 
-            if self.args.debug:
-
-                def callback(info):
-                    return_values = info["returned_episode_returns"][
-                        info["returned_episode"]
-                    ]
-                    timesteps = (
-                        info["timestep"][info["returned_episode"]] * self.args.num_envs
-                    )
-                    for t in range(len(timesteps)):
-                        print(
-                            f"global step={timesteps[t]}, episodic return={return_values[t]}"
-                        )
-
-                jax.debug.callback(callback, info)
-
             return (key, state), info
 
         (key, state), _ = jax.lax.scan(
-            step, (key, state), length=num_steps // self.args.num_envs
+            step, (key, state), length=num_steps // self.cfg.num_envs
         )
         return key, state
 
@@ -264,7 +209,7 @@ class DQN:
 
             key, step_key, action_key, sample_key = jax.random.split(key, 4)
 
-            sample_key = jax.random.split(sample_key, self.args.num_envs)
+            sample_key = jax.random.split(sample_key, self.cfg.num_envs)
             random_action = jax.vmap(self.env.action_space(self.env_params).sample)(
                 sample_key
             )
@@ -277,9 +222,9 @@ class DQN:
                 jax.random.uniform(action_key, greedy_action.shape) < epsilon,
                 random_action,
                 greedy_action,
-            ).squeeze()
+            )
 
-            step_key = jax.random.split(step_key, self.args.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.num_envs)
             next_obs, env_state, reward, done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
@@ -293,7 +238,7 @@ class DQN:
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
-                step=state.step + self.args.num_envs,
+                step=state.step + self.cfg.num_envs,
                 obs=next_obs,  # type: ignore
                 env_state=env_state,  # type: ignore
                 buffer_state=buffer_state,
@@ -301,7 +246,9 @@ class DQN:
 
             return (key, state), info
 
-        def update(key: chex.PRNGKey, state: DQNState) -> tuple[DQNState, chex.Array]:
+        def update(
+            key: chex.PRNGKey, state: DQNState
+        ) -> tuple[DQNState, chex.Array, chex.Array]:
 
             batch = self.buffer.sample(state.buffer_state, key).experience
 
@@ -313,7 +260,7 @@ class DQN:
 
             next_q_value = (
                 batch.first.reward
-                + (1 - batch.first.done) * self.args.gamma * q_next_target
+                + (1 - batch.first.done) * self.cfg.gamma * q_next_target
             )
 
             def loss_fn(params):
@@ -324,18 +271,20 @@ class DQN:
                 action = jnp.expand_dims(batch.first.action, axis=-1)
                 q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
                 loss = jnp.square(q_value - next_q_value).mean()
-                return loss
+                return loss, q_value
 
-            (loss), grads = jax.value_and_grad(loss_fn)(state.params)
+            (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+                state.params
+            )
             updates, optimizer_state = self.optimizer.update(
                 grads, state.optimizer_state, state.params
             )
             params = optax.apply_updates(state.params, updates)
             target_params = optax.periodic_update(
-                optax.incremental_update(params, state.target_params, self.args.tau),
+                optax.incremental_update(params, state.target_params, self.cfg.tau),
                 state.target_params,
                 state.step,
-                self.args.target_network_frequency,
+                self.cfg.target_network_frequency,
             )
 
             state = state.replace(
@@ -344,41 +293,47 @@ class DQN:
                 optimizer_state=optimizer_state,
             )
 
-            return state, loss
+            return state, loss, q_value.mean()
 
         def learn(
             carry: tuple[chex.PRNGKey, DQNState], _
         ) -> tuple[tuple[chex.PRNGKey, DQNState], dict]:
 
             (key, state), info = jax.lax.scan(
-                step, carry, length=self.args.train_frequency // self.args.num_envs
+                step,
+                carry,
+                length=self.cfg.train_frequency // self.cfg.num_envs,
             )
 
             key, update_key = jax.random.split(key)
-            state, loss = update(update_key, state)
+            state, loss, q_value = update(update_key, state)
 
-            if self.args.debug:
+            if self.cfg.track:
 
-                def callback(info):
-                    return_values = info["returned_episode_returns"][
-                        info["returned_episode"]
-                    ]
-                    timesteps = (
-                        info["timestep"][info["returned_episode"]] * self.args.num_envs
-                    )
-                    for t in range(len(timesteps)):
-                        print(
-                            f"global step={timesteps[t]}, episodic return={return_values[t]}"
+                def callback(step, info, loss, q_value):
+                    if step % 100 == 0:
+                        wandb.log(
+                            {
+                                "training/episodic_return": info[
+                                    "returned_episode_returns"
+                                ].mean(),
+                                "training/episodic_length": info[
+                                    "returned_episode_lengths"
+                                ].mean(),
+                                "losses/loss": loss,
+                                "losses/q_value": q_value,
+                            },
+                            step=step,
                         )
 
-                jax.debug.callback(callback, info)
+                jax.debug.callback(callback, state.step, info, loss, q_value)
 
             return (key, state), info
 
         (key, state), info = jax.lax.scan(
             learn,
             (key, state),
-            length=(num_steps // self.args.train_frequency),
+            length=(num_steps // self.cfg.train_frequency),
         )
         return key, state, info
 
@@ -399,29 +354,33 @@ class DQN:
             info: Evaluation metrics (rewards, episode lengths, etc.).
         """
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.args.num_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
 
-        def step(carry: tuple[chex.PRNGKey, chex.Array, gymnax.EnvState], _):
-            key, obs, env_state = carry
+        state = state.replace(obs=obs, env_state=env_state)
+
+        def step(carry: tuple[chex.PRNGKey, DQNState], _):
+            key, state = carry
 
             q_values = self.q_network.apply(
                 state.params,
-                obs,
+                state.obs,
             )
             action = q_values.argmax(axis=-1)
 
             key, step_key = jax.random.split(key)
-            step_key = jax.random.split(step_key, self.args.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.num_envs)
             obs, env_state, _, _, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
-            )(step_key, env_state, action, self.env_params)
+            )(step_key, state.env_state, action, self.env_params)
 
-            return (key, obs, env_state), info
+            state = state.replace(obs=obs, env_state=env_state)  # type: ignore
 
-        (key, *_), info = jax.lax.scan(step, (key, obs, env_state), length=num_steps)
+            return (key, state), info
+
+        (key, *_), info = jax.lax.scan(step, (key, state), length=num_steps)
 
         return key, info
 
@@ -434,7 +393,7 @@ class Transition:
     done: chex.Array
 
 
-def make_dqn(args: Args) -> DQN:
+def make_dqn(cfg) -> DQN:
     """
     Factory function to construct a DQN agent from Args.
 
@@ -444,28 +403,30 @@ def make_dqn(args: Args) -> DQN:
     Returns:
         An initialized DQN instance ready for training.
     """
-    env, env_params = gymnax.make(args.env_id)
+    env, env_params = gymnax.make(cfg.env.env_id)
+    env = FlattenObservationWrapper(env)
     env = LogWrapper(env)
 
     q_network = QNetwork(
         action_dim=env.action_space(env_params).n,
     )
     buffer = fbx.make_flat_buffer(
-        max_length=args.buffer_size,
-        min_length=args.batch_size,
-        sample_batch_size=args.batch_size,
+        max_length=cfg.algorithm.buffer_size,
+        min_length=cfg.algorithm.batch_size,
+        sample_batch_size=cfg.algorithm.batch_size,
         add_sequences=False,
-        add_batch_size=args.num_envs,
+        add_batch_size=cfg.algorithm.num_envs,
     )
-    optimizer = optax.adam(learning_rate=args.learning_rate)
+    optimizer = optax.adam(learning_rate=cfg.algorithm.learning_rate)
     epsilon_schedule = optax.linear_schedule(
-        args.start_e,
-        args.end_e,
-        int(args.exploration_fraction * args.total_timesteps),
-        args.learning_starts,
+        cfg.algorithm.start_e,
+        cfg.algorithm.end_e,
+        int(cfg.algorithm.exploration_fraction * cfg.total_timesteps),
+        cfg.algorithm.learning_starts,
     )
+    algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
     return DQN(
-        args=args,  # type: ignore
+        cfg=DQNConfig(**algorithm_cfg, track=cfg.logger.track),  # type: ignore
         env=env,  # type: ignore
         env_params=env_params,  # type: ignore
         q_network=q_network,  # type: ignore

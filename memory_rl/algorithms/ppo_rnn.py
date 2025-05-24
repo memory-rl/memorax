@@ -167,7 +167,7 @@ class RPPO:
     agent: Agent
     optimizer: optax.GradientTransformation
 
-    def create(self, key):
+    def init(self, key):
         key, env_key, agent_key = jax.random.split(key, 3)
 
         env_keys = jax.random.split(env_key, self.args.num_envs)

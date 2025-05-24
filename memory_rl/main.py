@@ -1,77 +1,75 @@
+import hydra
 import jax
-import tyro
+from omegaconf import DictConfig, OmegaConf
 
 import wandb
-
-# from dqn import Args, make_dqn
-
-from drqn_cleanup import Args, make_drqn
-
-# from sac import Args, make_sac
-from algorithm import Algorithm
+from memory_rl import Algorithm, make
 
 
-def main():
-    args = tyro.cli(Args)
+@hydra.main(version_base=None, config_path="conf", config_name="config")
+def main(cfg: DictConfig):
 
-    if args.track:
+    if cfg.logger.track:
+        name = (
+            f"{cfg.algorithm.name}_{cfg.env.env_id}_{cfg.seed}_{wandb.util.generate_id()}"
+        ).lower()
         wandb.init(
-            project=args.wandb_project_name,
-            entity=args.wandb_entity,
-            name=args.exp_name,
-            config=vars(args),
+            project=cfg.logger.project,
+            entity=cfg.logger.entity,
+            name=name,
+            group=f"{cfg.algorithm.name}_{cfg.env.env_id}",
         )
 
-    key = jax.random.key(args.seed)
+    key = jax.random.key(cfg.seed)
 
-    # algorithm = make_dqn(args)
-    algorithm = make_drqn(args)
-    # alg: Algorithm = make_sac(args)
-    key, state = algorithm.create(key)
+    algorithm: Algorithm = make(cfg.algorithm.name, cfg)
 
-    key, info = algorithm.evaluate(key, state, num_steps=args.num_evaluation_steps)
-    episodic_return = info["returned_episode_returns"][info["returned_episode"]].mean()
-    print(f"Timestep: {0}, Return: {episodic_return}")
+    key, state = algorithm.init(key)
 
-    if args.track:
+    key, info = algorithm.evaluate(key, state, cfg.num_evaluation_steps)
+
+    episodic_returns = info["returned_episode_returns"][info["returned_episode"]].mean()
+    episodic_lengths = info["returned_episode_lengths"][info["returned_episode"]].mean()
+    print(
+        f"Timestep: {state.step} - Episodic Return: {episodic_returns} - Episodic Length: {episodic_lengths}"
+    )
+
+    if cfg.logger.track:
         wandb.log(
             {
-                "episodic_return": episodic_return,
+                "evaluation/episodic_return": episodic_returns,
+                "evaluation/episodic_length": episodic_lengths,
             },
-            step=0,
+            step=state.step,
         )
 
-    for epoch in range(1, args.num_epochs):
-        (
+    key, state = algorithm.warmup(key, state, cfg.algorithm.learning_starts)
+    for epoch in range(1, (cfg.total_timesteps // cfg.num_train_steps) + 1):
+        key, state, info = algorithm.train(
             key,
             state,
-            info,
-        ) = algorithm.train(
-            key,
-            state,
-            num_steps=args.num_epoch_steps,
+            cfg.num_train_steps,
         )
-        # actor_loss = info["actor_loss"].mean()
-        # critic_loss = info["critic_loss"].mean()
-        # entropy_loss = info["entropy_loss"].mean()
 
-        key, info = algorithm.evaluate(key, state, num_steps=args.num_evaluation_steps)
-        episodic_return = info["returned_episode_returns"][
+        key, info = algorithm.evaluate(key, state, cfg.num_evaluation_steps)
+        episodic_returns = info["returned_episode_returns"][
+            info["returned_episode"]
+        ].mean()
+        episodic_lengths = info["returned_episode_lengths"][
             info["returned_episode"]
         ].mean()
         print(
-            f"Timestep: {epoch*args.num_epoch_steps}, Return: {info['returned_episode_returns'][info['returned_episode']].mean()}"
+            f"Timestep: {state.step} - Episodic Return: {episodic_returns} - Episodic Length: {episodic_lengths}"
         )
 
-        if args.track:
+        if cfg.logger.track:
             wandb.log(
                 {
-                    "episodic_return": episodic_return,
-                    # "actor_loss": actor_loss,
-                    # "critic_loss": critic_loss,
-                    # "entropy_loss": entropy_loss,
+                    "evaluation/episodic_return": episodic_returns,
+                    "evaluation/episodic_length": episodic_lengths,
+                    # **{f"losses/{key}": value for key, value in info["losses"].items()},
                 },
-                step=(epoch * args.num_epoch_steps),
+                step=state.step,
             )
 
 

@@ -1,0 +1,11 @@
+total_timesteps: 500_000
+num_train_steps: 100_000
+num_evaluation_steps: 10_000
+seed: 1
+num_seeds: 1
+
+defaults:
+  - _self_
+  - environment: breakout
+  - algorithm: default
+  - logger: default

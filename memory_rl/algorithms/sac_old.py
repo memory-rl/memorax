@@ -13,9 +13,9 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 from gymnax.wrappers.purerl import FlattenObservationWrapper
+from networks import MaskedLSTMCell, MaskedOptimizedLSTMCell, MaskedRNN
 
 import wandb
-from networks import MaskedLSTMCell, MaskedOptimizedLSTMCell, MaskedRNN
 from utils import (
     BraxGymnaxWrapper,
     LogWrapper,

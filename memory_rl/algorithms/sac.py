@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import optax
 from flax.training import train_state
 from hydra.utils import instantiate
-from networks2 import DoubleCritic, StochasticActor, Temperature
+from networks import DoubleCritic, StochasticActor, Temperature
 from omegaconf import OmegaConf
 from utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 

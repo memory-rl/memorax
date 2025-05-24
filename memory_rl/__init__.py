@@ -5,5 +5,6 @@ from algorithms import (
     make_drqn,
     make_ppo,
     make_rppo,
+    make_rsac,
     make_sac,
 )

@@ -1,18 +1,19 @@
-name: sac
+name: rsac
 policy_lr:            3e-4
 q_lr:           3e-4
 temp_lr:             3e-4
 num_envs:            1
 num_eval_envs:       1
-buffer_size:         100_000
+buffer_size:         1_000_000
 gamma:               0.99
 tau:                 5e-3
 train_frequency:     1
 target_update_frequency: 1
-batch_size:          256
+batch_size:          128
 hidden_dims:         [256, 256]
 actor_cell_size:           256
 critic_cell_size:           256
+sample_sequence_length:     1
 init_temperature:    1.0
 policy_log_std_min: -5
 policy_log_std_max: 2

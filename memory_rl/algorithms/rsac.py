@@ -389,10 +389,6 @@ class RSAC:
             info = {}
             return state, info
 
-        def no_update(key, state):
-            # return state, {'critic_loss': 0.0, 'actor_loss': 0.0, 'temp_loss': 0.0}
-            return state, {}
-
         def update_step(carry, _):
             (key, state), info = jax.lax.scan(
                 step, carry, length=self.cfg.train_frequency // self.cfg.num_envs
@@ -400,13 +396,7 @@ class RSAC:
 
             key, update_key = jax.random.split(key)
 
-            state, update_info = jax.lax.cond(
-                state.step >= self.cfg.learning_starts,
-                update,
-                no_update,
-                update_key,
-                state,
-            )
+            state, update_info = update(update_key, state)
 
             if self.cfg.track:
 
@@ -454,6 +444,7 @@ class RSAC:
     @partial(jax.jit, static_argnames=["self"])
     def sample_eval(
         self,
+        key: chex.PRNGKey,
         state: RSACState,
         obs: jnp.ndarray,
         done: jnp.ndarray,
@@ -466,17 +457,18 @@ class RSAC:
             initial_carry=hidden_state,
             temperature=0.0,
         )
-        action = dist.sample(seed=state.key)
+        action = dist.sample(seed=key)
         return hidden_state, action
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: chex.PRNGKey, state: RSACState, num_steps: int):
         def step(carry, _):
             key, state = carry
-            key, env_key = jax.random.split(key)
+            key, sample_key, env_key = jax.random.split(key, 3)
 
             # Get action in evaluation mode (deterministic)
             next_hidden_state, action = self.sample_eval(
+                sample_key,
                 state,
                 jnp.expand_dims(state.obs, 1),
                 jnp.expand_dims(state.done, 1),
@@ -510,9 +502,9 @@ class RSAC:
 
 def make_rsac(cfg) -> RSAC:
 
-    # env = BraxGymnaxWrapper(cfg.environment.env_id, backend="mjx")
-    # env_params = None
-    env, env_params = gymnax.make(cfg.environment.env_id)
+    env = BraxGymnaxWrapper(cfg.environment.env_id, backend="mjx")
+    env_params = None
+    # env, env_params = gymnax.make(cfg.environment.env_id)
     env = LogWrapper(env)
     action_dim = env.action_space(env_params).shape[0]
 

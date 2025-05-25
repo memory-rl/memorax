@@ -9,11 +9,11 @@ gamma:               0.99
 tau:                 5e-3
 train_frequency:     1
 target_update_frequency: 1
-batch_size:          128
+batch_size:          256
 hidden_dims:         [256, 256]
 actor_cell_size:           256
 critic_cell_size:           256
-sample_sequence_length:     1
+sample_sequence_length:     8
 init_temperature:    1.0
 policy_log_std_min: -5
 policy_log_std_max: 2

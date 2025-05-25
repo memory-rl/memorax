@@ -139,7 +139,7 @@ class RSAC:
             tx=self.actor_optimizer,
         )
         actor_hidden_state = self.actor_network.cell.initialize_carry(
-            jax.random.key(0), (self.cfg.num_envs, self.cfg.hidden_dims[-1])
+            jax.random.key(0), (self.cfg.num_envs, self.cfg.actor_cell_size)
         )
 
         # Initialize critic
@@ -194,22 +194,23 @@ class RSAC:
             action = jax.vmap(self.env.action_space(self.env_params).sample)(sample_key)
 
             step_key = jax.random.split(step_key, self.cfg.num_envs)
-            next_obs, env_state, reward, done, info = jax.vmap(
+            next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
 
             transition = Transition(
                 obs=jnp.expand_dims(state.obs, 1),  # type: ignore
-                done=jnp.expand_dims(done, 1),  # type: ignore
+                done=jnp.expand_dims(state.done, 1),  # type: ignore
                 action=jnp.expand_dims(action, 1),  # type: ignore
                 reward=jnp.expand_dims(reward, 1),  # type: ignore
                 next_obs=jnp.expand_dims(next_obs, 1),  # type: ignore
-                next_done=jnp.expand_dims(done, 1),  # type: ignore
+                next_done=jnp.expand_dims(next_done, 1),  # type: ignore
             )
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
                 obs=next_obs,  # type: ignore
+                done=next_done,  # type: ignore
                 env_state=env_state,  # type: ignore
                 buffer_state=buffer_state,
             )
@@ -279,10 +280,12 @@ class RSAC:
         next_q = jnp.minimum(next_q1, next_q2)
 
         temperature = state.temp.apply_fn({"params": state.temp.params})
-        target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * next_q
+        target_q = batch.reward + self.cfg.gamma * (1 - batch.next_done) * next_q
 
         if self.cfg.backup_entropy:
-            target_q -= self.cfg.gamma * (1 - batch.done) * temperature * next_log_probs
+            target_q -= (
+                self.cfg.gamma * (1 - batch.next_done) * temperature * next_log_probs
+            )
 
         target_q = jax.lax.stop_gradient(target_q)
 
@@ -385,8 +388,7 @@ class RSAC:
             # Update state
             state = state.replace(actor=new_actor, critic=new_critic, temp=new_temp)
 
-            # info = {**critic_info, **actor_info, **temp_info}
-            info = {}
+            info = {**critic_info, **actor_info, **temp_info}
             return state, info
 
         def update_step(carry, _):
@@ -397,6 +399,7 @@ class RSAC:
             key, update_key = jax.random.split(key)
 
             state, update_info = update(update_key, state)
+            info.update(update_info)
 
             if self.cfg.track:
 
@@ -410,13 +413,15 @@ class RSAC:
                                 "training/episodic_length": info[
                                     "returned_episode_lengths"
                                 ].mean(),
+                                "losses/actor": info["actor_loss"],
+                                "losses/critic": info["critic_loss"],
+                                "losses/temp": info["temp_loss"],
                             },
                             step=step,
                         )
 
                 jax.debug.callback(callback, state.step, info)
 
-            info.update(update_info)
             return (key, state), info
 
         (key, state), info = jax.lax.scan(

@@ -16,6 +16,7 @@ from networks import DoubleCritic, StochasticActor, Temperature
 from omegaconf import OmegaConf
 from utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 
+import wandb
 from utils import BraxGymnaxWrapper, LogWrapper, periodic_incremental_update
 
 
@@ -73,6 +74,7 @@ class SACConfig:
     max_action: float
     backup_entropy: bool
     learning_starts: int
+    track: bool
 
 
 @chex.dataclass(frozen=True)
@@ -168,22 +170,23 @@ class SAC:
             action = jax.vmap(self.env.action_space(self.env_params).sample)(sample_key)
 
             step_key = jax.random.split(step_key, self.cfg.num_envs)
-            next_obs, env_state, reward, done, info = jax.vmap(
+            next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
 
             transition = Transition(
                 obs=state.obs,  # type: ignore
-                done=done,  # type: ignore
+                done=state.done,  # type: ignore
                 action=action,  # type: ignore
                 reward=reward,  # type: ignore
                 next_obs=next_obs,  # type: ignore
-                next_done=done,  # type: ignore
+                next_done=next_done,  # type: ignore
             )
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
                 obs=next_obs,  # type: ignore
+                done=next_done,  # type: ignore
                 env_state=env_state,  # type: ignore
                 buffer_state=buffer_state,
             )
@@ -339,8 +342,7 @@ class SAC:
             # Update state
             state = state.replace(actor=new_actor, critic=new_critic, temp=new_temp)
 
-            # info = {**critic_info, **actor_info, **temp_info}
-            info = {}
+            info = {**critic_info, **actor_info, **temp_info}
             return state, info
 
         def update_step(carry, _):
@@ -351,8 +353,30 @@ class SAC:
             key, update_key = jax.random.split(key)
 
             state, update_info = update(update_key, state)
-
             info.update(update_info)
+
+            if self.cfg.track:
+
+                def callback(step, info):
+                    if step % 100 == 0:
+                        wandb.log(
+                            {
+                                "training/episodic_return": info[
+                                    "returned_episode_returns"
+                                ].mean(),
+                                "training/episodic_length": info[
+                                    "returned_episode_lengths"
+                                ].mean(),
+                                "losses/actor": info["actor_loss"],
+                                "losses/critic": info["critic_loss"],
+                                "losses/temp": info["temp_loss"],
+                                "losses/entropy": info["entropy"],
+                            },
+                            step=step,
+                        )
+
+                jax.debug.callback(callback, state.step, info)
+
             return (key, state), info
 
         (key, state), info = jax.lax.scan(
@@ -444,7 +468,7 @@ def make_sac(cfg) -> SAC:
     algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
     algorithm_cfg["hidden_dims"] = tuple(algorithm_cfg["hidden_dims"])
     return SAC(
-        cfg=SACConfig(**algorithm_cfg),
+        cfg=SACConfig(**algorithm_cfg, track=cfg.logger.track),  # type: ignore
         env=env,
         env_params=env_params,
         actor_network=actor_network,

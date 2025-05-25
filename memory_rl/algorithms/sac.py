@@ -183,7 +183,6 @@ class SAC:
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
-                step=state.step + self.cfg.num_envs,
                 obs=next_obs,  # type: ignore
                 env_state=env_state,  # type: ignore
                 buffer_state=buffer_state,
@@ -344,10 +343,6 @@ class SAC:
             info = {}
             return state, info
 
-        def no_update(key, state):
-            # return state, {'critic_loss': 0.0, 'actor_loss': 0.0, 'temp_loss': 0.0}
-            return state, {}
-
         def update_step(carry, _):
             (key, state), info = jax.lax.scan(
                 step, carry, length=self.cfg.train_frequency // self.cfg.num_envs
@@ -355,13 +350,7 @@ class SAC:
 
             key, update_key = jax.random.split(key)
 
-            state, update_info = jax.lax.cond(
-                state.step >= self.cfg.learning_starts,
-                update,
-                no_update,
-                update_key,
-                state,
-            )
+            state, update_info = update(update_key, state)
 
             info.update(update_info)
             return (key, state), info
@@ -381,21 +370,23 @@ class SAC:
         return new_state, action
 
     @partial(jax.jit, static_argnames=["self"])
-    def sample_eval(self, state: SACState, obs: jnp.ndarray) -> jnp.ndarray:
+    def sample_eval(
+        self, key: chex.PRNGKey, state: SACState, obs: jnp.ndarray
+    ) -> jnp.ndarray:
         dist = state.actor.apply_fn(
             {"params": state.actor.params}, obs, temperature=0.0
         )
-        action = dist.sample(seed=state.key)
+        action = dist.sample(seed=key)
         return action
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: chex.PRNGKey, state: SACState, num_steps: int):
         def step(carry, _):
             key, state = carry
-            key, env_key = jax.random.split(key)
+            key, sample_key, env_key = jax.random.split(key, 3)
 
             # Get action in evaluation mode (deterministic)
-            action = self.sample_eval(state, state.obs)
+            action = self.sample_eval(sample_key, state, state.obs)
 
             # Step environment
             env_key = jax.random.split(env_key, self.cfg.num_envs)

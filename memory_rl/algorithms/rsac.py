@@ -483,7 +483,7 @@ class RSAC:
             action = action.squeeze(1)
 
             # Step environment
-            env_key = jax.random.split(env_key, self.cfg.num_envs)
+            env_key = jax.random.split(env_key, self.cfg.num_eval_envs)
             next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(env_key, state.env_state, action, self.env_params)
@@ -499,7 +499,7 @@ class RSAC:
             return (key, state), info
 
         (key, state), info = jax.lax.scan(
-            step, (key, state), length=num_steps // self.cfg.num_envs
+            step, (key, state), length=num_steps // self.cfg.num_eval_envs
         )
 
         return key, info

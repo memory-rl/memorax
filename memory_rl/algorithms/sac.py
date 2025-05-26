@@ -185,9 +185,10 @@ class SAC:
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
-                obs=next_obs,  # type: ignore
-                done=next_done,  # type: ignore
-                env_state=env_state,  # type: ignore
+                step=state.step + self.cfg.num_envs,
+                obs=next_obs,
+                done=next_done,
+                env_state=env_state,
                 buffer_state=buffer_state,
             )
 
@@ -413,7 +414,7 @@ class SAC:
             action = self.sample_eval(sample_key, state, state.obs)
 
             # Step environment
-            env_key = jax.random.split(env_key, self.cfg.num_envs)
+            env_key = jax.random.split(env_key, self.cfg.num_eval_envs)
             next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(env_key, state.env_state, action, self.env_params)
@@ -424,7 +425,7 @@ class SAC:
             return (key, state), info
 
         (key, state), info = jax.lax.scan(
-            step, (key, state), length=num_steps // self.cfg.num_envs
+            step, (key, state), length=num_steps // self.cfg.num_eval_envs
         )
 
         return key, info
@@ -432,7 +433,7 @@ class SAC:
 
 def make_sac(cfg) -> SAC:
 
-    env = BraxGymnaxWrapper(cfg.environment.env_id)
+    env = BraxGymnaxWrapper(cfg.environment.env_id, backend="mjx")
     env_params = None
     env = LogWrapper(env)
     action_dim = env.action_space(env_params).shape[0]

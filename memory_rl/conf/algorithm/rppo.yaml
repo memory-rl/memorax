@@ -1,0 +1,23 @@
+# Algorithm specific arguments
+name: rppo
+total_timesteps: 500000
+learning_rate: 0.0003
+num_envs: 5
+num_steps: 128
+anneal_lr: True
+gamma: 0.99
+gae_lambda: 0.95
+num_minibatches: 5
+update_epochs: 4
+norm_adv: True
+clip_coef: 0.2
+clip_vloss: True
+ent_coef: 0.01
+vf_coef: 0.5
+max_grad_norm: 0.5
+learning_starts: 0
+num_train_steps: 100000
+num_evaluation_steps: 50000
+hidden_dims: [256]
+actor_cell_size: 256
+critic_cell_size: 256

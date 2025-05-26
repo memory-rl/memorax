@@ -110,7 +110,7 @@ class Agent(nn.Module):
         x = nn.tanh(x)
         h, x = MaskedRNN(  # type: ignore
             self.cell,
-            time_major=True,
+            time_major=False,
             return_carry=True,
         )(x, mask, initial_carry=initial_carry)
         x = nn.Dense(
@@ -175,21 +175,24 @@ class RPPO:
             env_keys, self.env_params
         )
         done = jnp.zeros(self.args.num_envs, dtype=bool)
-        hidden_state = self.agent.initialize_carry((self.args.num_envs, 128))
+        hidden_state = self.agent.initialize_carry(jax.random.key(0), (self.args.num_envs, 128))
 
-        params = self.agent.init(agent_key, obs, done)
+        dummy_x_for_init = jnp.expand_dims(obs, 1)
+        dummy_mask_for_init = jnp.expand_dims(done, 1)
+        params = self.agent.init(agent_key, dummy_x_for_init, dummy_mask_for_init, initial_carry=hidden_state)['params']
+
         optimizer_state = self.optimizer.init(params)
 
         return (
             key,
             RPPOState(
-                step=0,  # type: ignore
-                obs=obs,  # type: ignore
-                done=done,  # type: ignore
-                hidden_state=hidden_state,  # type: ignore
-                env_state=env_state,  # type: ignore
-                params=params,  # type: ignore
-                optimizer_state=optimizer_state,  # type: ignore
+                step=0,
+                obs=obs,
+                done=done,
+                hidden_state=hidden_state,
+                env_state=env_state,
+                params=params,
+                optimizer_state=optimizer_state,
             ),
         )
 
@@ -206,28 +209,31 @@ class RPPO:
 
                 key, action_key, step_key = jax.random.split(key, 3)
 
+                obs_for_agent = jnp.expand_dims(state.obs, 1)
+                done_for_agent = jnp.expand_dims(state.done, 1)
+
                 hidden_state, probs, value = self.agent.apply(
                     state.params,
-                    jnp.expand_dims(state.obs, 0),
-                    jnp.expand_dims(state.done, 0),
+                    obs_for_agent,
+                    done_for_agent,
                     state.hidden_state,
                 )
-                value = value.squeeze(0)
-                action = probs.sample(seed=action_key).squeeze(0)
-                log_prob = probs.log_prob(action).squeeze(0)
+                value = value.squeeze(1)
+                action = probs.sample(seed=action_key).squeeze(1)
+                log_prob = probs.log_prob(action).squeeze(1)
 
                 step_key = jax.random.split(step_key, self.args.num_envs)
                 next_obs, env_state, reward, done, info = jax.vmap(
                     self.env.step, in_axes=(0, 0, 0, None)
                 )(step_key, state.env_state, action, self.env_params)
                 transition = Transition(
-                    observation=state.obs,  # type: ignore
-                    action=action,  # type: ignore
-                    reward=reward,  # type: ignore
-                    done=done,  # type: ignore
-                    info=info,  # type: ignore
-                    log_prob=log_prob,  # type: ignore
-                    value=value,  # type: ignore
+                    observation=state.obs,
+                    action=action,
+                    reward=reward,
+                    done=done,
+                    info=info,
+                    log_prob=log_prob,
+                    value=value,
                 )
 
                 state = state.replace(
@@ -246,14 +252,16 @@ class RPPO:
                 (key, state),
                 length=self.args.num_steps,
             )
+            obs_for_final_value = jnp.expand_dims(state.obs, 1)
+            done_for_final_value = jnp.expand_dims(state.done, 1)
             _, _, final_value = self.agent.apply(
                 state.params,
-                jnp.expand_dims(state.obs, 0),
-                jnp.expand_dims(state.done, 0),
+                obs_for_final_value,
+                done_for_final_value,
                 state.hidden_state,
             )
 
-            final_value = final_value.squeeze(0)
+            final_value = final_value.squeeze(1)
 
             advantages, returns = compute_gae(
                 self.args.gamma,
@@ -276,41 +284,50 @@ class RPPO:
                     def loss_fn(
                         params, initial_hidden, transitions, advantages, returns
                     ):
+                        obs_b_t_f = jnp.swapaxes(transitions.observation, 0, 1)
+                        mask_b_t = jnp.swapaxes(transitions.done, 0, 1)
+
                         _, probs, value = self.agent.apply(
                             params,
-                            transitions.observation,
-                            transitions.done,
-                            initial_hidden.squeeze(0),
+                            obs_b_t_f,
+                            mask_b_t,
+                            initial_hidden,
                         )
 
-                        log_prob = probs.log_prob(transitions.action)
+                        actions_b_t = jnp.swapaxes(transitions.action, 0, 1)
+                        log_prob_b_t_prev = jnp.swapaxes(transitions.log_prob, 0, 1)
+                        advantages_b_t = jnp.swapaxes(advantages, 0, 1)
+                        returns_b_t = jnp.swapaxes(returns, 0, 1)
+                        value_b_t_prev = jnp.swapaxes(transitions.value, 0, 1)
+
+                        log_prob = probs.log_prob(actions_b_t)
                         entropy = probs.entropy().mean()
 
-                        ratio = jnp.exp(log_prob - transitions.log_prob)
+                        ratio = jnp.exp(log_prob - log_prob_b_t_prev)
                         actor_loss = -jnp.minimum(
-                            ratio * advantages,
+                            ratio * advantages_b_t,
                             jnp.clip(
                                 ratio,
                                 1.0 - self.args.clip_coef,
                                 1.0 + self.args.clip_coef,
                             )
-                            * advantages,
+                            * advantages_b_t,
                         ).mean()
 
                         if self.args.clip_vloss:
-                            critic_loss = jnp.square(value - returns)
-                            clipped_value = transitions.value + jnp.clip(
-                                (value - transitions.value),
+                            critic_loss = jnp.square(value - returns_b_t)
+                            clipped_value = value_b_t_prev + jnp.clip(
+                                (value - value_b_t_prev),
                                 -self.args.clip_coef,
                                 self.args.clip_coef,
                             )
-                            clipped_critic_loss = jnp.square(clipped_value - returns)
+                            clipped_critic_loss = jnp.square(clipped_value - returns_b_t)
                             critic_loss = (
                                 0.5
                                 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
                             )
                         else:
-                            critic_loss = 0.5 * jnp.square(value - returns).mean()
+                            critic_loss = 0.5 * jnp.square(value - returns_b_t).mean()
 
                         loss = (
                             actor_loss
@@ -346,34 +363,46 @@ class RPPO:
                     permutation_key, self.args.num_envs
                 )
 
-                batch = (initial_hidden, transitions, advantages, returns)
+                initial_hidden_shuffled = jnp.take(initial_hidden, permutation, axis=0)
 
-                shuffled_batch = jax.tree_util.tree_map(
-                    lambda x: jnp.take(x, permutation, axis=1), batch
+                initial_hidden_minibatches = jnp.reshape(
+                    initial_hidden_shuffled,
+                    [self.args.num_minibatches, -1] + list(initial_hidden_shuffled.shape[1:])
                 )
-                minibatches = jax.tree_util.tree_map(
-                    lambda x: jnp.swapaxes(
+
+                transitions_shuffled = jax.tree_util.tree_map(lambda x: jnp.take(x, permutation, axis=1), transitions)
+                advantages_shuffled = jnp.take(advantages, permutation, axis=1)
+                returns_shuffled = jnp.take(returns, permutation, axis=1)
+
+                def reshape_and_swap(x):
+                    return jnp.swapaxes(
                         jnp.reshape(
                             x,
-                            [x.shape[0], self.args.num_minibatches, -1]
-                            + list(x.shape[2:]),
-                        ),
-                        1,
-                        0,
-                    ),
-                    shuffled_batch,
-                )
+                            [x.shape[0], self.args.num_minibatches, -1] + list(x.shape[2:])
+                        ), 1, 0
+                    )
 
+                transitions_minibatches = jax.tree_util.tree_map(reshape_and_swap, transitions_shuffled)
+                advantages_minibatches = reshape_and_swap(advantages_shuffled)
+                returns_minibatches = reshape_and_swap(returns_shuffled)
+
+                minibatches_for_scan = (
+                    initial_hidden_minibatches, 
+                    transitions_minibatches, 
+                    advantages_minibatches, 
+                    returns_minibatches
+                )
+                
                 state, loss = jax.lax.scan(
                     update_minibatch,
-                    state,
-                    minibatches,
+                    state, 
+                    minibatches_for_scan,
                 )
 
                 return (
                     key,
                     state,
-                    initial_hidden,
+                    initial_hidden_state,
                     transitions,
                     advantages,
                     returns,
@@ -384,7 +413,7 @@ class RPPO:
                 (
                     key,
                     state,
-                    jnp.expand_dims(initial_hidden_state, 0),
+                    initial_hidden_state,
                     transitions,
                     advantages,
                     returns,
@@ -429,18 +458,21 @@ class RPPO:
             reset_key, self.env_params
         )
         done = jnp.zeros(self.args.num_envs, dtype=bool)
-        initial_hidden_state = self.agent.initialize_carry((self.args.num_envs, 128))
+        initial_hidden_state = self.agent.initialize_carry(jax.random.key(0), (self.args.num_envs, 128))
 
         def step(carry, _):
             key, obs, done, env_state, hidden_state = carry
 
+            obs_for_agent = jnp.expand_dims(obs, 1)
+            done_for_agent = jnp.expand_dims(done, 1)
+
             hidden_state, probs, _ = self.agent.apply(
                 state.params,
-                jnp.expand_dims(obs, 0),
-                jnp.expand_dims(done, 0),
+                obs_for_agent,
+                done_for_agent,
                 hidden_state,
             )
-            action = jnp.argmax(probs.logits, axis=-1).squeeze(0)
+            action = jnp.argmax(probs.logits, axis=-1).squeeze(1)
 
             key, step_key = jax.random.split(key)
             step_key = jax.random.split(step_key, self.args.num_envs)
@@ -457,7 +489,7 @@ class RPPO:
         return key, info
 
 
-def make_rppo(args: Args):
+def make_rppo_old(args: Args):
     env, env_params = gymnax.make(args.env_id)
     env = FlattenObservationWrapper(env)
     env = LogWrapper(env)

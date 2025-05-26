@@ -1,0 +1,521 @@
+import os
+import time
+from dataclasses import dataclass
+from functools import partial
+from typing import Any, Callable
+
+import chex
+import distrax
+import flax.linen as nn
+import gymnax
+import jax
+import jax.numpy as jnp
+import optax
+import tyro
+from flax import core, struct
+from flax.training.train_state import TrainState
+from gymnax.wrappers import FlattenObservationWrapper
+from optax import linear_schedule
+from recurrent_networks import MaskedGRUCell, MaskedRNN
+
+from utils import LogWrapper
+from utils import compute_recurrent_gae as compute_gae
+
+from omegaconf import OmegaConf
+
+
+class ActorNetwork(nn.Module):
+    action_dim: int
+    cell: nn.RNNCellBase
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray, mask: jnp.ndarray, initial_carry: jnp.ndarray | None = None):
+        actor_features = nn.Dense(
+            128,
+            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+            bias_init=nn.initializers.constant(0.0),
+        )(x)
+        actor_features = nn.tanh(actor_features)
+
+        h, actor_output = MaskedRNN(  # type: ignore
+            self.cell,
+            time_major=True,
+            return_carry=True,
+        )(actor_features, mask, initial_carry=initial_carry)
+        
+        actor_output_dense = nn.Dense(
+            128,
+            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+            bias_init=nn.initializers.constant(0.0),
+        )(actor_output)
+        actor_output_dense = nn.tanh(actor_output_dense)
+        
+        logits = nn.Dense(
+            self.action_dim,
+            kernel_init=nn.initializers.orthogonal(scale=0.01),
+            bias_init=nn.initializers.constant(0.0),
+        )(actor_output_dense)
+        probs = distrax.Categorical(logits=logits)
+        return h, probs
+
+    def initialize_carry(self, key, input_shape): # input_shape here is (batch_size, feature_dim_of_cell_input)
+        return self.cell.initialize_carry(key, input_shape)
+
+
+class CriticNetwork(nn.Module):
+    cell: nn.RNNCellBase
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray, mask: jnp.ndarray, initial_carry: jnp.ndarray | None = None):
+        critic_features = nn.Dense(
+            128,
+            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+            bias_init=nn.initializers.constant(0.0),
+        )(x)
+        critic_features = nn.tanh(critic_features)
+
+        h, critic_output = MaskedRNN(  # type: ignore
+            self.cell,
+            time_major=True,
+            return_carry=True,
+        )(critic_features, mask, initial_carry=initial_carry)
+        
+        critic_output_dense = nn.Dense(
+            128,
+            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+            bias_init=nn.initializers.constant(0.0),
+        )(critic_output)
+        critic_output_dense = nn.tanh(critic_output_dense)
+        
+        value = nn.Dense(
+            1,
+            kernel_init=nn.initializers.orthogonal(scale=1.0),
+            bias_init=nn.initializers.constant(0.0),
+        )(critic_output_dense)
+        return h, value.squeeze(-1)
+
+    def initialize_carry(self, key, input_shape): # (batch_size, feature_dim_of_cell_input)
+        return self.cell.initialize_carry(key, input_shape)
+
+
+@chex.dataclass(frozen=True)
+class Transition:
+    observation: chex.Array
+    action: chex.Array
+    reward: chex.Array
+    done: chex.Array
+    info: chex.Array
+    log_prob: chex.Array
+    value: chex.Array
+
+
+@chex.dataclass(frozen=True)
+class RPPOState:
+    step: int
+    obs: chex.Array
+    done: chex.Array
+    env_state: gymnax.EnvState
+    actor_hidden_state: chex.Array
+    critic_hidden_state: chex.Array
+    actor_params: core.FrozenDict[str, chex.ArrayTree]
+    critic_params: core.FrozenDict[str, chex.ArrayTree]
+    actor_optimizer_state: optax.OptState
+    critic_optimizer_state: optax.OptState
+
+
+@chex.dataclass(frozen=True)
+class RPPO:
+    cfg: Any  # Full config object
+    env: gymnax.environments.environment.Environment
+    env_params: gymnax.EnvParams
+    actor_network: ActorNetwork
+    critic_network: CriticNetwork
+    actor_optimizer: optax.GradientTransformation
+    critic_optimizer: optax.GradientTransformation
+
+    def init(self, key):
+        key, env_key, actor_key, critic_key = jax.random.split(key, 4)
+
+        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
+        obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
+            env_keys, self.env_params
+        )
+        done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
+        actor_hidden_state = self.actor_network.initialize_carry(jax.random.key(0), (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor_cell_size))
+        critic_hidden_state = self.critic_network.initialize_carry(jax.random.key(0), (self.cfg.algorithm.num_envs, self.cfg.algorithm.critic_cell_size))
+
+        dummy_obs_for_init = jnp.expand_dims(obs, 0) # (1, num_envs, obs_dim)
+        dummy_mask_for_init = jnp.expand_dims(done, 0) # (1, num_envs)
+        
+        actor_params = self.actor_network.init(actor_key, dummy_obs_for_init, dummy_mask_for_init, actor_hidden_state)['params']
+        critic_params = self.critic_network.init(critic_key, dummy_obs_for_init, dummy_mask_for_init, critic_hidden_state)['params']
+        
+        actor_optimizer_state = self.actor_optimizer.init(actor_params)
+        critic_optimizer_state = self.critic_optimizer.init(critic_params)
+
+        return (
+            key,
+            RPPOState(
+                step=0,  # type: ignore
+                obs=obs,  # type: ignore
+                done=done,  # type: ignore
+                actor_hidden_state=actor_hidden_state, # type: ignore
+                critic_hidden_state=critic_hidden_state, # type: ignore
+                env_state=env_state,  # type: ignore
+                actor_params=actor_params, # type: ignore
+                critic_params=critic_params, # type: ignore
+                actor_optimizer_state=actor_optimizer_state, # type: ignore
+                critic_optimizer_state=critic_optimizer_state, # type: ignore
+            ),
+        )
+
+    def warmup(self, key, state, num_steps):
+        """No warmup needed for RPPO"""
+        return key, state
+
+    def train(self, key, state, num_steps):
+
+        def update_step(carry: tuple, _):
+
+            def step(carry: tuple, _):
+                key, state = carry
+
+                key, action_key, step_key = jax.random.split(key, 3)
+
+                actor_h_next, probs = self.actor_network.apply(
+                    {'params': state.actor_params},
+                    jnp.expand_dims(state.obs, 0), # (1, B, F_obs)
+                    jnp.expand_dims(state.done, 0), # (1, B) mask
+                    state.actor_hidden_state
+                )
+                critic_h_next, value = self.critic_network.apply(
+                    {'params': state.critic_params},
+                    jnp.expand_dims(state.obs, 0), # (1, B, F_obs)
+                    jnp.expand_dims(state.done, 0), # (1, B) mask
+                    state.critic_hidden_state
+                )
+
+                value = value.squeeze(0)
+                action = probs.sample(seed=action_key).squeeze(0)
+                log_prob = probs.log_prob(action).squeeze(0)
+
+                step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
+                next_obs, env_state, reward, done, info = jax.vmap(
+                    self.env.step, in_axes=(0, 0, 0, None)
+                )(step_key, state.env_state, action, self.env_params)
+                transition = Transition(
+                    observation=state.obs,  # type: ignore
+                    action=action,  # type: ignore
+                    reward=reward,  # type: ignore
+                    done=done,  # type: ignore
+                    info=info,  # type: ignore
+                    log_prob=log_prob,  # type: ignore
+                    value=value,  # type: ignore
+                )
+
+                state = state.replace(
+                    step=state.step + self.cfg.algorithm.num_envs,
+                    obs=next_obs,
+                    env_state=env_state,
+                    done=done,
+                    actor_hidden_state=actor_h_next,
+                    critic_hidden_state=critic_h_next,
+                )
+                return (key, state), transition
+
+            key, state = carry
+            initial_actor_h_rollout = state.actor_hidden_state
+            initial_critic_h_rollout = state.critic_hidden_state
+            (key, state), transitions = jax.lax.scan(
+                step,
+                (key, state),
+                length=self.cfg.algorithm.num_steps,
+            )
+            _, final_value = self.critic_network.apply(
+                {'params': state.critic_params},
+                jnp.expand_dims(state.obs, 0),
+                jnp.expand_dims(state.done, 0),
+                state.critic_hidden_state, # Use the latest critic hidden state from scan
+            )
+
+            final_value = final_value.squeeze(0)
+
+            advantages, returns = compute_gae(
+                self.cfg.algorithm.gamma,
+                self.cfg.algorithm.gae_lambda,
+                transitions,
+                final_value,
+                state.done,
+            )
+
+            if self.cfg.algorithm.norm_adv:
+                advantages = (advantages - advantages.mean()) / (
+                    advantages.std() + 1e-8
+                )
+
+            def update_epoch(carry: tuple, _):
+
+                def update_minibatch(state, minibatch: tuple):
+                    initial_actor_h_mb, initial_critic_h_mb, transitions, advantages, returns = minibatch
+
+                    def loss_fn(
+                        params, initial_actor_h, initial_critic_h, transitions, advantages, returns
+                    ):
+                        _, probs = self.actor_network.apply(
+                            {'params': params['actor']},
+                            transitions.observation, # (T,B,F)
+                            transitions.done, # (T,B) - mask
+                            initial_actor_h.squeeze(0) # (B,H)
+                        )
+                        _, value = self.critic_network.apply(
+                            {'params': params['critic']},
+                            transitions.observation, # (T,B,F)
+                            transitions.done, # (T,B) - mask
+                            initial_critic_h.squeeze(0) # (B,H)
+                        )
+
+                        log_prob = probs.log_prob(transitions.action)
+                        entropy = probs.entropy().mean()
+
+                        ratio = jnp.exp(log_prob - transitions.log_prob)
+                        actor_loss = -jnp.minimum(
+                            ratio * advantages,
+                            jnp.clip(
+                                ratio,
+                                1.0 - self.cfg.algorithm.clip_coef,
+                                1.0 + self.cfg.algorithm.clip_coef,
+                            )
+                            * advantages,
+                        ).mean()
+
+                        if self.cfg.algorithm.clip_vloss:
+                            critic_loss = jnp.square(value - returns)
+                            clipped_value = transitions.value + jnp.clip(
+                                (value - transitions.value),
+                                -self.cfg.algorithm.clip_coef,
+                                self.cfg.algorithm.clip_coef,
+                            )
+                            clipped_critic_loss = jnp.square(clipped_value - returns)
+                            critic_loss = (
+                                0.5
+                                * jnp.maximum(critic_loss, clipped_critic_loss).mean()
+                            )
+                        else:
+                            critic_loss = 0.5 * jnp.square(value - returns).mean()
+
+                        loss = (
+                            actor_loss
+                            + self.cfg.algorithm.vf_coef * critic_loss
+                            - self.cfg.algorithm.ent_coef * entropy
+                        )
+
+                        return loss, (actor_loss, critic_loss, entropy)
+
+                    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+                    (loss, (actor_loss, critic_loss, entropy_loss)), grads = grad_fn(
+                        {'actor': state.actor_params, 'critic': state.critic_params},
+                        initial_actor_h_mb, # (1,B,H)
+                        initial_critic_h_mb, # (1,B,H)
+                        transitions,
+                        advantages,
+                        returns,
+                    )
+
+                    actor_grads = grads['actor']
+                    critic_grads = grads['critic']
+
+                    actor_updates, new_actor_opt_state = self.actor_optimizer.update(
+                        actor_grads, state.actor_optimizer_state, state.actor_params
+                    )
+                    new_actor_params = optax.apply_updates(state.actor_params, actor_updates)
+
+                    critic_updates, new_critic_opt_state = self.critic_optimizer.update(
+                        critic_grads, state.critic_optimizer_state, state.critic_params
+                    )
+                    new_critic_params = optax.apply_updates(state.critic_params, critic_updates)
+
+                    state = state.replace(
+                        actor_params=new_actor_params,
+                        critic_params=new_critic_params,
+                        actor_optimizer_state=new_actor_opt_state,
+                        critic_optimizer_state=new_critic_opt_state
+                    )
+                    return state, (loss, actor_loss, critic_loss, entropy_loss)
+
+                key, state, initial_actor_h_epoch, initial_critic_h_epoch, transitions, advantages, returns = carry
+
+                key, permutation_key = jax.random.split(key)
+
+                permutation = jax.random.permutation(
+                    permutation_key, self.cfg.algorithm.num_envs
+                )
+
+                batch = (initial_actor_h_epoch, initial_critic_h_epoch, transitions, advantages, returns)
+
+                shuffled_batch = jax.tree_util.tree_map(
+                    lambda x: jnp.take(x, permutation, axis=1), batch
+                )
+                minibatches = jax.tree_util.tree_map(
+                    lambda x: jnp.swapaxes(
+                        jnp.reshape(
+                            x,
+                            [x.shape[0], self.cfg.algorithm.num_minibatches, -1]
+                            + list(x.shape[2:]),
+                        ),
+                        1,
+                        0,
+                    ),
+                    shuffled_batch,
+                )
+
+                state, loss = jax.lax.scan(
+                    update_minibatch,
+                    state,
+                    minibatches,
+                )
+
+                return (
+                    key,
+                    state,
+                    initial_actor_h_epoch,
+                    initial_critic_h_epoch,
+                    transitions,
+                    advantages,
+                    returns,
+                ), loss
+
+            (key, state, *_), losses = jax.lax.scan(
+                update_epoch,
+                (
+                    key,
+                    state,
+                    jnp.expand_dims(initial_actor_h_rollout, 0), # (1,B,H)
+                    jnp.expand_dims(initial_critic_h_rollout, 0), # (1,B,H)
+                    transitions,
+                    advantages,
+                    returns,
+                ),
+                length=self.cfg.algorithm.update_epochs,
+            )
+
+            if self.cfg.logger.debug:
+
+                def callback(info, losses):
+                    return_values = info["returned_episode_returns"][
+                        info["returned_episode"]
+                    ]
+                    timesteps = (
+                        info["timestep"][info["returned_episode"]] * self.cfg.algorithm.num_envs
+                    )
+                    for t in range(len(timesteps)):
+                        print(
+                            f"global step={timesteps[t]}, episodic return={return_values[t]}"
+                        )
+
+                jax.debug.callback(callback, transitions.info, losses)
+
+            return (
+                key,
+                state,
+            ), transitions.info
+
+        (key, state), info = jax.lax.scan(
+            update_step,
+            (key, state),
+            length=num_steps // (self.cfg.algorithm.num_envs * self.cfg.algorithm.num_steps),
+        )
+
+        return key, state, info
+
+    def evaluate(self, key, state, num_steps):
+
+        key, reset_key = jax.random.split(key)
+        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_envs)
+        obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
+            reset_key, self.env_params
+        )
+        done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
+        initial_actor_hidden_state = self.actor_network.initialize_carry(jax.random.key(0), (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor_cell_size))
+
+        def step(carry, _):
+            key, obs, done, env_state, actor_h_state = carry
+
+            next_actor_h_state, probs = self.actor_network.apply(
+                {'params': state.actor_params},
+                jnp.expand_dims(obs, 0),
+                jnp.expand_dims(done, 0),
+                actor_h_state,
+            )
+            action = jnp.argmax(probs.logits, axis=-1).squeeze(0)
+
+            key, step_key = jax.random.split(key)
+            step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
+            obs, env_state, _, done, info = jax.vmap(
+                self.env.step, in_axes=(0, 0, 0, None)
+            )(step_key, env_state, action, self.env_params)
+
+            return (key, obs, done, env_state, next_actor_h_state), info
+
+        (key, *_), info = jax.lax.scan(
+            step, (key, obs, done, env_state, initial_actor_hidden_state), length=num_steps
+        )
+
+        return key, info
+
+
+def make_rppo(cfg):
+    env, env_params = gymnax.make(cfg.environment.env_id)
+    env = FlattenObservationWrapper(env)
+    env = LogWrapper(env)
+
+    key = jax.random.key(cfg.seed)
+    key, reset_key = jax.random.split(key, 2)
+
+    reset_key = jax.random.split(reset_key, cfg.algorithm.num_envs)
+    obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
+    done = jnp.zeros(cfg.algorithm.num_envs, dtype=bool)
+
+    actor_network = ActorNetwork(
+        action_dim=env.action_space(env_params).n,
+        cell=MaskedGRUCell(
+            cfg.algorithm.actor_cell_size, # GRU hidden size
+            kernel_init=nn.initializers.orthogonal(scale=1.0),
+            bias_init=nn.initializers.constant(0),
+        ),
+    )
+    critic_network = CriticNetwork(
+        cell=MaskedGRUCell(
+            cfg.algorithm.critic_cell_size, # GRU hidden size
+            kernel_init=nn.initializers.orthogonal(scale=1.0),
+            bias_init=nn.initializers.constant(0),
+        ),
+    )
+
+    # if cfg.algorithm.anneal_lr:
+    #     learning_rate = linear_schedule(
+    #         init_value=cfg.algorithm.learning_rate,
+    #         end_value=0.0,
+    #         transition_steps=(
+    #             cfg.algorithm.num_iterations * cfg.algorithm.update_epochs * cfg.algorithm.num_minibatches
+    #         ),
+    #     )
+    # else:
+    learning_rate = cfg.algorithm.learning_rate
+    actor_optimizer = optax.chain(
+        optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
+        optax.adam(learning_rate=learning_rate, eps=1e-5),
+    )
+    critic_optimizer = optax.chain(
+        optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
+        optax.adam(learning_rate=learning_rate, eps=1e-5),
+    )
+    
+    return RPPO(
+        cfg=cfg,  # Pass the entire config
+        env=env,
+        env_params=env_params,
+        actor_network=actor_network,
+        critic_network=critic_network,
+        actor_optimizer=actor_optimizer,
+        critic_optimizer=critic_optimizer,
+    )

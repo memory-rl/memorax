@@ -250,10 +250,10 @@ class SAC:
         next_q = jnp.minimum(next_q1, next_q2)
 
         temperature = state.temp.apply_fn({"params": state.temp.params})
-        target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * next_q
+        target_q = batch.reward + self.cfg.gamma * (1 - batch.next_done) * next_q
 
         if self.cfg.backup_entropy:
-            target_q -= self.cfg.gamma * (1 - batch.done) * temperature * next_log_probs
+            target_q -= self.cfg.gamma * (1 - batch.next_done) * temperature * next_log_probs
 
         target_q = jax.lax.stop_gradient(target_q)
 

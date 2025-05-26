@@ -9,6 +9,7 @@ from memory_rl.algorithms import (
     make_rppo,
     make_rsac,
     make_sac,
+    make_rsac_old,
 )
 
 register = {
@@ -18,6 +19,7 @@ register = {
     "rppo": make_rppo,
     "sac": make_sac,
     "rsac": make_rsac,
+    "rsac_old": make_rsac_old,
 }
 
 

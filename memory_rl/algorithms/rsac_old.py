@@ -58,6 +58,37 @@ class Transition:
 
 
 @chex.dataclass(frozen=True)
+class RSACConfig:
+    """Configuration for SAC"""
+
+    name: str
+    policy_lr: float
+    q_lr: float
+    temp_lr: float
+    num_envs: int
+    num_eval_envs: int
+    buffer_size: int
+    gamma: float
+    tau: float
+    train_frequency: int
+    target_update_frequency: int
+    batch_size: int
+    hidden_dims: tuple[int]
+    actor_cell_size: int
+    critic_cell_size: int
+    sample_sequence_length: int
+    init_temperature: float
+    policy_log_std_min: float
+    policy_log_std_max: float
+    policy_final_fc_init_scale: float
+    target_entropy_multiplier: float
+    max_action: float
+    backup_entropy: bool
+    learning_starts: int
+    track: bool
+
+
+@chex.dataclass(frozen=True)
 class RSACState(RNNOffPolicyLearnerState):
     actor: train_state.TrainState
     critic: OnlineAndTargetState
@@ -68,7 +99,7 @@ class RSACState(RNNOffPolicyLearnerState):
 
 @chex.dataclass(frozen=True)
 class RSAC:
-    cfg: Any  # Full config object
+    cfg: RSACConfig
     env: Any
     env_params: Any
     actor_network: nn.Module
@@ -82,15 +113,15 @@ class RSAC:
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
         key, env_key, actor_key, critic_key, temp_key = jax.random.split(key, 5)
-        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
         # Initialize environment
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        done = jnp.zeros((self.cfg.algorithm.num_envs,))
+        done = jnp.zeros((self.cfg.num_envs,))
         action = jnp.zeros(
-            (self.cfg.algorithm.num_envs, self.env.action_space(self.env_params).shape[0])
+            (self.cfg.num_envs, self.env.action_space(self.env_params).shape[0])
         )
         _, _, reward, done, _ = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
@@ -108,7 +139,7 @@ class RSAC:
             tx=self.actor_optimizer,
         )
         actor_hidden_state = self.actor_network.cell.initialize_carry(
-            jax.random.key(0), (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor_cell_size)
+            jax.random.key(0), (self.cfg.num_envs, self.cfg.actor_cell_size)
         )
 
         # Initialize critic
@@ -159,10 +190,10 @@ class RSAC:
 
             key, sample_key, step_key = jax.random.split(key, 3)
 
-            sample_key = jax.random.split(sample_key, self.cfg.algorithm.num_envs)
+            sample_key = jax.random.split(sample_key, self.cfg.num_envs)
             action = jax.vmap(self.env.action_space(self.env_params).sample)(sample_key)
 
-            step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.num_envs)
             next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
@@ -187,14 +218,14 @@ class RSAC:
             return (key, state), info
 
         (key, state), _ = jax.lax.scan(
-            step, (key, state), length=num_steps // self.cfg.algorithm.num_envs
+            step, (key, state), length=num_steps // self.cfg.num_envs
         )
         return key, state
 
     @partial(jax.jit, static_argnames=["self"])
     def update_temperature(self, state: RSACState, entropy: float):
         action_dim = self.env.action_space(self.env_params).shape[0]
-        target_entropy = -self.cfg.algorithm.target_entropy_multiplier * action_dim
+        target_entropy = -self.cfg.target_entropy_multiplier * action_dim
 
         def temperature_loss_fn(temp_params):
             temperature = state.temp.apply_fn({"params": temp_params})
@@ -249,11 +280,11 @@ class RSAC:
         next_q = jnp.minimum(next_q1, next_q2)
 
         temperature = state.temp.apply_fn({"params": state.temp.params})
-        target_q = batch.reward + self.cfg.algorithm.gamma * (1 - batch.next_done) * next_q
+        target_q = batch.reward + self.cfg.gamma * (1 - batch.next_done) * next_q
 
-        if self.cfg.algorithm.backup_entropy:
+        if self.cfg.backup_entropy:
             target_q -= (
-                self.cfg.algorithm.gamma * (1 - batch.next_done) * temperature * next_log_probs
+                self.cfg.gamma * (1 - batch.next_done) * temperature * next_log_probs
             )
 
         target_q = jax.lax.stop_gradient(target_q)
@@ -279,8 +310,8 @@ class RSAC:
             new_critic.params,
             state.critic.target_params,
             state.step,
-            self.cfg.algorithm.target_update_frequency,
-            self.cfg.algorithm.tau,
+            self.cfg.target_update_frequency,
+            self.cfg.tau,
         )
 
         new_critic = new_critic.replace(target_params=new_target_params)
@@ -302,7 +333,7 @@ class RSAC:
             action = dist.sample(seed=action_key).squeeze(1)
 
             # Step environment
-            action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
+            action_key = jax.random.split(action_key, self.cfg.num_envs)
             next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(action_key, state.env_state, action, self.env_params)
@@ -320,7 +351,7 @@ class RSAC:
 
             # Update state
             state = state.replace(
-                step=state.step + self.cfg.algorithm.num_envs,
+                step=state.step + self.cfg.num_envs,
                 obs=next_obs,
                 done=next_done,
                 hidden_state=next_hidden_state,
@@ -362,7 +393,7 @@ class RSAC:
 
         def update_step(carry, _):
             (key, state), info = jax.lax.scan(
-                step, carry, length=self.cfg.algorithm.train_frequency // self.cfg.algorithm.num_envs
+                step, carry, length=self.cfg.train_frequency // self.cfg.num_envs
             )
 
             key, update_key = jax.random.split(key)
@@ -370,7 +401,7 @@ class RSAC:
             state, update_info = update(update_key, state)
             info.update(update_info)
 
-            if self.cfg.logger.track:
+            if self.cfg.track:
 
                 def callback(step, info):
                     if step % 100 == 0:
@@ -394,7 +425,7 @@ class RSAC:
             return (key, state), info
 
         (key, state), info = jax.lax.scan(
-            update_step, (key, state), length=(num_steps // self.cfg.algorithm.train_frequency)
+            update_step, (key, state), length=(num_steps // self.cfg.train_frequency)
         )
 
         return key, state, info
@@ -434,7 +465,6 @@ class RSAC:
         action = dist.sample(seed=key)
         return hidden_state, action
 
-    
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: chex.PRNGKey, state: RSACState, num_steps: int):
         def step(carry, _):
@@ -453,7 +483,7 @@ class RSAC:
             action = action.squeeze(1)
 
             # Step environment
-            env_key = jax.random.split(env_key, self.cfg.algorithm.num_eval_envs)
+            env_key = jax.random.split(env_key, self.cfg.num_eval_envs)
             next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(env_key, state.env_state, action, self.env_params)
@@ -469,13 +499,13 @@ class RSAC:
             return (key, state), info
 
         (key, state), info = jax.lax.scan(
-            step, (key, state), length=num_steps // self.cfg.algorithm.num_eval_envs
+            step, (key, state), length=num_steps // self.cfg.num_eval_envs
         )
 
         return key, info
 
 
-def make_rsac(cfg) -> RSAC:
+def make_rsac_old(cfg) -> RSAC:
 
     env = BraxGymnaxWrapper(cfg.environment.env_id, backend="mjx")
     env_params = None
@@ -515,8 +545,10 @@ def make_rsac(cfg) -> RSAC:
         max_size=cfg.algorithm.buffer_size,
     )
 
+    algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
+    algorithm_cfg["hidden_dims"] = tuple(algorithm_cfg["hidden_dims"])
     return RSAC(
-        cfg=cfg,  # Pass the entire config
+        cfg=RSACConfig(**algorithm_cfg, track=cfg.logger.track),  # type: ignore
         env=env,
         env_params=env_params,
         actor_network=actor_network,

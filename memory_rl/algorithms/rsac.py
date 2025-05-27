@@ -437,39 +437,62 @@ class RSAC:
     
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: chex.PRNGKey, state: RSACState, num_steps: int):
+        # Reinitialize environment state with num_eval_envs
+        key, env_key = jax.random.split(key)
+        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_eval_envs)
+        
+        # Reset environments for evaluation
+        eval_obs, eval_env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
+            env_keys, self.env_params
+        )
+        eval_done = jnp.zeros((self.cfg.algorithm.num_eval_envs,), dtype=bool)
+        
+        # Initialize evaluation hidden state with correct size
+        eval_hidden_state = self.actor_network.cell.initialize_carry(
+            jax.random.key(0), (self.cfg.algorithm.num_eval_envs, self.cfg.algorithm.actor_cell_size)
+        )
+        
+        # Create evaluation state with reinitialized environment components
+        eval_state = state.replace(
+            obs=eval_obs,
+            done=eval_done,
+            env_state=eval_env_state,
+            hidden_state=eval_hidden_state,
+        )
+
         def step(carry, _):
-            key, state = carry
+            key, eval_state = carry
             key, sample_key, env_key = jax.random.split(key, 3)
 
             # Get action in evaluation mode (deterministic)
             next_hidden_state, action = self.sample_eval(
                 sample_key,
-                state,
-                jnp.expand_dims(state.obs, 1),
-                jnp.expand_dims(state.done, 1),
-                state.hidden_state,
+                eval_state,
+                jnp.expand_dims(eval_state.obs, 1),
+                jnp.expand_dims(eval_state.done, 1),
+                eval_state.hidden_state,
             )
 
             action = action.squeeze(1)
 
-            # Step environment
+            # Step environment with correct number of eval environments
             env_key = jax.random.split(env_key, self.cfg.algorithm.num_eval_envs)
             next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
-            )(env_key, state.env_state, action, self.env_params)
+            )(env_key, eval_state.env_state, action, self.env_params)
 
-            # Update state
-            state = state.replace(
+            # Update evaluation state
+            eval_state = eval_state.replace(
                 obs=next_obs,
                 done=next_done,
                 hidden_state=next_hidden_state,
                 env_state=env_state,
             )
 
-            return (key, state), info
+            return (key, eval_state), info
 
-        (key, state), info = jax.lax.scan(
-            step, (key, state), length=num_steps // self.cfg.algorithm.num_eval_envs
+        (key, eval_state), info = jax.lax.scan(
+            step, (key, eval_state), length=num_steps // self.cfg.algorithm.num_eval_envs
         )
 
         return key, info

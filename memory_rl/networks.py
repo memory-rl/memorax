@@ -259,7 +259,7 @@ class RecurrentStochasticActor(nn.Module):
             self.cell,
             return_carry=True,
         )(
-            observations,
+            outputs,
             mask,
             initial_carry=initial_carry,
             return_carry_history=return_carry_history,

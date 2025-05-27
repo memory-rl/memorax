@@ -1,8 +1,9 @@
 # Algorithm specific arguments
-name: rppo
+name: rppo_continuous
 total_timesteps: 500000
 learning_rate: 0.0003
 num_envs: 128
+num_eval_envs: 128
 num_steps: 128
 anneal_lr: True
 gamma: 0.99

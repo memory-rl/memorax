@@ -94,6 +94,32 @@ class RecurrentCritic(nn.Module):
         )
         critic = MLP((*self.hidden_dims, 1), activations=self.activations)(critic)
         return hidden_state, jnp.squeeze(critic, -1)
+    
+class RecurrentVCritic(nn.Module):
+    hidden_dims: Sequence[int]
+    cell: RNNCellBase
+    activations: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+
+    @nn.compact
+    def __call__(
+        self,
+        observations: jnp.ndarray,
+        mask: jnp.ndarray,
+        initial_carry: jnp.ndarray | None = None,
+        return_carry_history: bool = False,
+    ):
+        
+        hidden_state, critic = MaskedRNN(
+            self.cell,
+            return_carry=True,
+        )(
+            observations,
+            mask,
+            initial_carry=initial_carry,
+            return_carry_history=return_carry_history,
+        )
+        critic = MLP((*self.hidden_dims, 1), activations=self.activations)(critic)
+        return hidden_state, jnp.squeeze(critic, -1)
 
 
 class RecurrentDoubleCritic(nn.Module):

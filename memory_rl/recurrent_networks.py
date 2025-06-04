@@ -107,7 +107,7 @@ class MaskedRNN(nn.RNN):
 
         # maybe reverse the sequence
         if reverse:
-            inputs = jax.tree_util.tree_map(
+            inputs = jax.tree.map(
                 lambda x: nn.flip_sequences(
                     x,
                     seq_lengths,
@@ -116,7 +116,7 @@ class MaskedRNN(nn.RNN):
                 ),
                 inputs,
             )
-            mask = jax.tree_util.tree_map(
+            mask = jax.tree.map(
                 lambda m: nn.flip_sequences(
                     m,
                     seq_lengths,
@@ -190,7 +190,7 @@ class MaskedRNN(nn.RNN):
             carry, outputs = scan_output
 
         if reverse and keep_order:
-            outputs = jax.tree_util.tree_map(
+            outputs = jax.tree.map(
                 lambda x: nn.flip_sequences(
                     x,
                     seq_lengths,

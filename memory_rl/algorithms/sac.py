@@ -19,7 +19,7 @@ from utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 import wandb
 from utils import BraxGymnaxWrapper, LogWrapper, periodic_incremental_update
 
-
+#TODO : REFACTOR OR REMOVE
 @chex.dataclass
 class Batch:
     """Data structure for a batch of transitions sampled from the replay buffer."""
@@ -48,7 +48,7 @@ class Transition:
 
 # Keep the network definitions (StochasticActor, Critic, DoubleCritic, Temperature) the same
 
-
+#TODO: REMOVE CONFIGS
 @chex.dataclass(frozen=True)
 class SACConfig:
     """Configuration for SAC"""

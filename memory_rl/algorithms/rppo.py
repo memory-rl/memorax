@@ -11,7 +11,6 @@ import gymnax
 import jax
 import jax.numpy as jnp
 import optax
-import tyro
 from flax import core, struct
 from flax.training.train_state import TrainState
 from gymnax.wrappers import FlattenObservationWrapper
@@ -253,7 +252,7 @@ class RPPO:
             )
             
             # Convert from time_major=True format (T, B, ...) to time_major=False format (B, T, ...)
-            transitions = jax.tree_util.tree_map(
+            transitions = jax.tree.map(
                 lambda x: jnp.swapaxes(x, 0, 1), transitions
             )
             
@@ -365,10 +364,10 @@ class RPPO:
 
                 batch = (initial_actor_h_epoch, initial_critic_h_epoch, transitions, advantages, returns)
 
-                shuffled_batch = jax.tree_util.tree_map(
+                shuffled_batch = jax.tree.map(
                     lambda x: jnp.take(x, permutation, axis=0), batch
                 )
-                minibatches = jax.tree_util.tree_map(
+                minibatches = jax.tree.map(
                     lambda x: jnp.reshape(
                         x,
                         [self.cfg.algorithm.num_minibatches, -1] + list(x.shape[1:]),

@@ -49,7 +49,7 @@ class QNetwork(nn.Module):
         key = jax.random.key(0)
         return self.cell.initialize_carry(key, input_shape)
 
-
+#TODO: REMOVE CONFIGS
 @chex.dataclass(frozen=True)
 class DRQNConfig:
     name: str
@@ -274,7 +274,7 @@ class DRQN:
                 state.target_params,
                 batch.experience.next_obs,
                 batch.experience.next_done,
-                jax.tree_map(lambda x: x[:, 0, :], batch.experience.next_hidden_state),
+                jax.tree.map(lambda x: x[:, 0, :], batch.experience.next_hidden_state),
                 return_carry_history=self.cfg.update_hidden_state,
             )
             q_next_target = jnp.max(q_next_target, axis=-1)
@@ -289,7 +289,7 @@ class DRQN:
                     params,
                     batch.experience.obs,
                     batch.experience.done,
-                    jax.tree_map(lambda x: x[:, 0, :], batch.experience.hidden_state),
+                    jax.tree.map(lambda x: x[:, 0, :], batch.experience.hidden_state),
                     return_carry_history=self.cfg.update_hidden_state,
                 )
                 action = jnp.expand_dims(batch.experience.action, axis=-1)
@@ -452,7 +452,7 @@ class Transition:
 
 def make_drqn(cfg) -> DRQN:
 
-    env, env_params = gymnax.make(cfg.env.env_id)
+    env, env_params = gymnax.make(cfg.environment.env_id)
     env = FlattenObservationWrapper(env)
     env = LogWrapper(env)
 

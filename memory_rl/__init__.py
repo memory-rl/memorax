@@ -8,3 +8,4 @@ from algorithms import (
     make_rsac,
     make_sac,
 )
+from environments import TMazeClassicActive, TMazeClassicPassive

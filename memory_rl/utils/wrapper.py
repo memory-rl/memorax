@@ -1,9 +1,12 @@
+# Wrappers taken from https://github.com/luchris429/purejaxrl/blob/main/purejaxrl/wrappers.py
+
 from functools import partial
 from typing import Any, Optional, Tuple, Union
 
 import chex
 import jax
 import jax.numpy as jnp
+import navix as nx
 import numpy as np
 from brax import envs
 from brax.envs.wrappers.training import AutoResetWrapper, EpisodeWrapper
@@ -20,51 +23,6 @@ class GymnaxWrapper(object):
     # provide proxy access to regular attributes of wrapped object
     def __getattr__(self, name):
         return getattr(self._env, name)
-
-
-@struct.dataclass
-class EpisodeStatistics:
-    env_state: environment.EnvState
-    episode_return: float
-    episode_length: int
-
-
-class RecordEpisodeStatistics(GymnaxWrapper):
-    """Record the episode returns and lengths."""
-
-    @partial(jax.jit, static_argnums=(0,))
-    def reset(
-        self, key: chex.PRNGKey, params: Optional[environment.EnvParams] = None
-    ) -> Tuple[chex.Array, EpisodeStatistics]:
-        obs, env_state = self._env.reset(key, params)
-        state = EpisodeStatistics(env_state, 0, 0)
-        return obs, state
-
-    @partial(jax.jit, static_argnums=(0,))
-    def step(
-        self,
-        key: chex.PRNGKey,
-        state: EpisodeStatistics,
-        action: Union[int, float],
-        params: Optional[environment.EnvParams] = None,
-    ) -> Tuple[chex.Array, EpisodeStatistics, float, bool, dict]:
-        obs, env_state, reward, done, info = self._env.step(
-            key, state.env_state, action, params
-        )
-        episode_return = state.episode_return + reward
-        episode_length = state.episode_length + 1
-
-        info["episode_return"] = episode_return
-        info["episode_length"] = episode_length
-        info["done"] = done
-
-        state = EpisodeStatistics(
-            env_state=env_state,
-            episode_return=episode_return * (1 - done),
-            episode_length=episode_length * (1 - done),
-        )
-
-        return obs, state, reward, done, info
 
 
 @struct.dataclass
@@ -150,4 +108,30 @@ class BraxGymnaxWrapper:
             low=-1.0,
             high=1.0,
             shape=(self._env.action_size,),
+        )
+
+
+class NavixGymnaxWrapper:
+    def __init__(self, env_name):
+        self._env = nx.make(env_name)
+
+    def reset(self, key, params=None):
+        timestep = self._env.reset(key)
+        return timestep.observation, timestep
+
+    def step(self, key, state, action, params=None):
+        timestep = self._env.step(state, action)
+        return timestep.observation, timestep, timestep.reward, timestep.is_done(), {}
+
+    def observation_space(self, params):
+        return spaces.Box(
+            low=self._env.observation_space.minimum,
+            high=self._env.observation_space.maximum,
+            shape=(np.prod(self._env.observation_space.shape),),
+            dtype=self._env.observation_space.dtype,
+        )
+
+    def action_space(self, params):
+        return spaces.Discrete(
+            num_categories=self._env.action_space.maximum.item() + 1,
         )

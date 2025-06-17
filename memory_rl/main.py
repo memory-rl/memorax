@@ -1,9 +1,11 @@
+import gymnax
 import hydra
 import jax
 from omegaconf import DictConfig, OmegaConf
 
 import wandb
 from memory_rl import Algorithm, make
+from memory_rl.utils import BraxGymnaxWrapper, NavixGymnaxWrapper
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -22,7 +24,17 @@ def main(cfg: DictConfig):
 
     key = jax.random.key(cfg.seed)
 
-    algorithm: Algorithm = make(cfg.algorithm.name, cfg)
+    try:
+        env, env_params = gymnax.make(cfg.environment.env_id)
+    except ValueError:
+        try:
+            env = NavixGymnaxWrapper(cfg.environment.env_id)
+            env_params = None
+        except ValueError:
+            env = BraxGymnaxWrapper(cfg.environment.env_id)
+            env_params = None
+
+    algorithm: Algorithm = make(cfg.algorithm.name, cfg, env, env_params)
 
     key, state = algorithm.init(key)
 

@@ -15,7 +15,7 @@ from gymnax.wrappers import FlattenObservationWrapper
 from omegaconf import OmegaConf
 
 import wandb
-from utils import LogWrapper, RecordEpisodeStatistics, compute_gae
+from utils import LogWrapper, compute_gae
 
 
 class Actor(nn.Module):

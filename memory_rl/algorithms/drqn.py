@@ -49,7 +49,8 @@ class QNetwork(nn.Module):
         key = jax.random.key(0)
         return self.cell.initialize_carry(key, input_shape)
 
-#TODO: REMOVE CONFIGS
+
+# TODO: REMOVE CONFIGS
 @chex.dataclass(frozen=True)
 class DRQNConfig:
     name: str
@@ -450,9 +451,8 @@ class Transition:
     next_hidden_state: tuple
 
 
-def make_drqn(cfg) -> DRQN:
+def make_drqn(cfg, env, env_params) -> DRQN:
 
-    env, env_params = gymnax.make(cfg.environment.env_id)
     env = FlattenObservationWrapper(env)
     env = LogWrapper(env)
 

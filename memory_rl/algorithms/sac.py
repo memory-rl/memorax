@@ -19,7 +19,8 @@ from utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 import wandb
 from utils import BraxGymnaxWrapper, LogWrapper, periodic_incremental_update
 
-#TODO : REFACTOR OR REMOVE
+
+# TODO : REFACTOR OR REMOVE
 @chex.dataclass
 class Batch:
     """Data structure for a batch of transitions sampled from the replay buffer."""
@@ -48,7 +49,8 @@ class Transition:
 
 # Keep the network definitions (StochasticActor, Critic, DoubleCritic, Temperature) the same
 
-#TODO: REMOVE CONFIGS
+
+# TODO: REMOVE CONFIGS
 @chex.dataclass(frozen=True)
 class SACConfig:
     """Configuration for SAC"""
@@ -253,7 +255,9 @@ class SAC:
         target_q = batch.reward + self.cfg.gamma * (1 - batch.next_done) * next_q
 
         if self.cfg.backup_entropy:
-            target_q -= self.cfg.gamma * (1 - batch.next_done) * temperature * next_log_probs
+            target_q -= (
+                self.cfg.gamma * (1 - batch.next_done) * temperature * next_log_probs
+            )
 
         target_q = jax.lax.stop_gradient(target_q)
 
@@ -431,7 +435,7 @@ class SAC:
         return key, info
 
 
-def make_sac(cfg) -> SAC:
+def make_sac(cfg, env, env_params) -> SAC:
 
     env = BraxGymnaxWrapper(cfg.environment.env_id, backend="mjx")
     env_params = None

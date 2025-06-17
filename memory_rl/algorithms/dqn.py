@@ -392,7 +392,7 @@ class Transition:
     done: chex.Array
 
 
-def make_dqn(cfg) -> DQN:
+def make_dqn(cfg, env, env_params) -> DQN:
     """
     Factory function to construct a DQN agent from Args.
 
@@ -402,7 +402,6 @@ def make_dqn(cfg) -> DQN:
     Returns:
         An initialized DQN instance ready for training.
     """
-    env, env_params = gymnax.make(cfg.env.env_id)
     env = FlattenObservationWrapper(env)
     env = LogWrapper(env)
 

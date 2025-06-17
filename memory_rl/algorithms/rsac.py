@@ -90,7 +90,10 @@ class RSAC:
         )
         done = jnp.zeros((self.cfg.algorithm.num_envs,))
         action = jnp.zeros(
-            (self.cfg.algorithm.num_envs, self.env.action_space(self.env_params).shape[0])
+            (
+                self.cfg.algorithm.num_envs,
+                self.env.action_space(self.env_params).shape[0],
+            )
         )
         _, _, reward, done, _ = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
@@ -108,7 +111,8 @@ class RSAC:
             tx=self.actor_optimizer,
         )
         actor_hidden_state = self.actor_network.cell.initialize_carry(
-            jax.random.key(0), (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor_cell_size)
+            jax.random.key(0),
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor_cell_size),
         )
 
         # Initialize critic
@@ -249,11 +253,16 @@ class RSAC:
         next_q = jnp.minimum(next_q1, next_q2)
 
         temperature = state.temp.apply_fn({"params": state.temp.params})
-        target_q = batch.reward + self.cfg.algorithm.gamma * (1 - batch.next_done) * next_q
+        target_q = (
+            batch.reward + self.cfg.algorithm.gamma * (1 - batch.next_done) * next_q
+        )
 
         if self.cfg.algorithm.backup_entropy:
             target_q -= (
-                self.cfg.algorithm.gamma * (1 - batch.next_done) * temperature * next_log_probs
+                self.cfg.algorithm.gamma
+                * (1 - batch.next_done)
+                * temperature
+                * next_log_probs
             )
 
         target_q = jax.lax.stop_gradient(target_q)
@@ -362,7 +371,10 @@ class RSAC:
 
         def update_step(carry, _):
             (key, state), info = jax.lax.scan(
-                step, carry, length=self.cfg.algorithm.train_frequency // self.cfg.algorithm.num_envs
+                step,
+                carry,
+                length=self.cfg.algorithm.train_frequency
+                // self.cfg.algorithm.num_envs,
             )
 
             key, update_key = jax.random.split(key)
@@ -394,7 +406,9 @@ class RSAC:
             return (key, state), info
 
         (key, state), info = jax.lax.scan(
-            update_step, (key, state), length=(num_steps // self.cfg.algorithm.train_frequency)
+            update_step,
+            (key, state),
+            length=(num_steps // self.cfg.algorithm.train_frequency),
         )
 
         return key, state, info
@@ -434,24 +448,24 @@ class RSAC:
         action = dist.sample(seed=key)
         return hidden_state, action
 
-    
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: chex.PRNGKey, state: RSACState, num_steps: int):
         # Reinitialize environment state with num_eval_envs
         key, env_key = jax.random.split(key)
         env_keys = jax.random.split(env_key, self.cfg.algorithm.num_eval_envs)
-        
+
         # Reset environments for evaluation
         eval_obs, eval_env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
         eval_done = jnp.zeros((self.cfg.algorithm.num_eval_envs,), dtype=bool)
-        
+
         # Initialize evaluation hidden state with correct size
         eval_hidden_state = self.actor_network.cell.initialize_carry(
-            jax.random.key(0), (self.cfg.algorithm.num_eval_envs, self.cfg.algorithm.actor_cell_size)
+            jax.random.key(0),
+            (self.cfg.algorithm.num_eval_envs, self.cfg.algorithm.actor_cell_size),
         )
-        
+
         # Create evaluation state with reinitialized environment components
         eval_state = state.replace(
             obs=eval_obs,
@@ -492,13 +506,15 @@ class RSAC:
             return (key, eval_state), info
 
         (key, eval_state), info = jax.lax.scan(
-            step, (key, eval_state), length=num_steps // self.cfg.algorithm.num_eval_envs
+            step,
+            (key, eval_state),
+            length=num_steps // self.cfg.algorithm.num_eval_envs,
         )
 
         return key, info
 
 
-def make_rsac(cfg) -> RSAC:
+def make_rsac(cfg, env, env_params) -> RSAC:
 
     env = BraxGymnaxWrapper(cfg.environment.env_id, backend="mjx")
     env_params = None

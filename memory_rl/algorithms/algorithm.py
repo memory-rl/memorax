@@ -20,7 +20,6 @@ register = {
     "rppo_continuous": make_rppo_continuous,
     "sac": make_sac,
     "rsac": make_rsac,
-    
 }
 
 
@@ -38,9 +37,9 @@ class Algorithm(Protocol):
     evaluate: Callable[[chex.PRNGKey, State, int], tuple[chex.PRNGKey, dict]]
 
 
-def make(algorithm_id: str, cfg) -> Algorithm:
+def make(algorithm_id: str, cfg, env, env_params) -> Algorithm:
 
     if algorithm_id not in register:
         raise ValueError(f"Unknown algorithm {algorithm_id}")
 
-    return register[algorithm_id](cfg)
+    return register[algorithm_id](cfg, env, env_params)

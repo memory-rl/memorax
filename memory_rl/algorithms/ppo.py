@@ -88,6 +88,7 @@ class PPOConfig:
     num_envs: int
     num_eval_envs: int
     num_steps: int
+    hidden_dims: tuple[int]
     anneal_lr: bool
     gamma: float
     gae_lambda: float
@@ -365,9 +366,8 @@ class PPO:
         return key, info
 
 
-def make_ppo(cfg):
+def make_ppo(cfg, env, env_params):
 
-    env, env_params = gymnax.make(cfg.env.env_id)
     env = LogWrapper(env)
     env = FlattenObservationWrapper(env)
 

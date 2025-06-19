@@ -10,3 +10,4 @@ gymnax==0.0.9
 brax==0.12.3
 distrax==0.1.5
 jumanji==1.1.0
+navix==0.7.0

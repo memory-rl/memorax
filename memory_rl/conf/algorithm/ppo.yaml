@@ -1,0 +1,20 @@
+# Algorithm specific arguments
+name: ppo
+learning_rate: 0.001
+num_envs: 8
+num_eval_envs: 8
+num_steps: 256
+anneal_lr: False
+gamma: 0.98
+gae_lambda: 0.8
+num_minibatches: 64
+update_epochs: 20
+normalize_advantage: True
+clip_coef: 0.2
+clip_vloss: False
+ent_coef: 0.0
+vf_coef: 0.5
+max_grad_norm: 0.5
+learning_starts: 0
+hidden_dims: [256]
+

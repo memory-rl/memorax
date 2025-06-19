@@ -4,11 +4,9 @@ num_evaluation_steps: 10_000
 seed: 0
 num_seeds: 1
 
-
-
 defaults:
   - _self_
-  - environment: breakout
+  - environment: default
   - algorithm: default
   - logger: default
 

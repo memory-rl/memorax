@@ -93,6 +93,7 @@ class DQN:
     buffer: fbx.trajectory_buffer.TrajectoryBuffer
     epsilon_schedule: optax.Schedule
 
+    @partial(jax.jit, static_argnames=["self"])
     def init(self, key) -> tuple[chex.PRNGKey, DQNState, chex.Array, gymnax.EnvState]:
         """
         Initialize environment, network parameters, optimizer, and replay buffer.

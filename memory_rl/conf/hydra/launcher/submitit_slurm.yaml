@@ -1,0 +1,19 @@
+defaults:
+  - _self_
+  - override hydra/launcher: submitit_slurm
+
+hydra:
+  launcher:
+    partition: gpu
+    qos: normal
+    nodes: 1
+    tasks_per_node: 1
+    gpus_per_node: 1
+    cpus_per_task: 6
+    mem_gb: 32
+    timeout_min: 1440       # 24 h
+    name: ${hydra.job.name}
+    max_num_timeout: 3
+    signal_delay_s: 120
+    setup:
+      - "source .venv/bin/activate"

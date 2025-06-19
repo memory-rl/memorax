@@ -14,7 +14,6 @@ from flax import core
 from gymnax.wrappers import FlattenObservationWrapper
 from omegaconf import OmegaConf
 
-import wandb
 from utils import LogWrapper, compute_gae
 
 

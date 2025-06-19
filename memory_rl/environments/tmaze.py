@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import chex
 import jax
 import jax.numpy as jnp
 from flax import struct
@@ -17,7 +16,6 @@ class EnvState(environment.EnvState):
     y: jax.Array  # lateral coordinate (−1, 0, +1)
     goal_y: jax.Array  # hidden goal direction
     oracle_visited: jax.Array  # bool flag
-    time: jax.Array  # current step count
 
 
 @struct.dataclass
@@ -76,17 +74,17 @@ class TMaze(environment.Environment[EnvState, EnvParams]):
             y=jnp.asarray(0, jnp.int32),
             goal_y=goal_y,
             oracle_visited=jnp.asarray(False),
-            time=jnp.asarray(0, jnp.int32),
+            time=0,
         )
         return self.get_obs(state, params), state
 
     def step_env(
         self,
-        key: jax.Array,
-        state: EnvState,
-        action: int | jax.Array,
-        params: EnvParams,
-    ) -> tuple[jax.Array, EnvState, jax.Array, jax.Array, dict[Any, Any]]:
+        key,
+        state,
+        action,
+        params,
+    ):
         move = self.ACTION_MAP[action]
         cand_x = state.x + move[0]
         cand_y = state.y + move[1]
@@ -122,9 +120,7 @@ class TMaze(environment.Environment[EnvState, EnvParams]):
             {"discount": self.discount(next_state, params)},
         )
 
-    def get_obs(
-        self, state: EnvState, params: EnvParams, key: jax.Array | None = None
-    ) -> jax.Array:
+    def get_obs(self, state, params, key=None) -> jax.Array:
         """Returns float32 observation of length 3 (+t if requested)."""
         x_i, y_i, g_i = state.x, state.y, state.goal_y
         oracle_exp = jnp.where((x_i == 0) & (~state.oracle_visited), g_i, 0)

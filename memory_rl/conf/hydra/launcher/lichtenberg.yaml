@@ -1,0 +1,19 @@
+defaults:
+  - submitit_slurm   # brings in _target_
+  - _self_
+
+timeout_min: 1440          # wall-time [h] × 60
+nodes: 1
+cpus_per_task: 1
+tasks_per_node: 1
+
+gpus_per_node: 1
+
+additional_parameters:
+  account: project02654
+  gres: gpu:1
+  mem_per_cpu: 4G
+    
+setup:
+    - "module load python/3.10-conda cuda cudnn"
+    - "conda activate memory-rl"

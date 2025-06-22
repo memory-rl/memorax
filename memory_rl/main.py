@@ -20,6 +20,7 @@ def main(cfg: DictConfig):
             entity=cfg.logger.entity,
             name=name,
             group=f"{cfg.algorithm.name}_{cfg.environment.env_id}",
+            config=OmegaConf.to_container(cfg, resolve=True)
         )
 
     key = jax.random.key(cfg.seed)

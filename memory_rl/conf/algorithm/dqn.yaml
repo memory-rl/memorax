@@ -1,15 +1,15 @@
 name: dqn
 learning_rate:       3e-4
 num_envs:            10
-num_eval_envs:       1
-buffer_size:         10_000
+num_eval_envs:       10
+buffer_size:         100_000
 gamma:               0.99
 tau:                 1.0
-target_network_frequency: 500
+target_network_frequency: 1000
 batch_size:          128
 
 start_e:             1.0
-end_e:               0.05
+end_e:               0.01
 exploration_fraction: 0.5
 
 learning_starts:     10000

@@ -1,4 +1,4 @@
-total_timesteps: 10_000_000
+total_timesteps: 2_000_000
 num_train_steps: 100_000
 num_evaluation_steps: 10_000
 seed: 0

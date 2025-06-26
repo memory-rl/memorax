@@ -6,6 +6,7 @@ from omegaconf import DictConfig, OmegaConf
 import wandb
 from memory_rl import Algorithm, TMazeClassicActive, TMazeClassicPassive, make
 from memory_rl.utils import BraxGymnaxWrapper, NavixGymnaxWrapper
+from popjaxrl.envs import make as make_popjax_env
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -20,7 +21,7 @@ def main(cfg: DictConfig):
             entity=cfg.logger.entity,
             name=name,
             group=f"{cfg.algorithm.name}_{cfg.environment.env_id}",
-            config=OmegaConf.to_container(cfg, resolve=True)
+            config=OmegaConf.to_container(cfg, resolve=True),
         )
 
     key = jax.random.key(cfg.seed)
@@ -38,9 +39,12 @@ def main(cfg: DictConfig):
             try:
                 env = NavixGymnaxWrapper(cfg.environment.env_id)
                 env_params = None
-            except ValueError:
-                env = BraxGymnaxWrapper(cfg.environment.env_id)
-                env_params = None
+            except NotImplementedError:
+                try:
+                    env = BraxGymnaxWrapper(cfg.environment.env_id)
+                    env_params = None
+                except KeyError:
+                    env, env_params = make_popjax_env(cfg.environment.env_id)
 
     algorithm: Algorithm = make(cfg.algorithm.name, cfg, env, env_params)
 

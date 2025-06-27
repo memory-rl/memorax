@@ -2,40 +2,19 @@ name: drqn
 learning_rate:       3e-4
 num_envs:            10
 num_eval_envs:       10
-buffer_size:         1_000_000
+buffer_size:         10_000
 gamma:               0.99
 tau:                 1.0
 target_network_frequency: 1000
 batch_size:          128
 
 cell_size:           128
-sample_sequence_length: 64
+sample_sequence_length: 4
 update_hidden_state: false
 
 start_e:             1.0
-end_e:               0.1
+end_e:               0.01
 exploration_fraction: 0.5
 
-learning_starts:     10000
-train_frequency:     4
-
-  #name: drqn
-  #learning_rate:       3e-4
-  #num_envs:            10
-  #num_eval_envs:       10
-  #buffer_size:         1_000_000
-  #gamma:               0.99
-  #tau:                 1.0
-  #target_network_frequency: 1000
-  #batch_size:          64
-
-  #cell_size:           128
-  #sample_sequence_length: 64
-  #update_hidden_state: true
-
-  #start_e:             1.0
-  #end_e:               0.1
-  #exploration_fraction: 0.5
-
-  #learning_starts:     10000
-  #train_frequency:     4
+learning_starts:     10_000
+train_frequency:     10

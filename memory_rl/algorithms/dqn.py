@@ -35,7 +35,6 @@ class QNetwork(nn.Module):
             kernel_size=(3, 3),
             strides=(1, 1),
         )(x)
-        # x = nn.Dense(128)(x)
         x = nn.relu(x)
         x = x.reshape((x.shape[0], -1))
         x = nn.Dense(128)(x)

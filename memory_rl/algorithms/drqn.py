@@ -16,7 +16,7 @@ from omegaconf import OmegaConf
 from recurrent_networks import MaskedOptimizedLSTMCell, MaskedRNN
 
 import wandb
-from popjaxrl.envs import make
+# from popjaxrl.envs import make
 from utils import LogWrapper, make_trajectory_buffer, periodic_incremental_update
 
 

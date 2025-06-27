@@ -16,5 +16,6 @@ start_e:             1.0
 end_e:               0.01
 exploration_fraction: 0.5
 
-learning_starts:     10_000
+learning_starts:     10000
 train_frequency:     10
+

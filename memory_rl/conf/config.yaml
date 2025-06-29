@@ -6,9 +6,10 @@ num_seeds: 1
 
 defaults:
   - _self_
-  - environment: default
   - algorithm: default
+  - environment: default
   - logger: default
+  - optional hyperparameter: ${algorithm}/${environment}
 
 hydra:
   output_subdir: null

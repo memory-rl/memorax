@@ -35,6 +35,7 @@ def main(cfg: DictConfig):
     else:
         try:
             env, env_params = gymnax.make(cfg.environment.env_id)
+            env_params = env_params.replace(**cfg.environment.get("parameters", {}))
         except ValueError:
             try:
                 env = NavixGymnaxWrapper(cfg.environment.env_id)

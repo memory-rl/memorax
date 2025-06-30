@@ -1,1 +1,5 @@
 env_id: MemoryChain-bsuite
+
+parameters:
+  memory_length: 5
+

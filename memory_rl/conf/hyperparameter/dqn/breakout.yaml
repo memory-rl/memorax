@@ -1,0 +1,13 @@
+# @package algorithm
+batch_size: 128
+buffer_size: 10000
+cell_size: 128
+gamma: 0.99
+learning_rate: 0.0006080276003400391
+learning_starts: 10000
+tau: 1
+start_e: 1
+end_e: 0.01
+exploration_fraction: 0.5
+target_network_frequency: 2000
+train_frequency: 10

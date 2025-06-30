@@ -16,6 +16,7 @@ from omegaconf import OmegaConf
 from recurrent_networks import MaskedOptimizedLSTMCell, MaskedRNN
 
 import wandb
+
 # from popjaxrl.envs import make
 from utils import LogWrapper, make_trajectory_buffer, periodic_incremental_update
 
@@ -32,19 +33,20 @@ class QNetwork(nn.Module):
         initial_carry: jax.Array | None = None,
         return_carry_history: bool = False,
     ):
-        B, T, H, W, C = x.shape
-        x = x.reshape(-1, H, W, C)  # → [B·T, H, W, C]
-        x = nn.Conv(
-            features=16,
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding="SAME",
-        )(x)
+        # B, T, H, W, C = x.shape
+        # x = x.reshape(-1, H, W, C)  # → [B·T, H, W, C]
+        # x = nn.Conv(
+        #     features=16,
+        #     kernel_size=(3, 3),
+        #     strides=(1, 1),
+        #     padding="SAME",
+        # )(x)
+        x = nn.Dense(128)(x)
         x = nn.relu(x)
 
-        x = x.reshape(x.shape[0], -1)
-        F = x.shape[-1]
-        x = x.reshape(B, T, F)
+        # x = x.reshape(x.shape[0], -1)
+        # F = x.shape[-1]
+        # x = x.reshape(B, T, F)
         h, x = MaskedRNN(self.cell, return_carry=True)(  # type: ignore
             x,
             mask,

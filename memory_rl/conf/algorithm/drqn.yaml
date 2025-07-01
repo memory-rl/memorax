@@ -8,6 +8,8 @@ tau:                 1.0
 target_network_frequency: 1000
 batch_size:          128
 
+# cell: memory_rl.recurrent_networks.MaskedOptimizedLSTMCell
+cell: memory_rl.recurrent_networks.MaskedGRUCell
 cell_size:           128
 sample_sequence_length: 4
 update_hidden_state: false

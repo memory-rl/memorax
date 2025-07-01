@@ -12,8 +12,9 @@ import jax.numpy as jnp
 import optax
 from flax import core
 from gymnax.wrappers.purerl import FlattenObservationWrapper
+from hydra.utils import get_class
 from omegaconf import OmegaConf
-from recurrent_networks import MaskedOptimizedLSTMCell, MaskedRNN
+from recurrent_networks import MaskedmLSTMCell, MaskedOptimizedLSTMCell, MaskedRNN
 
 import wandb
 
@@ -74,6 +75,7 @@ class DRQNConfig:
     tau: float
     target_network_frequency: int
     batch_size: int
+    cell: nn.RNNCellBase
     cell_size: int
     sample_sequence_length: int
     update_hidden_state: bool
@@ -120,23 +122,36 @@ class DRQN:
         _, _, reward, done, _ = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
-        c, h = self.q_network.initialize_carry((self.cfg.num_envs, self.cfg.cell_size))
+        carry = self.q_network.initialize_carry((self.cfg.num_envs, self.cfg.cell_size))
 
         params = self.q_network.init(
             q_key,
             jnp.expand_dims(obs, 1),
             jnp.expand_dims(done, 1),
-            (c, h),
+            carry,
         )
         target_params = self.q_network.init(
             q_key,
             jnp.expand_dims(obs, 1),
             jnp.expand_dims(done, 1),
-            (c, h),
+            carry,
         )
         optimizer_state = self.optimizer.init(params)
 
-        transition = Transition(obs=obs[0], done=done[0], hidden_state=(c[0], h[0]), action=action[0], reward=reward[0], next_obs=obs[0], next_done=done[0], next_hidden_state=(c[0], h[0]))  # type: ignore
+        transition = Transition(
+            obs=obs[0],
+            done=done[0],
+            hidden_state=(
+                (carry[0][0], carry[1][0]) if isinstance(carry, tuple) else carry[0]
+            ),
+            action=action[0],
+            reward=reward[0],
+            next_obs=obs[0],
+            next_done=done[0],
+            next_hidden_state=(
+                (carry[0][0], carry[1][0]) if isinstance(carry, tuple) else carry[0]
+            ),
+        )  # type: ignore
         buffer_state = self.buffer.init(transition)
 
         return (
@@ -145,7 +160,7 @@ class DRQN:
                 step=0,  # type: ignore
                 obs=obs,  # type: ignore
                 done=done,  # type: ignore
-                hidden_state=(c, h),  # type: ignore
+                hidden_state=carry,  # type: ignore
                 env_state=env_state,  # type: ignore
                 params=params,  # type: ignore
                 target_params=target_params,  # type: ignore
@@ -470,7 +485,7 @@ def make_drqn(cfg, env, env_params) -> DRQN:
 
     q_network = QNetwork(
         action_dim=env.action_space(env_params).n,
-        cell=MaskedOptimizedLSTMCell(cfg.algorithm.cell_size),
+        cell=get_class(cfg.algorithm.cell)(cfg.algorithm.cell_size),
     )
     buffer = make_trajectory_buffer(
         add_batch_size=cfg.algorithm.num_envs,
@@ -491,6 +506,7 @@ def make_drqn(cfg, env, env_params) -> DRQN:
         cfg.algorithm.learning_starts,
     )
 
+    print(cfg.algorithm)
     algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
     return DRQN(
         cfg=DRQNConfig(**algorithm_cfg, track=cfg.logger.track),  # type: ignore

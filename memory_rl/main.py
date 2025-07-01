@@ -60,10 +60,21 @@ def main(cfg: DictConfig):
     )
 
     if cfg.logger.track:
+        info = {
+            f"info/{key}": value.mean()
+            for key, value in info.items()
+            if key
+            not in [
+                "returned_episode",
+                "returned_episode_returns",
+                "returned_episode_lengths",
+            ]
+        }
         wandb.log(
             {
                 "evaluation/episodic_return": episodic_returns,
                 "evaluation/episodic_length": episodic_lengths,
+                **info,
             },
             step=state.step,
         )
@@ -88,11 +99,21 @@ def main(cfg: DictConfig):
         )
 
         if cfg.logger.track:
+            info = {
+                f"info/{key}": value.mean()
+                for key, value in info.items()
+                if key
+                not in [
+                    "returned_episode",
+                    "returned_episode_returns",
+                    "returned_episode_lengths",
+                ]
+            }
             wandb.log(
                 {
                     "evaluation/episodic_return": episodic_returns,
                     "evaluation/episodic_length": episodic_lengths,
-                    # **{f"losses/{key}": value for key, value in info["losses"].items()},
+                    **info,
                 },
                 step=state.step,
             )

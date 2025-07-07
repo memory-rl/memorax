@@ -87,6 +87,7 @@ class BraxGymnaxWrapper:
         self._env = env
         self.action_size = env.action_size
         self.observation_size = (env.observation_size,)
+        return env, None
 
     def reset(self, key, params=None):
         state = self._env.reset(key)
@@ -114,6 +115,7 @@ class BraxGymnaxWrapper:
 class NavixGymnaxWrapper:
     def __init__(self, env_name):
         self._env = nx.make(env_name)
+        return self._env, None
 
     def reset(self, key, params=None):
         timestep = self._env.reset(key)

@@ -35,6 +35,45 @@ class MLP(nn.Module):
 # --- Critic Network ---
 
 
+class QNetwork(nn.Module):
+
+    action_dim: int
+    hidden_dims: Sequence[int]
+    activations: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+
+    @nn.compact
+    def __call__(self, observations: jnp.ndarray) -> jnp.ndarray:
+        critic = MLP(
+            (*self.hidden_dims, self.action_dim), activations=self.activations
+        )(observations)
+        return critic
+
+
+class DoubleQNetwork(nn.Module):
+    action_dim: int
+    hidden_dims: Sequence[int]
+    activations: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    num_qs: int = 2
+
+    @nn.compact
+    def __call__(self, states):
+        # Creates two Critic networks and runs them in parallel.
+        VmapCritic = nn.vmap(
+            QNetwork,
+            variable_axes={"params": 0},  # Map over parameters for each critic
+            split_rngs={
+                "params": True
+            },  # Use different RNGs for parameter initialization
+            in_axes=None,  # Inputs (states, actions) are shared
+            out_axes=0,  # Stack outputs along the first axis
+            axis_size=self.num_qs,
+        )  # Number of critics to create
+        qs = VmapCritic(
+            self.action_dim, self.hidden_dims, activations=self.activations
+        )(states)
+        return qs[0], qs[1]  # Return the two Q-values separately
+
+
 class Critic(nn.Module):
     hidden_dims: Sequence[int]
     activations: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
@@ -94,7 +133,8 @@ class RecurrentCritic(nn.Module):
         )
         critic = MLP((*self.hidden_dims, 1), activations=self.activations)(critic)
         return hidden_state, jnp.squeeze(critic, -1)
-    
+
+
 class RecurrentVCritic(nn.Module):
     hidden_dims: Sequence[int]
     cell: RNNCellBase
@@ -108,7 +148,7 @@ class RecurrentVCritic(nn.Module):
         initial_carry: jnp.ndarray | None = None,
         return_carry_history: bool = False,
     ):
-        
+
         hidden_state, critic = MaskedRNN(
             self.cell,
             return_carry=True,
@@ -288,6 +328,72 @@ class RecurrentStochasticActor(nn.Module):
         else:
             # Returns the raw Normal distribution without tanh squashing.
             return hidden_state, base_dist
+
+
+class StochasticDiscreteActor(nn.Module):
+    hidden_dims: Sequence[int]
+    action_dim: int
+    final_fc_init_scale: float
+    dropout_rate: float | None = None
+
+    @nn.compact
+    def __call__(
+        self,
+        observations: jnp.ndarray,
+        temperature: float = 1.0,
+        training: bool = False,
+    ):
+        x = MLP(self.hidden_dims, activate_final=True, dropout_rate=self.dropout_rate)(
+            observations, training=training
+        )
+
+        logits = (
+            nn.Dense(
+                self.action_dim, kernel_init=default_init(self.final_fc_init_scale)
+            )(x)
+            / temperature
+        )
+
+        return distrax.Categorical(logits=logits)
+
+
+class RecurrentStoachasticDiscreteActor(nn.Module):
+    hidden_dims: Sequence[int]
+    cell: RNNCellBase
+    action_dim: int
+    final_fc_init_scale: float
+    dropout_rate: float | None = None
+
+    @nn.compact
+    def __call__(
+        self,
+        observations: jnp.ndarray,
+        mask: jnp.ndarray,
+        temperature: float = 1.0,
+        training: bool = False,
+        initial_carry: jnp.ndarray | None = None,
+        return_carry_history: bool = False,
+    ):
+
+        x = MLP(self.hidden_dims, activate_final=True, dropout_rate=self.dropout_rate)(
+            observations, training=training
+        )
+
+        hidden_state, x = MaskedRNN(self.cell, return_carry=True)(
+            x,
+            mask,
+            initial_carry=initial_carry,
+            return_carry_history=return_carry_history,
+        )
+
+        logits = (
+            nn.Dense(
+                self.action_dim, kernel_init=default_init(self.final_fc_init_scale)
+            )(x)
+            / temperature
+        )
+
+        return hidden_state, distrax.Categorical(logits=logits)
 
 
 class Temperature(nn.Module):

@@ -1,1 +1,4 @@
 env_id: Asterix-MinAtar
+
+wrappers:
+ - _target_: gymnax.wrappers.FlattenObservationWrapper

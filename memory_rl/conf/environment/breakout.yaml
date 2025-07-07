@@ -1,1 +1,4 @@
 env_id: Breakout-MinAtar
+
+wrappers:
+ - _target_: gymnax.wrappers.FlattenObservationWrapper

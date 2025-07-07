@@ -5,6 +5,7 @@ from omegaconf import DictConfig, OmegaConf
 
 import wandb
 from memory_rl import Algorithm, TMazeClassicActive, TMazeClassicPassive, make
+from memory_rl.environments.environment import make as make_env
 from memory_rl.utils import BraxGymnaxWrapper, NavixGymnaxWrapper
 from popjaxrl.envs import make as make_popjax_env
 
@@ -26,26 +27,7 @@ def main(cfg: DictConfig):
 
     key = jax.random.key(cfg.seed)
 
-    if cfg.environment.env_id == "TMazeClassicActive":
-        env = TMazeClassicActive()
-        env_params = env.default_params
-    elif cfg.environment.env_id == "TMazeClassicPassive":
-        env = TMazeClassicPassive()
-        env_params = env.default_params
-    else:
-        try:
-            env, env_params = gymnax.make(cfg.environment.env_id)
-            env_params = env_params.replace(**cfg.environment.get("parameters", {}))
-        except ValueError:
-            try:
-                env = NavixGymnaxWrapper(cfg.environment.env_id)
-                env_params = None
-            except NotImplementedError:
-                try:
-                    env = BraxGymnaxWrapper(cfg.environment.env_id)
-                    env_params = None
-                except KeyError:
-                    env, env_params = make_popjax_env(cfg.environment.env_id)
+    env, env_params = make_env(cfg.environment)
 
     algorithm: Algorithm = make(cfg.algorithm.name, cfg, env, env_params)
 

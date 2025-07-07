@@ -516,10 +516,6 @@ class RSAC:
 
 def make_rsac(cfg, env, env_params) -> RSAC:
 
-    env = BraxGymnaxWrapper(cfg.environment.env_id, backend="mjx")
-    env_params = None
-    # env, env_params = gymnax.make(cfg.environment.env_id)
-    env = LogWrapper(env)
     action_dim = env.action_space(env_params).shape[0]
 
     # Define networks

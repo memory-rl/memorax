@@ -480,9 +480,6 @@ class Transition:
 
 def make_drqn(cfg, env, env_params) -> DRQN:
 
-    # env = FlattenObservationWrapper(env)
-    env = LogWrapper(env)
-
     q_network = QNetwork(
         action_dim=env.action_space(env_params).n,
         cell=get_class(cfg.algorithm.cell)(cfg.algorithm.cell_size),

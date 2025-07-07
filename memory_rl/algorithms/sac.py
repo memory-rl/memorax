@@ -437,9 +437,6 @@ class SAC:
 
 def make_sac(cfg, env, env_params) -> SAC:
 
-    env = BraxGymnaxWrapper(cfg.environment.env_id, backend="mjx")
-    env_params = None
-    env = LogWrapper(env)
     action_dim = env.action_space(env_params).shape[0]
 
     # Define networks

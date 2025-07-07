@@ -367,9 +367,6 @@ class PPO:
 
 def make_ppo(cfg, env, env_params):
 
-    env = LogWrapper(env)
-    env = FlattenObservationWrapper(env)
-
     actor = Actor(action_dim=env.action_space(env_params).n)
     critic = Critic()
 

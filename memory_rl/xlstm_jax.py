@@ -2,8 +2,7 @@ import jax
 import jax.numpy as jnp  
 import flax
 import flax.linen as nn  
-from typing import Tuple, Optional  
-
+from typing import Tuple
 
 
 class CausalConv1D(nn.Module):  
@@ -23,7 +22,6 @@ class CausalConv1D(nn.Module):
         assert x.ndim == 3, f"Input must be a 3D tensor (batch_size, sequence_length, features), got {x.ndim}D tensor"
         # Note: jax uses channels-last convention
         return nn.Conv(self.features, self.kernel_size, kernel_dilation=self.dilation)(x)
-  
   
 class BlockLinear(nn.Module):  
     in_features: int  
@@ -55,16 +53,19 @@ class sLSTMCarry():
     # for 1D conv we need to store that past ker_size - 1 values
     x_prev: jnp.ndarray 
 
-class sLSTM(nn.Module):  
+class sLSTM(nn.RNNCellBase):  
     inp_dim: int
     head_dim: int
     head_num: int
-    ker_size: int = 4
+    ker_size: int = 4 # in almost all cases ker_size should be 4
     p_factor: float = 4 / 3
     eps: float = 1e-8 # for numerical stability
     use_conv: bool = False,
     
-  
+    @property
+    def num_feature_axes(self) -> int:
+        return 1
+    
     @staticmethod
     def init_hidden(
         batch_size: int, inp_dim: int, head_num: int, head_dim: int, ker_size: int = 4
@@ -76,6 +77,16 @@ class sLSTM(nn.Module):
             h=jnp.zeros((batch_size, head_num * head_dim)),
             m=jnp.zeros((batch_size, head_num * head_dim)),
             x_prev=jnp.zeros((batch_size, ker_size - 1, inp_dim))  # for 1D conv
+        )
+  
+    def initialize_carry(self, rng: jax.random.PRNGKey, input_shape: tuple[int, ...]) -> sLSTMCarry:
+        batch_size = input_shape[0]  # assuming input_shape is (batch_size, ...)
+        return sLSTM.init_hidden(
+            batch_size=batch_size,
+            inp_dim=self.inp_dim,
+            head_num=self.head_num,
+            head_dim=self.head_dim,
+            ker_size=self.ker_size
         )
   
     @nn.compact
@@ -169,47 +180,24 @@ class sLSTM(nn.Module):
         
         return sLSTMCarry(c=c_t, n=n_t, h=h_t, m=m_t, x_prev=x_prev), out + inputs
     
-    
-if __name__ == "__main__":  
-    import jax  
-    import jax.numpy as jnp  
-    from jax import random  
-      
-    key = random.PRNGKey(42)  
-      
-    # Model configuration  
+if __name__ == "__main__": 
+    # Example usage of sLSTM with RNN
+
     batch_size = 2  
     seq_length = 10  
-    inp_dim = 128  
-    head_dim = 64  
-    head_num = 4  
-      
-    # Initialize the model  
-    model = sLSTM(  
-        inp_dim=inp_dim,  
-        head_dim=head_dim,  
-        head_num=head_num,  
-        ker_size=4,  
-        p_factor=4/3,
-        use_conv=False
-    )  
-      
-    # Create dummy input data  
-    # Shape: (batch_size, seq_length, inp_dim)  
-    dummy_input = random.normal(key, (batch_size, inp_dim))  
-      
-    # Initialize model parameters  
-    key, init_key = random.split(key)  
+    inp_dim = 32
 
-    initial_carry = sLSTM.init_hidden(batch_size=batch_size,
-                                        inp_dim=inp_dim,
-                                      head_num=head_num, 
-                                      head_dim=head_dim)
-    params = model.init(init_key, initial_carry, dummy_input)  
+    rnn = nn.RNN(sLSTM(
+        inp_dim=inp_dim,
+        head_dim=64,  
+        head_num=4,  
+        ker_size=4, # in almost all cases ker_size should be 4
+        p_factor=4/3, # p_factor of 4/3 as in xLSTM paper
+        eps=1e-8,  # for numerical stability
+        use_conv=True
+    ))
 
-    print(f"Input shape: {dummy_input.shape}")
-    print("\n--- Forward pass without convolution ---")  
-    new_carry, output = model.apply(params, initial_carry, dummy_input)  
-    print(f"Output shape: {output.shape}") 
-      
-    
+    x = jnp.ones((batch_size, seq_length, inp_dim))
+    variables = rnn.init(jax.random.PRNGKey(0), x)
+    y = rnn.apply(variables, x)
+    print(f"Output shape of rnn: {y.shape}")

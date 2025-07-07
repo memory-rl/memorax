@@ -74,6 +74,70 @@ class DoubleQNetwork(nn.Module):
         return qs[0], qs[1]  # Return the two Q-values separately
 
 
+class RecurrentQNetwork(nn.Module):
+    action_dim: int
+    hidden_dims: Sequence[int]
+    cell: RNNCellBase
+    activations: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+
+    @nn.compact
+    def __call__(
+        self,
+        observations: jnp.ndarray,
+        mask: jnp.ndarray,
+        initial_carry: jnp.ndarray | None = None,
+        return_carry_history: bool = False,
+    ):
+        hidden_state, critic = MaskedRNN(
+            self.cell,
+            return_carry=True,
+        )(
+            observations,
+            mask,
+            initial_carry=initial_carry,
+            return_carry_history=return_carry_history,
+        )
+        critic = MLP(
+            (*self.hidden_dims, self.action_dim), activations=self.activations
+        )(critic)
+        return hidden_state, critic
+
+
+class RecurrentDoubleQNetwork(nn.Module):
+    action_dim: int
+    hidden_dims: Sequence[int]
+    cell: RNNCellBase
+    activations: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    num_qs: int = 2
+
+    @nn.compact
+    def __call__(
+        self,
+        states: jnp.ndarray,
+        mask: jnp.ndarray,
+        initial_carry: jnp.ndarray | None = None,
+        return_carry_history: bool = False,
+    ):
+        # Creates two Critic networks and runs them in parallel.
+        VmapCritic = nn.vmap(
+            RecurrentQNetwork,
+            variable_axes={"params": 0},  # Map over parameters for each critic
+            split_rngs={
+                "params": True
+            },  # Use different RNGs for parameter initialization
+            in_axes=None,  # Inputs (states, actions) are shared
+            out_axes=0,  # Stack outputs along the first axis
+            axis_size=self.num_qs,
+        )  # Number of critics to create
+        hidden_states, qs = VmapCritic(
+            self.action_dim,
+            self.hidden_dims,
+            cell=self.cell,
+            activations=self.activations,
+        )(states, mask, initial_carry, return_carry_history)
+        return hidden_states, qs[0], qs[1]  # Return the two Q-values separately
+
+
 class Critic(nn.Module):
     hidden_dims: Sequence[int]
     activations: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
@@ -357,7 +421,7 @@ class StochasticDiscreteActor(nn.Module):
         return distrax.Categorical(logits=logits)
 
 
-class RecurrentStoachasticDiscreteActor(nn.Module):
+class RecurrentStochasticDiscreteActor(nn.Module):
     hidden_dims: Sequence[int]
     cell: RNNCellBase
     action_dim: int

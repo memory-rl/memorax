@@ -9,6 +9,7 @@ from memory_rl.algorithms import (
     make_rppo,
     make_rppo_continuous,
     make_rsac,
+    make_rsacd,
     make_sac,
     make_sacd,
 )
@@ -22,6 +23,7 @@ register = {
     "sac": make_sac,
     "rsac": make_rsac,
     "sacd": make_sacd,
+    "rsacd": make_rsacd,
 }
 
 

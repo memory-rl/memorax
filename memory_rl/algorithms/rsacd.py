@@ -1,36 +1,46 @@
+import os
+from dataclasses import dataclass
 from functools import partial
-from typing import Any, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import chex
 import flashbax as fbx
 import flax.linen as nn
+import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training import train_state
-from networks import DoubleQNetwork, StochasticDiscreteActor, Temperature
+from hydra.utils import instantiate
+from networks import (
+    RecurrentDoubleQNetwork,
+    RecurrentStochasticDiscreteActor,
+    Temperature,
+)
 from omegaconf import OmegaConf
+from recurrent_networks import MaskedGRUCell
 from utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 
 import wandb
-from utils import LogWrapper, periodic_incremental_update
+from utils import LogWrapper, make_trajectory_buffer, periodic_incremental_update
 
 
-# TODO : REFACTOR OR REMOVE
 @chex.dataclass
 class Batch:
     """Data structure for a batch of transitions sampled from the replay buffer."""
 
     obs: chex.Array
     """Batch of obs with shape [batch_size, obs_dim]"""
+    done: chex.Array
+    """Batch of done flags with shape [batch_size]"""
     action: chex.Array
     """Batch of actions with shape [batch_size, action_dim]"""
     reward: chex.Array
     """Batch of rewards with shape [batch_size]"""
     next_obs: chex.Array
     """Batch of next obs with shape [batch_size, obs_dim]"""
-    done: chex.Array
-    """Batch of done flags with shape [batch_size]"""
+    next_done: chex.Array
+    """Batch of next done flags with shape [batch_size]"""
 
 
 @chex.dataclass(frozen=True)
@@ -46,36 +56,8 @@ class Transition:
 # Keep the network definitions (StochasticActor, Critic, DoubleCritic, Temperature) the same
 
 
-# TODO: REMOVE CONFIGS
 @chex.dataclass(frozen=True)
-class SACDConfig:
-    """Configuration for SAC"""
-
-    name: str
-    policy_lr: float
-    q_lr: float
-    temp_lr: float
-    num_envs: int
-    num_eval_envs: int
-    buffer_size: int
-    gamma: float
-    tau: float
-    train_frequency: int
-    target_update_frequency: int
-    batch_size: int
-    hidden_dims: tuple[int]
-    init_temperature: float
-    policy_log_std_min: float
-    policy_log_std_max: float
-    policy_final_fc_init_scale: float
-    target_entropy_multiplier: float
-    backup_entropy: bool
-    learning_starts: int
-    track: bool
-
-
-@chex.dataclass(frozen=True)
-class SACDState(RNNOffPolicyLearnerState):
+class RSACDState(RNNOffPolicyLearnerState):
     actor: train_state.TrainState
     critic: OnlineAndTargetState
     temp: train_state.TrainState
@@ -84,8 +66,8 @@ class SACDState(RNNOffPolicyLearnerState):
 
 
 @chex.dataclass(frozen=True)
-class SACD:
-    cfg: SACDConfig
+class RSACD:
+    cfg: Any  # Full config object
     env: Any
     env_params: Any
     actor_network: nn.Module
@@ -99,29 +81,43 @@ class SACD:
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
         key, env_key, actor_key, critic_key, temp_key = jax.random.split(key, 5)
-        env_keys = jax.random.split(env_key, self.cfg.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
 
         # Initialize environment
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
+        done = jnp.zeros((self.cfg.algorithm.num_envs,))
         action = jnp.zeros(
-            (self.cfg.num_envs,), dtype=self.env.action_space(self.env_params).dtype
+            (self.cfg.algorithm.num_envs,),
+            dtype=self.env.action_space(self.env_params).dtype,
         )
         _, _, reward, done, _ = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
 
         # Initialize actor
-        actor_params = self.actor_network.init(actor_key, obs)["params"]
+        actor_params = self.actor_network.init(
+            actor_key,
+            jnp.expand_dims(obs, 1),
+            jnp.expand_dims(done, 1),
+        )["params"]
         actor = train_state.TrainState.create(
             apply_fn=self.actor_network.apply,
             params=actor_params,
             tx=self.actor_optimizer,
         )
+        actor_hidden_state = self.actor_network.cell.initialize_carry(
+            jax.random.key(0),
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor_cell_size),
+        )
 
         # Initialize critic
-        critic_params = self.critic_network.init(critic_key, obs)["params"]
+        critic_params = self.critic_network.init(
+            critic_key,
+            jnp.expand_dims(obs, 1),
+            jnp.expand_dims(done, 1),
+        )["params"]
         critic = OnlineAndTargetState.create(
             apply_fn=self.critic_network.apply,
             params=critic_params,
@@ -140,10 +136,10 @@ class SACD:
         transition = Transition(obs=obs[0], done=done[0], action=action[0], reward=reward[0], next_obs=obs[0], next_done=done[0])  # type: ignore
         buffer_state = self.buffer.init(transition)
 
-        return key, SACDState(
+        return key, RSACDState(
             step=0,
             key=key,
-            hidden_state=None,  # SAC doesn't use RNN hidden state
+            hidden_state=actor_hidden_state,
             env_state=env_state,
             buffer_state=buffer_state,
             actor=actor,
@@ -155,51 +151,50 @@ class SACD:
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(
-        self, key, state: SACDState, num_steps: int
-    ) -> tuple[chex.PRNGKey, SACDState]:
+        self, key, state: RSACDState, num_steps: int
+    ) -> tuple[chex.PRNGKey, RSACDState]:
         def step(carry, _):
 
             key, state = carry
 
             key, sample_key, step_key = jax.random.split(key, 3)
 
-            sample_key = jax.random.split(sample_key, self.cfg.num_envs)
+            sample_key = jax.random.split(sample_key, self.cfg.algorithm.num_envs)
             action = jax.vmap(self.env.action_space(self.env_params).sample)(sample_key)
 
-            step_key = jax.random.split(step_key, self.cfg.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
             next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
 
             transition = Transition(
-                obs=state.obs,  # type: ignore
-                done=state.done,  # type: ignore
-                action=action,  # type: ignore
-                reward=reward,  # type: ignore
-                next_obs=next_obs,  # type: ignore
-                next_done=next_done,  # type: ignore
+                obs=jnp.expand_dims(state.obs, 1),  # type: ignore
+                done=jnp.expand_dims(state.done, 1),  # type: ignore
+                action=jnp.expand_dims(action, 1),  # type: ignore
+                reward=jnp.expand_dims(reward, 1),  # type: ignore
+                next_obs=jnp.expand_dims(next_obs, 1),  # type: ignore
+                next_done=jnp.expand_dims(next_done, 1),  # type: ignore
             )
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
-                step=state.step + self.cfg.num_envs,
-                obs=next_obs,
-                done=next_done,
-                env_state=env_state,
+                obs=next_obs,  # type: ignore
+                done=next_done,  # type: ignore
+                env_state=env_state,  # type: ignore
                 buffer_state=buffer_state,
             )
 
             return (key, state), info
 
         (key, state), _ = jax.lax.scan(
-            step, (key, state), length=num_steps // self.cfg.num_envs
+            step, (key, state), length=num_steps // self.cfg.algorithm.num_envs
         )
         return key, state
 
     @partial(jax.jit, static_argnames=["self"])
-    def update_temperature(self, state: SACDState, entropy: float):
+    def update_temperature(self, state: RSACDState, entropy: float):
         action_dim = self.env.action_space(self.env_params).n
-        target_entropy = -self.cfg.target_entropy_multiplier * action_dim
+        target_entropy = -self.cfg.algorithm.target_entropy_multiplier * action_dim
 
         def temperature_loss_fn(temp_params):
             temperature = state.temp.apply_fn({"params": temp_params})
@@ -214,13 +209,17 @@ class SACD:
         return new_temp, info
 
     @partial(jax.jit, static_argnames=["self"])
-    def update_actor(self, key, state: SACDState, batch: Batch):
+    def update_actor(self, key, state: RSACDState, batch: Batch):
         temperature = state.temp.apply_fn({"params": state.temp.params})
 
         def actor_loss_fn(actor_params):
-            dist = state.actor.apply_fn({"params": actor_params}, batch.obs)
+            _, dist = state.actor.apply_fn(
+                {"params": actor_params}, batch.obs, batch.done
+            )
             log_probs = jax.nn.log_softmax(dist.logits)
-            q1, q2 = state.critic.apply_fn({"params": state.critic.params}, batch.obs)
+            _, q1, q2 = state.critic.apply_fn(
+                {"params": state.critic.params}, batch.obs, batch.done
+            )
             q = jnp.minimum(q1, q2)
             actor_loss = (dist.probs * ((temperature * log_probs) - q)).mean()
             return actor_loss, {
@@ -236,26 +235,34 @@ class SACD:
         return new_actor, info
 
     @partial(jax.jit, static_argnames=["self"])
-    def update_critic(self, key, state: SACDState, batch: Batch):
-
+    def update_critic(self, key, state: RSACDState, batch: Batch):
         temperature = state.temp.apply_fn({"params": state.temp.params})
 
-        dist = state.actor.apply_fn({"params": state.actor.params}, batch.next_obs)
+        _, dist = state.actor.apply_fn(
+            {"params": state.actor.params}, batch.next_obs, batch.next_done
+        )
         log_probs = jax.nn.log_softmax(dist.logits)
 
-        next_q1, next_q2 = state.critic.apply_fn(
-            {"params": state.critic.target_params}, batch.next_obs
+        _, next_q1, next_q2 = state.critic.apply_fn(
+            {"params": state.critic.target_params},
+            batch.next_obs,
+            batch.next_done,
         )
         next_q = (
             dist.probs * (jnp.minimum(next_q1, next_q2) - temperature * log_probs)
-        ).sum(axis=1)
+        ).sum(axis=-1)
 
-        target_q = batch.reward + self.cfg.gamma * (1 - batch.next_done) * next_q
+        target_q = (
+            batch.reward + self.cfg.algorithm.gamma * (1 - batch.next_done) * next_q
+        )
+        target_q = jax.lax.stop_gradient(target_q)
 
         def critic_loss_fn(critic_params):
-            q1, q2 = state.critic.apply_fn({"params": critic_params}, batch.obs)
-            q1_a = q1[jnp.arange(self.cfg.batch_size), batch.action]
-            q2_a = q2[jnp.arange(self.cfg.batch_size), batch.action]
+            _, q1, q2 = state.critic.apply_fn(
+                {"params": critic_params}, batch.obs, batch.done
+            )
+            q1_a = jnp.take_along_axis(q1, batch.action[..., None], axis=-1).squeeze(-1)
+            q2_a = jnp.take_along_axis(q2, batch.action[..., None], axis=-1).squeeze(-1)
             critic_loss = ((q1_a - target_q) ** 2).mean() + (
                 (q2_a - target_q) ** 2
             ).mean()
@@ -275,38 +282,51 @@ class SACD:
             new_critic.params,
             state.critic.target_params,
             state.step,
-            self.cfg.target_update_frequency,
-            self.cfg.tau,
+            self.cfg.algorithm.target_update_frequency,
+            self.cfg.algorithm.tau,
         )
 
         new_critic = new_critic.replace(target_params=new_target_params)
         return new_critic, info
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def train(self, key: chex.PRNGKey, state: SACDState, num_steps: int):
+    def train(self, key: chex.PRNGKey, state: RSACDState, num_steps: int):
         def step(carry, _):
             key, state = carry
             key, sample_key, action_key = jax.random.split(key, 3)
 
             # Sample action
-            dist = state.actor.apply_fn({"params": state.actor.params}, state.obs)
-            action = dist.sample(seed=action_key)
+            next_hidden_state, dist = state.actor.apply_fn(
+                {"params": state.actor.params},
+                jnp.expand_dims(state.obs, 1),
+                jnp.expand_dims(state.done, 1),
+                initial_carry=state.hidden_state,
+            )
+            action = dist.sample(seed=action_key).squeeze(1)
 
             # Step environment
-            action_key = jax.random.split(action_key, self.cfg.num_envs)
+            action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
             next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(action_key, state.env_state, action, self.env_params)
 
             # Add to buffer
-            transition = Transition(obs=state.obs, done=state.done, action=action, reward=reward, next_obs=next_obs, next_done=next_done)  # type: ignore
+            transition = Transition(
+                obs=jnp.expand_dims(state.obs, 1),  # type: ignore
+                done=jnp.expand_dims(state.done, 1),  # type: ignore
+                action=jnp.expand_dims(action, 1),  # type: ignore
+                reward=jnp.expand_dims(reward, 1),  # type: ignore
+                next_obs=jnp.expand_dims(next_obs, 1),  # type: ignore
+                next_done=jnp.expand_dims(next_done, 1),  # type: ignore
+            )
             buffer_state = self.buffer.add(state.buffer_state, transition)
 
             # Update state
             state = state.replace(
-                step=state.step + self.cfg.num_envs,
+                step=state.step + self.cfg.algorithm.num_envs,
                 obs=next_obs,
                 done=next_done,
+                hidden_state=next_hidden_state,
                 env_state=env_state,
                 buffer_state=buffer_state,
             )
@@ -321,14 +341,14 @@ class SACD:
             # Update critic
             key, critic_key = jax.random.split(key)
             new_critic, critic_info = self.update_critic(
-                critic_key, state, batch.experience.first
+                critic_key, state, batch.experience
             )  ### Because fbx has weird way of storing transitions
 
             # Update actor using updated critic
             key, actor_key = jax.random.split(key)
             temp_state = state.replace(critic=new_critic)
             new_actor, actor_info = self.update_actor(
-                actor_key, temp_state, batch.experience.first
+                actor_key, temp_state, batch.experience
             )  ### Because fbx has weird way of storing transitions
 
             # Update temperature using updated actor and critic
@@ -345,7 +365,10 @@ class SACD:
 
         def update_step(carry, _):
             (key, state), info = jax.lax.scan(
-                step, carry, length=self.cfg.train_frequency // self.cfg.num_envs
+                step,
+                carry,
+                length=self.cfg.algorithm.train_frequency
+                // self.cfg.algorithm.num_envs,
             )
 
             key, update_key = jax.random.split(key)
@@ -353,7 +376,7 @@ class SACD:
             state, update_info = update(update_key, state)
             info.update(update_info)
 
-            if self.cfg.track:
+            if self.cfg.logger.track:
 
                 def callback(step, info):
                     if step % 100 == 0:
@@ -368,7 +391,6 @@ class SACD:
                                 "losses/actor": info["actor_loss"],
                                 "losses/critic": info["critic_loss"],
                                 "losses/temp": info["temp_loss"],
-                                "losses/entropy": info["entropy"],
                             },
                             step=step,
                         )
@@ -378,72 +400,131 @@ class SACD:
             return (key, state), info
 
         (key, state), info = jax.lax.scan(
-            update_step, (key, state), length=(num_steps // self.cfg.train_frequency)
+            update_step,
+            (key, state),
+            length=(num_steps // self.cfg.algorithm.train_frequency),
         )
 
         return key, state, info
 
     @partial(jax.jit, static_argnames=["self"])
     def sample(
-        self, state: SACDState, obs: jnp.ndarray
-    ) -> Tuple[SACDState, jnp.ndarray]:
+        self,
+        state: RSACDState,
+        obs: jnp.ndarray,
+        done: jnp.ndarray,
+        hidden_state: Any = None,
+    ):
         key, sample_key = jax.random.split(state.key)
-        dist = state.actor.apply_fn({"params": state.actor.params}, obs)
+        hidden_state, dist = state.actor.apply_fn(
+            {"params": state.actor.params}, obs, done, initial_carry=hidden_state
+        )
         action = dist.sample(seed=sample_key)
         new_state = state.replace(key=key)
-        return new_state, action
+        return hidden_state, new_state, action
 
     @partial(jax.jit, static_argnames=["self"])
     def sample_eval(
-        self, key: chex.PRNGKey, state: SACDState, obs: jnp.ndarray
-    ) -> jnp.ndarray:
-        dist = state.actor.apply_fn(
-            {"params": state.actor.params}, obs, temperature=1.0
+        self,
+        key: chex.PRNGKey,
+        state: RSACDState,
+        obs: jnp.ndarray,
+        done: jnp.ndarray,
+        hidden_state: Any = None,
+    ):
+        hidden_state, dist = state.actor.apply_fn(
+            {"params": state.actor.params},
+            obs,
+            done,
+            initial_carry=hidden_state,
+            temperature=1.0,
         )
         action = dist.mode()
-        return action
+        return hidden_state, action
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: chex.PRNGKey, state: SACDState, num_steps: int):
+    def evaluate(self, key: chex.PRNGKey, state: RSACDState, num_steps: int):
+        # Reinitialize environment state with num_eval_envs
+        key, env_key = jax.random.split(key)
+        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_eval_envs)
+
+        # Reset environments for evaluation
+        eval_obs, eval_env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
+            env_keys, self.env_params
+        )
+        eval_done = jnp.zeros((self.cfg.algorithm.num_eval_envs,), dtype=bool)
+
+        # Initialize evaluation hidden state with correct size
+        eval_hidden_state = self.actor_network.cell.initialize_carry(
+            jax.random.key(0),
+            (self.cfg.algorithm.num_eval_envs, self.cfg.algorithm.actor_cell_size),
+        )
+
+        # Create evaluation state with reinitialized environment components
+        eval_state = state.replace(
+            obs=eval_obs,
+            done=eval_done,
+            env_state=eval_env_state,
+            hidden_state=eval_hidden_state,
+        )
+
         def step(carry, _):
-            key, state = carry
+            key, eval_state = carry
             key, sample_key, env_key = jax.random.split(key, 3)
 
             # Get action in evaluation mode (deterministic)
-            action = self.sample_eval(sample_key, state, state.obs)
+            next_hidden_state, action = self.sample_eval(
+                sample_key,
+                eval_state,
+                jnp.expand_dims(eval_state.obs, 1),
+                jnp.expand_dims(eval_state.done, 1),
+                eval_state.hidden_state,
+            )
 
-            # Step environment
-            env_key = jax.random.split(env_key, self.cfg.num_eval_envs)
+            action = action.squeeze(1)
+
+            # Step environment with correct number of eval environments
+            env_key = jax.random.split(env_key, self.cfg.algorithm.num_eval_envs)
             next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
-            )(env_key, state.env_state, action, self.env_params)
+            )(env_key, eval_state.env_state, action, self.env_params)
 
-            # Update state
-            state = state.replace(obs=next_obs, done=next_done, env_state=env_state)
+            # Update evaluation state
+            eval_state = eval_state.replace(
+                obs=next_obs,
+                done=next_done,
+                hidden_state=next_hidden_state,
+                env_state=env_state,
+            )
 
-            return (key, state), info
+            return (key, eval_state), info
 
-        (key, state), info = jax.lax.scan(
-            step, (key, state), length=num_steps // self.cfg.num_eval_envs
+        (key, eval_state), info = jax.lax.scan(
+            step,
+            (key, eval_state),
+            length=num_steps // self.cfg.algorithm.num_eval_envs,
         )
 
         return key, info
 
 
-def make_sacd(cfg, env, env_params) -> SACD:
+def make_rsacd(cfg, env, env_params) -> RSACD:
 
     env = LogWrapper(env)
     action_dim = env.action_space(env_params).n
 
     # Define networks
-    actor_network = StochasticDiscreteActor(
+    actor_network = RecurrentStochasticDiscreteActor(
+        cell=MaskedGRUCell(cfg.algorithm.actor_cell_size),
         hidden_dims=cfg.algorithm.hidden_dims,
         action_dim=action_dim,
         final_fc_init_scale=cfg.algorithm.policy_final_fc_init_scale,
     )
 
-    critic_network = DoubleQNetwork(
-        action_dim=action_dim, hidden_dims=cfg.algorithm.hidden_dims
+    critic_network = RecurrentDoubleQNetwork(
+        cell=MaskedGRUCell(cfg.algorithm.critic_cell_size),
+        action_dim=action_dim,
+        hidden_dims=cfg.algorithm.hidden_dims,
     )
 
     temp_network = Temperature(initial_temperature=cfg.algorithm.init_temperature)
@@ -453,19 +534,17 @@ def make_sacd(cfg, env, env_params) -> SACD:
     critic_optimizer = optax.adam(learning_rate=cfg.algorithm.q_lr)
     temp_optimizer = optax.adam(learning_rate=cfg.algorithm.temp_lr)
 
-    buffer = fbx.make_flat_buffer(
+    buffer = make_trajectory_buffer(
         add_batch_size=cfg.algorithm.num_envs,
         sample_batch_size=cfg.algorithm.batch_size,
-        min_length=cfg.algorithm.batch_size,
-        max_length=cfg.algorithm.buffer_size,
-        add_sequences=False,
-        # sample_sequences=False  # Important: don't sample sequences
+        sample_sequence_length=cfg.algorithm.sample_sequence_length,
+        period=1,
+        min_length_time_axis=cfg.algorithm.sample_sequence_length,
+        max_size=cfg.algorithm.buffer_size,
     )
 
-    algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
-    algorithm_cfg["hidden_dims"] = tuple(algorithm_cfg["hidden_dims"])
-    return SACD(
-        cfg=SACDConfig(**algorithm_cfg, track=cfg.logger.track),  # type: ignore
+    return RSACD(
+        cfg=cfg,  # Pass the entire config
         env=env,
         env_params=env_params,
         actor_network=actor_network,

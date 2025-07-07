@@ -3,6 +3,7 @@
 from typing import Any, Optional, Tuple
 from dataclasses import dataclass
 from functools import partial
+import flax
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
@@ -121,56 +122,82 @@ class GPT(nn.Module):
         return params
 
 
-@dataclass
+@flax.struct.dataclass
 class GPTRNNCellCarry:
-    seq: jnp.ndarray
+    seq: jnp.ndarray  # (batch, max_sequence_length, features)
+    pos: jnp.ndarray  # (batch,) or () if not batched
 
 
 # TODO use KV cache for significant speedup 
 class GPTRNNCell(nn.recurrent.RNNCellBase):
     """A recurrent GPT2 cell compatible with RNNCellBase."""
     config: GPTConfig
+    max_sequence_length: int
 
-    def initialize_carry(self, input_shape, rngs=None):
+    def initialize_carry(self, rng, input_shape):
         # input_shape: (..., features)
         batch_shape = input_shape[:-1]
         features = input_shape[-1]
-        # Start with empty sequence (length 0)
-        seq = jnp.zeros(batch_shape + (0, features), dtype=self.config.dtype or jnp.float32)
-        return GPTRNNCellCarry(seq=seq)
+        seq = jnp.zeros(batch_shape + (self.max_sequence_length, features), dtype=self.config.dtype or jnp.float32)
+        pos = jnp.zeros(batch_shape, dtype=jnp.int32)
+        return GPTRNNCellCarry(seq=seq, pos=pos)
 
     @nn.compact
-    def __call__(self, carry, inputs, deterministic):
-        """
-        carry: GPTRNNCellCarry with "seq", shape (..., t, features)
-        inputs: shape (..., features)
-        Returns: (new_carry, output)
-        """
-        seq = carry.seq  # (..., t, features)
-        # Append current input to sequence
-        seq = jnp.concatenate([seq, inputs[..., None, :]], axis=-2)  # (..., t+1, features)
-        t = seq.shape[-2]
-        pos_ids = jnp.arange(t)[None] # shape (1, t)
-        # Broadcast pos_ids to batch shape
+    def __call__(self, carry, inputs, deterministic=None):
+        if deterministic is None:
+            deterministic = True
+
+        seq, pos = carry.seq, carry.pos  # seq: (..., max_sequence_length, features), pos: (...,)
+
+        # Write input at current position
+        seq = seq.at[..., pos, :].set(inputs)
+        # Compute mask for valid positions
+        t = pos + 1  # current length
+        # Build position ids for embedding
         batch_shape = seq.shape[:-2]
-        pos_ids = jnp.broadcast_to(pos_ids, batch_shape + (t,))
-        
+        pos_ids = jnp.arange(self.max_sequence_length)
+        pos_ids = jnp.broadcast_to(pos_ids, batch_shape + (self.max_sequence_length,))
         pos_emb = nn.Embed(self.config.block_size, self.config.num_embeds,
-                           dtype=self.config.dtype, name='wpe')(pos_ids)  # (..., t, features)
-        x = nn.Dropout(self.config.dropout_rate)(seq + pos_emb, deterministic=deterministic)
-        mask = nn.make_causal_mask(jnp.ones(seq.shape[:-1], dtype=bool), dtype=bool) # shape (..., t)
-        
+                           dtype=self.config.dtype, name='wpe')(pos_ids)
+        # Mask out future positions
+        mask = jnp.arange(self.max_sequence_length) < t[..., None]
+        mask = jnp.expand_dims(mask.astype(bool), axis=(1,2))  # makes it (B, 1, 1, T) will be broadcasted to (B, num_heads, T, T)
+        # Only use valid sequence up to t
+        x = seq + pos_emb
+        x = nn.Dropout(self.config.dropout_rate)(x, deterministic=deterministic)
         for i in range(self.config.num_layers):
             x = Block(self.config, name=f"block_{i}")(x, mask=mask, deterministic=deterministic)
         x = nn.LayerNorm(epsilon=1e-5, dtype=self.config.dtype, use_bias=self.config.use_bias, name='ln_f')(x)
-        # Output is the last position
-        output = x[..., -1, :]
-        new_carry = GPTRNNCellCarry(seq=seq)
+        # Output is the last valid position
+        output = jnp.take_along_axis(x, pos[..., None, None], axis=-2)[..., 0, :]
+        new_carry = GPTRNNCellCarry(seq=seq, pos=pos + 1)
         return new_carry, output
 
     @property
     def num_feature_axes(self):
-        return 1
+        return 1 # For now only 1 is supported
 
 
 
+if __name__ == "__main__":
+    print("Testing GPT...")
+
+    batch_size = 10
+    seq_length = 2
+    features = 768  # num_embeds
+    cell = flax.linen.RNN(GPTRNNCell(
+        config=GPTConfig(
+            block_size=1024,
+            vocab_size=50304,
+            num_layers=12,
+            num_heads=12,
+            num_embeds=768,
+            dropout_rate=0.1
+        ),
+        max_sequence_length=seq_length
+    ))
+    x = jnp.ones((batch_size, seq_length, features), dtype=jnp.float32)
+    
+    y, variables = cell.init_with_output(jax.random.PRNGKey(0), x)
+    print("Output shape:", y.shape)
+    print("Output:", y)

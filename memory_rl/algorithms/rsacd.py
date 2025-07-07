@@ -510,7 +510,6 @@ class RSACD:
 
 def make_rsacd(cfg, env, env_params) -> RSACD:
 
-    env = LogWrapper(env)
     action_dim = env.action_space(env_params).n
 
     # Define networks

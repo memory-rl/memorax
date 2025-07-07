@@ -432,7 +432,6 @@ class SACD:
 
 def make_sacd(cfg, env, env_params) -> SACD:
 
-    env = LogWrapper(env)
     action_dim = env.action_space(env_params).n
 
     # Define networks

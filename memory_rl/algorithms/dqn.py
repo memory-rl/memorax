@@ -403,8 +403,6 @@ def make_dqn(cfg, env, env_params) -> DQN:
     Returns:
         An initialized DQN instance ready for training.
     """
-    # env = FlattenObservationWrapper(env)
-    env = LogWrapper(env)
 
     q_network = QNetwork(
         action_dim=env.action_space(env_params).n,

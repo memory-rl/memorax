@@ -1,0 +1,13 @@
+_type_: mlp
+
+layers:
+  module:
+    _target_: flax.linen.Dense
+    features: 128
+    use_bias: true
+    norm: none
+    dropout_rate: null
+  activation:
+    _target_: flax.linen.relu
+
+param_init: none

@@ -12,12 +12,12 @@ import jax.numpy as jnp
 import optax
 from flax.training import train_state
 from hydra.utils import instantiate
-from networks import DoubleCritic, StochasticActor, Temperature
+from memory_rl.networks import DoubleCritic, StochasticActor, Temperature
 from omegaconf import OmegaConf
-from utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
+from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 
 import wandb
-from utils import BraxGymnaxWrapper, LogWrapper, periodic_incremental_update
+from memory_rl.utils import BraxGymnaxWrapper, LogWrapper, periodic_incremental_update
 
 
 # TODO : REFACTOR OR REMOVE

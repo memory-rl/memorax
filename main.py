@@ -10,7 +10,7 @@ from memory_rl.utils import BraxGymnaxWrapper, NavixGymnaxWrapper
 from popjaxrl.envs import make as make_popjax_env
 
 
-@hydra.main(version_base=None, config_path="conf", config_name="config")
+@hydra.main(version_base=None, config_path="memory_rl/conf", config_name="config")
 def main(cfg: DictConfig):
 
     if cfg.logger.track:

@@ -14,7 +14,7 @@ from flax import core
 from gymnax.wrappers import FlattenObservationWrapper
 from omegaconf import OmegaConf
 
-from utils import LogWrapper, compute_gae
+from memory_rl.utils import LogWrapper, compute_gae
 
 
 class Actor(nn.Module):

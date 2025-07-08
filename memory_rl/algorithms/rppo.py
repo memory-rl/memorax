@@ -17,11 +17,11 @@ from gymnax.wrappers import FlattenObservationWrapper
 from hydra.utils import get_class
 from omegaconf import OmegaConf
 from optax import linear_schedule
-from recurrent_networks import MaskedGRUCell, MaskedRNN
+from memory_rl.recurrent_networks import MaskedGRUCell, MaskedRNN
 
 import wandb
-from utils import LogWrapper
-from utils import compute_recurrent_gae as compute_gae
+from memory_rl.utils import LogWrapper
+from memory_rl.utils import compute_recurrent_gae as compute_gae
 
 
 class ActorNetwork(nn.Module):

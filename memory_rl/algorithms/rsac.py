@@ -8,12 +8,12 @@ import jax.numpy as jnp
 import optax
 from flax.training import train_state
 from hydra.utils import get_class
-from networks import RecurrentDoubleCritic, RecurrentStochasticActor, Temperature
+from memory_rl.networks import RecurrentDoubleCritic, RecurrentStochasticActor, Temperature
 from omegaconf import OmegaConf
-from utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
+from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 
 import wandb
-from utils import (
+from memory_rl.utils import (
     BraxGymnaxWrapper,
     LogWrapper,
     make_trajectory_buffer,

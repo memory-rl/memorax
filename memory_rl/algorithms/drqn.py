@@ -14,12 +14,12 @@ from flax import core
 from gymnax.wrappers.purerl import FlattenObservationWrapper
 from hydra.utils import get_class
 from omegaconf import OmegaConf
-from recurrent_networks import MaskedmLSTMCell, MaskedOptimizedLSTMCell, MaskedRNN
+from memory_rl.recurrent_networks import MaskedmLSTMCell, MaskedOptimizedLSTMCell, MaskedRNN
 
 import wandb
 
 # from popjaxrl.envs import make
-from utils import LogWrapper, make_trajectory_buffer, periodic_incremental_update
+from memory_rl.utils import LogWrapper, make_trajectory_buffer, periodic_incremental_update
 
 
 class QNetwork(nn.Module):

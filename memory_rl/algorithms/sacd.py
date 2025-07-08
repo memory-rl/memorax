@@ -8,12 +8,12 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax.training import train_state
-from networks import DoubleQNetwork, StochasticDiscreteActor, Temperature
+from memory_rl.networks import DoubleQNetwork, StochasticDiscreteActor, Temperature
 from omegaconf import OmegaConf
-from utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
+from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 
 import wandb
-from utils import LogWrapper, periodic_incremental_update
+from memory_rl.utils import LogWrapper, periodic_incremental_update
 
 
 # TODO : REFACTOR OR REMOVE

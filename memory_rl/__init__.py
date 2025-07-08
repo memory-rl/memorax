@@ -1,4 +1,4 @@
-from algorithms import (
+from memory_rl.algorithms import (
     Algorithm,
     make,
     make_dqn,
@@ -8,4 +8,4 @@ from algorithms import (
     make_rsac,
     make_sac,
 )
-from environments import TMazeClassicActive, TMazeClassicPassive
+from memory_rl.environments import TMazeClassicActive, TMazeClassicPassive

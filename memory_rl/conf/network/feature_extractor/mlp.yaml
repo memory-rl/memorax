@@ -1,13 +1,11 @@
-_type_: mlp
-
+_target_: memory_rl.networks.MLP
 layers:
   module:
     _target_: flax.linen.Dense
+    _convert_: object
     features: 128
     use_bias: true
-    norm: none
-    dropout_rate: null
   activation:
-    _target_: flax.nn.relu
+    _target_: flax.linen.relu
+    _partial_: true
 
-param_init: none

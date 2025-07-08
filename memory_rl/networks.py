@@ -4,7 +4,7 @@ import distrax
 import flax.linen as nn
 import jax.numpy as jnp
 from flax.linen.recurrent import RNNCellBase
-from recurrent_networks import MaskedRNN
+from memory_rl.recurrent_networks import MaskedRNN
 
 # --- Common Network Utilities ---
 

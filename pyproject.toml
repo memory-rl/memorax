@@ -1,0 +1,19 @@
+[project]
+name = "memory-rl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "brax>=0.12.4",
+    "distrax>=0.1.5",
+    "flashbax>=0.1.3",
+    "flax>=0.10.7",
+    "gymnax>=0.0.9",
+    "hydra-core>=1.3.2",
+    "hydra-submitit-launcher>=1.2.0",
+    "jumanji>=1.1.1",
+    "navix>=0.7.0",
+    "omegaconf>=2.3.0",
+    "wandb>=0.21.0",
+]

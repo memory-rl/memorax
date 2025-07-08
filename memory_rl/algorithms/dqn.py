@@ -15,7 +15,7 @@ from gymnax.wrappers import FlattenObservationWrapper
 from omegaconf import OmegaConf
 
 import wandb
-from utils import LogWrapper
+from memory_rl.utils import LogWrapper
 
 
 class QNetwork(nn.Module):

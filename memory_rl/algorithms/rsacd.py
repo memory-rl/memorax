@@ -12,17 +12,17 @@ import jax.numpy as jnp
 import optax
 from flax.training import train_state
 from hydra.utils import get_class
-from networks import (
+from memory_rl.networks import (
     RecurrentDoubleQNetwork,
     RecurrentStochasticDiscreteActor,
     Temperature,
 )
 from omegaconf import OmegaConf
-from recurrent_networks import MaskedGRUCell
-from utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
+from memory_rl.recurrent_networks import MaskedGRUCell
+from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 
 import wandb
-from utils import LogWrapper, make_trajectory_buffer, periodic_incremental_update
+from memory_rl.utils import LogWrapper, make_trajectory_buffer, periodic_incremental_update
 
 
 @chex.dataclass

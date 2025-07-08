@@ -16,5 +16,6 @@ vf_coef: 0.5
 max_grad_norm: 0.5
 learning_starts: 0
 hidden_dims: [256]
+cell: memory_rl.recurrent_networks.MaskedGRUCell
 actor_cell_size: 256
 critic_cell_size: 256

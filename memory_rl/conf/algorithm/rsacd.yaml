@@ -11,6 +11,7 @@ train_frequency:     10
 target_update_frequency: 10
 batch_size:          256
 hidden_dims:         [256]
+cell: memory_rl.recurrent_networks.MaskedGRUCell
 actor_cell_size:           256
 critic_cell_size:           256
 sample_sequence_length:     1

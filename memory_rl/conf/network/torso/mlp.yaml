@@ -1,13 +1,8 @@
-_type_: mlp
-
+_target_: memory_rl.networks.MLP
 layers:
   module:
     _target_: flax.linen.Dense
     features: 128
     use_bias: true
-    norm: none
-    dropout_rate: null
   activation:
     _target_: flax.linen.relu
-
-param_init: none

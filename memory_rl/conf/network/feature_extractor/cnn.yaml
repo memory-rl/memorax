@@ -1,16 +1,11 @@
-_type_: cnn
-
+_target_: memory_rl.networks.CNN
 layers:
   module:
     _target_: flax.linen.Conv
     features: 16
     kernel_size: [3, 3]
     strides: [1, 1]
-    padding: VALID
+    padding: "VALID"
     use_bias: false
-    norm: none
-    dropout_rate: null
   activation:
     _target_: flax.linen.relu
-
-param_init: kaiming_normal

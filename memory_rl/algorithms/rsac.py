@@ -1,20 +1,15 @@
-import os
-from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Dict, Optional, Sequence, Tuple
+from typing import Any
 
 import chex
-import flashbax as fbx
 import flax.linen as nn
-import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training import train_state
-from hydra.utils import instantiate
+from hydra.utils import get_class
 from networks import RecurrentDoubleCritic, RecurrentStochasticActor, Temperature
 from omegaconf import OmegaConf
-from recurrent_networks import MaskedGRUCell
 from utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 
 import wandb
@@ -520,7 +515,7 @@ def make_rsac(cfg, env, env_params) -> RSAC:
 
     # Define networks
     actor_network = RecurrentStochasticActor(
-        cell=MaskedGRUCell(cfg.algorithm.actor_cell_size),
+        cell=get_class(cfg.algorithm.cell)(cfg.algorithm.actor_cell_size),
         hidden_dims=cfg.algorithm.hidden_dims,
         action_dim=action_dim,
         max_action=cfg.algorithm.max_action,
@@ -530,7 +525,7 @@ def make_rsac(cfg, env, env_params) -> RSAC:
     )
 
     critic_network = RecurrentDoubleCritic(
-        cell=MaskedGRUCell(cfg.algorithm.critic_cell_size),
+        cell=get_class(cfg.algorithm.cell)(cfg.algorithm.critic_cell_size),
         hidden_dims=cfg.algorithm.hidden_dims,
     )
 
@@ -551,7 +546,7 @@ def make_rsac(cfg, env, env_params) -> RSAC:
     )
 
     return RSAC(
-        cfg=cfg,  # Pass the entire config
+        cfg=cfg,
         env=env,
         env_params=env_params,
         actor_network=actor_network,

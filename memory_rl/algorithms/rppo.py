@@ -14,6 +14,7 @@ import optax
 from flax import core, struct
 from flax.training.train_state import TrainState
 from gymnax.wrappers import FlattenObservationWrapper
+from hydra.utils import get_class
 from omegaconf import OmegaConf
 from optax import linear_schedule
 from recurrent_networks import MaskedGRUCell, MaskedRNN
@@ -142,6 +143,7 @@ class RPPOConfig:
     vf_coef: float
     max_grad_norm: float
     learning_starts: int
+    cell: nn.RNNCellBase
     actor_cell_size: int
     critic_cell_size: int
     track: bool
@@ -570,18 +572,18 @@ def make_rppo(cfg, env, env_params):
 
     actor_network = ActorNetwork(
         action_dim=env.action_space(env_params).n,
-        cell=MaskedGRUCell(
+        cell=get_class(cfg.algorithm.cell)(
             cfg.algorithm.actor_cell_size,  # GRU hidden size
             kernel_init=nn.initializers.orthogonal(scale=1.0),
             bias_init=nn.initializers.constant(0),
         ),
     )
     critic_network = CriticNetwork(
-        cell=MaskedGRUCell(
-            cfg.algorithm.critic_cell_size,  # GRU hidden size
+        cell=get_class(cfg.algorithm.cell)(
+            cfg.algorithm.critic_cell_size,
             kernel_init=nn.initializers.orthogonal(scale=1.0),
             bias_init=nn.initializers.constant(0),
-        ),
+        )
     )
 
     # if cfg.anneal_lr:
@@ -604,9 +606,7 @@ def make_rppo(cfg, env, env_params):
     )
 
     return RPPO(
-        cfg=RPPOConfig(
-            **cfg.algorithm, track=cfg.logger.track
-        ),  # Pass the entire config
+        cfg=RPPOConfig(**cfg.algorithm, track=cfg.logger.track),
         env=env,
         env_params=env_params,
         actor_network=actor_network,

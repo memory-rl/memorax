@@ -36,13 +36,13 @@ A unified reinforcement learning framework featuring memory-augmented algorithms
 Run a default DQN experiment on CartPole:
 
 ```bash
-python main.py algorithm=dqn environment=cartpole
+uv run main algorithm=dqn environment=cartpole
 ```
 
 Launch RPPO run on repeat-recall with wandb logging and set seed:
 
 ```bash
-python main.py --environment repeat_first --algorithm rppo --logger=wandb --seed=42
+uv run main --environment repeat_first --algorithm rppo --logger=wandb --seed=42
 ```
 
 ## Configuration

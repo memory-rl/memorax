@@ -209,7 +209,7 @@ class DRQN:
 
             next_hidden_state, q_values = self.q_network.apply(
                 state.params,
-                observation=jnp.expand_dims(state.obs, 1),
+                jnp.expand_dims(state.obs, 1),
                 mask=jnp.expand_dims(state.done, 1),
                 initial_carry=state.hidden_state,
             )
@@ -267,7 +267,7 @@ class DRQN:
 
             next_hidden_state, q_next_target = self.q_network.apply(
                 state.target_params,
-                observation=batch.experience.next_obs,
+                batch.experience.next_obs,
                 mask=batch.experience.next_done,
                 initial_carry=jax.tree.map(
                     lambda x: x[:, 0, :], batch.experience.next_hidden_state
@@ -284,7 +284,7 @@ class DRQN:
             def loss_fn(params):
                 hidden_state, q_value = self.q_network.apply(
                     params,
-                    observation=batch.experience.obs,
+                    batch.experience.obs,
                     mask=batch.experience.done,
                     initial_carry=jax.tree.map(
                         lambda x: x[:, 0, :], batch.experience.hidden_state
@@ -407,7 +407,7 @@ class DRQN:
 
             hidden_state, q_values = self.q_network.apply(
                 state.params,
-                observation=jnp.expand_dims(state.obs, 1),
+                jnp.expand_dims(state.obs, 1),
                 mask=jnp.expand_dims(state.done, 1),
                 initial_carry=state.hidden_state,
             )
@@ -451,10 +451,6 @@ class Transition:
 
 def make_drqn(cfg, env, env_params) -> DRQN:
 
-    # q_network = QNetwork(
-    #     action_dim=env.action_space(env_params).n,
-    #     cell=get_class(cfg.algorithm.cell)(cfg.algorithm.cell_size),
-    # )
     q_network = Network(
         feature_extractor=instantiate(cfg.algorithm.feature_extractor),
         torso=torsos.RNN(
@@ -483,7 +479,6 @@ def make_drqn(cfg, env, env_params) -> DRQN:
 
     print(cfg.algorithm)
     algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
-    # algorithm_cfg = {k: v for k, v in algorithm_cfg.items() if type(v) is not dict}
     return DRQN(
         cfg=DRQNConfig(**algorithm_cfg, track=cfg.logger.track),  # type: ignore
         env=env,  # type: ignore

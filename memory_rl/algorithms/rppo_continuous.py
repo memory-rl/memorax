@@ -12,12 +12,10 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax import core, struct
-from flax.training.train_state import TrainState
-from gymnax.wrappers import FlattenObservationWrapper
 from hydra.utils import instantiate
+from omegaconf import DictConfig
 from optax import linear_schedule
 
-from memory_rl.utils import LogWrapper, BraxGymnaxWrapper
 from memory_rl.utils import compute_recurrent_gae as compute_gae
 
 from omegaconf import OmegaConf
@@ -38,6 +36,34 @@ class Transition:
     value: chex.Array
 
 
+# @chex.dataclass(frozen=True)
+# class RPPOConfig:
+#     name: str
+#     learning_rate: float
+#     num_envs: int
+#     num_eval_envs: int
+#     num_steps: int
+#     hidden_dims: tuple[int]
+#     anneal_lr: bool
+#     gamma: float
+#     gae_lambda: float
+#     num_minibatches: int
+#     update_epochs: int
+#     normalize_advantage: bool
+#     clip_coef: float
+#     clip_vloss: bool
+#     ent_coef: float
+#     vf_coef: float
+#     max_grad_norm: float
+#     learning_starts: int
+#     actor: dict = field(hash=False)
+#     critic: dict = field(hash=False)
+#     track: bool
+#
+#     @property
+#     def batch_size(self):
+#         return self.num_envs * self.num_steps
+
 @chex.dataclass(frozen=True)
 class RPPOState:
     step: int
@@ -54,7 +80,7 @@ class RPPOState:
 
 @chex.dataclass(frozen=True)
 class RPPO:
-    cfg: Any  # Full config object
+    cfg: DictConfig
     env: Any
     env_params: Any
     actor_network: Network
@@ -72,13 +98,11 @@ class RPPO:
         done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
 
         # Initialize hidden states using the cell from the networks
-        actor_hidden_state = self.actor_network.cell.initialize_carry(
-            jax.random.key(0),
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor_cell_size),
+        actor_hidden_state = self.actor_network.torso.initialize_carry(
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.cell.features),
         )
-        critic_hidden_state = self.critic_network.cell.initialize_carry(
-            jax.random.key(0),
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.critic_cell_size),
+        critic_hidden_state = self.critic_network.torso.initialize_carry(
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.critic.cell.features),
         )
 
         dummy_obs_for_init = jnp.expand_dims(obs, 1)  # (num_envs, 1, obs_dim)
@@ -87,16 +111,16 @@ class RPPO:
         actor_params = self.actor_network.init(
             actor_key,
             dummy_obs_for_init,
-            dummy_mask_for_init,
+            mask=dummy_mask_for_init,
             initial_carry=actor_hidden_state,
-        )["params"]
+        )
 
         critic_params = self.critic_network.init(
             critic_key,
             dummy_obs_for_init,
-            dummy_mask_for_init,
+            mask=dummy_mask_for_init,
             initial_carry=critic_hidden_state,
-        )["params"]
+        )
 
         actor_optimizer_state = self.actor_optimizer.init(actor_params)
         critic_optimizer_state = self.critic_optimizer.init(critic_params)
@@ -132,9 +156,9 @@ class RPPO:
 
                 # Actor forward pass
                 actor_h_next, dist = self.actor_network.apply(
-                    {"params": state.actor_params},
+                    state.actor_params,
                     jnp.expand_dims(state.obs, 1),  # (B, 1, F_obs)
-                    jnp.expand_dims(state.done, 1),  # (B, 1) mask
+                    mask=jnp.expand_dims(state.done, 1),  # (B, 1) mask
                     initial_carry=state.actor_hidden_state,
                 )
 
@@ -145,13 +169,13 @@ class RPPO:
 
                 # Critic forward pass - needs actions for Q-value estimation
                 critic_h_next, value = self.critic_network.apply(
-                    {"params": state.critic_params},
+                    state.critic_params,
                     jnp.expand_dims(state.obs, 1),  # (B, 1, F_obs)
-                    jnp.expand_dims(state.done, 1),  # (B, 1) mask
+                    mask=jnp.expand_dims(state.done, 1),  # (B, 1) mask
                     initial_carry=state.critic_hidden_state,
                 )
 
-                value = value.squeeze(1)
+                value = value.squeeze((1, -1))
 
                 step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
                 next_obs, env_state, reward, done, info = jax.vmap(
@@ -191,21 +215,21 @@ class RPPO:
             # Sample action from current policy for final state
             key, final_action_key = jax.random.split(key)
             _, final_dist = self.actor_network.apply(
-                {"params": state.actor_params},
+                state.actor_params,
                 jnp.expand_dims(state.obs, 1),
-                jnp.expand_dims(state.done, 1),
+                mask=jnp.expand_dims(state.done, 1),
                 initial_carry=state.actor_hidden_state,
             )
             final_action = final_dist.sample(seed=final_action_key).squeeze(1)
 
             _, final_value = self.critic_network.apply(
-                {"params": state.critic_params},
+                state.critic_params,
                 jnp.expand_dims(state.obs, 1),
-                jnp.expand_dims(state.done, 1),
+                mask=jnp.expand_dims(state.done, 1),
                 initial_carry=state.critic_hidden_state,
             )
 
-            final_value = final_value.squeeze(1)
+            final_value = final_value.squeeze((1, -1))
 
             # Compute GAE on time-major data (T, B, ...)
             advantages, returns = compute_gae(
@@ -249,19 +273,20 @@ class RPPO:
                     ):
                         # Actor forward pass
                         _, dist = self.actor_network.apply(
-                            {"params": params["actor"]},
+                            state.actor_params,
                             transitions.observation,  # (B,T,F)
-                            transitions.done,  # (B,T) - mask
+                            mask=transitions.done,  # (B,T) - mask
                             initial_carry=initial_actor_h,  # (B,H)
                         )
 
                         # Critic forward pass
                         _, value = self.critic_network.apply(
-                            {"params": params["critic"]},
+                            state.critic_params,
                             transitions.observation,  # (B,T,F)
-                            transitions.done,  # (B,T) - mask
+                            mask=transitions.done,  # (B,T) - mask
                             initial_carry=initial_critic_h,  # (B,H)
                         )
+                        value = value.squeeze(-1)
 
                         log_prob = dist.log_prob(transitions.action)
                         entropy = -log_prob.mean()
@@ -308,6 +333,7 @@ class RPPO:
 
                     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
                     (loss, (actor_loss, critic_loss, entropy_loss)), grads = grad_fn(
+                        # {"actor": state.actor_params, "critic": state.critic_params},
                         {"actor": state.actor_params, "critic": state.critic_params},
                         initial_actor_h_mb,  # (B,H)
                         initial_critic_h_mb,  # (B,H)
@@ -445,24 +471,25 @@ class RPPO:
             reset_key, self.env_params
         )
         done = jnp.zeros(self.cfg.algorithm.num_eval_envs, dtype=bool)
-        initial_actor_hidden_state = self.actor_network.cell.initialize_carry(
-            jax.random.key(0),
-            (self.cfg.algorithm.num_eval_envs, self.cfg.algorithm.actor_cell_size),
+        initial_actor_hidden_state = self.actor_network.torso.initialize_carry(
+            (self.cfg.algorithm.num_eval_envs, self.cfg.algorithm.actor.cell.features),
         )
 
         def step(carry, _):
             key, obs, done, env_state, actor_h_state = carry
 
             next_actor_h_state, dist = self.actor_network.apply(
-                {"params": state.actor_params},
+                # {"params": state.actor_params},
+                state.actor_params,
                 jnp.expand_dims(obs, 1),  # (num_eval_envs, 1, obs_dim)
-                jnp.expand_dims(done, 1),  # (num_eval_envs, 1)
+                mask=jnp.expand_dims(done, 1),  # (num_eval_envs, 1)
                 initial_carry=actor_h_state,
-                temperature=0.0,  # Deterministic evaluation
+                # temperature=0.0,  # Deterministic evaluation
             )
             # For evaluation, sample from the distribution (could also use mode)
             key, action_key = jax.random.split(key)
             action = dist.sample(seed=action_key).squeeze(1)
+            # action = dist.mode()
 
             key, step_key = jax.random.split(key)
             step_key = jax.random.split(step_key, self.cfg.algorithm.num_eval_envs)
@@ -481,11 +508,7 @@ class RPPO:
         return key, info
 
 
-def make_rppo_continuous(cfg):
-    # Use BraxGymnaxWrapper for continuous environments like in rsac.py
-    env = BraxGymnaxWrapper(cfg.environment.env_id, backend="spring")
-    env_params = None
-    env = LogWrapper(env)
+def make_rppo_continuous(cfg, env, env_params):
 
     action_dim = env.action_space(env_params).shape[0]
 
@@ -507,14 +530,14 @@ def make_rppo_continuous(cfg):
     # )
     actor_network = Network(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        torso=torsos.RNN(cfg.algorithm.actor.cell),
+        torso=torsos.RNN(instantiate(cfg.algorithm.actor.cell)),
         head=heads.SquashedGaussian(
             action_dim=action_dim,
         ),
     )
     critic_network = Network(
         feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        torso=torsos.RNN(cfg.algorithm.critic.cell),
+        torso=torsos.RNN(instantiate(cfg.algorithm.critic.cell)),
         head=heads.VNetwork(),
     )
 

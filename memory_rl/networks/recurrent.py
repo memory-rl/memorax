@@ -3,10 +3,9 @@ from typing import Any, Callable, Tuple
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from flax.linen import initializers, transforms
+from flax.linen import initializers
 from flax.linen.activation import sigmoid, tanh
 from flax.linen.linear import Dense, default_kernel_init
-from flax.linen.module import nowrap
 from flax.typing import Array, Dtype, Initializer, PRNGKey
 from jax import random
 

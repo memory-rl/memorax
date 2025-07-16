@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
@@ -12,12 +12,12 @@ import jax.numpy as jnp
 import optax
 from flax.training import train_state
 from hydra.utils import instantiate
-from memory_rl.networks import DoubleCritic, StochasticActor, Temperature
 from omegaconf import OmegaConf
 from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 
 import wandb
 from memory_rl.utils import BraxGymnaxWrapper, LogWrapper, periodic_incremental_update
+from memory_rl.networks import heads, torsos, Network
 
 
 # TODO : REFACTOR OR REMOVE
@@ -76,6 +76,8 @@ class SACConfig:
     max_action: float
     backup_entropy: bool
     learning_starts: int
+    actor_feature_extractor: dict = field(hash=False)
+    critic_feature_extractor: dict = field(hash=False)
     track: bool
 
 
@@ -440,18 +442,24 @@ def make_sac(cfg, env, env_params) -> SAC:
     action_dim = env.action_space(env_params).shape[0]
 
     # Define networks
-    actor_network = StochasticActor(
-        hidden_dims=cfg.algorithm.hidden_dims,
-        action_dim=action_dim,
-        max_action=cfg.algorithm.max_action,
-        final_fc_init_scale=cfg.algorithm.policy_final_fc_init_scale,
-        log_std_min=cfg.algorithm.policy_log_std_min,
-        log_std_max=cfg.algorithm.policy_log_std_max,
+    actor_network = Network(
+        feature_extractor=instantiate(cfg.algorithm.actor_feature_extractor),
+        head=heads.SquashedGaussian(action_dim=action_dim),
     )
-
-    critic_network = DoubleCritic(hidden_dims=cfg.algorithm.hidden_dims)
-
-    temp_network = Temperature(initial_temperature=cfg.algorithm.init_temperature)
+    critic_network = nn.vmap(
+        Network,
+        variable_axes={"params": 0},
+        split_rngs={"params": True},
+        in_axes=None,
+        out_axes=0,
+        axis_size=2,
+    )(
+        feature_extractor=instantiate(cfg.algorithm.critic_feature_extractor),
+        head=heads.VNetwork(),
+    )
+    temp_network = Network(
+        head=heads.Temperature(initial_temperature=cfg.algorithm.init_temperature)
+    )
 
     # Define optimizers
     actor_optimizer = optax.adam(learning_rate=cfg.algorithm.policy_lr)

@@ -14,53 +14,18 @@ from flax import core
 from gymnax.wrappers.purerl import FlattenObservationWrapper
 from hydra.utils import get_class
 from omegaconf import OmegaConf
-from memory_rl.recurrent_networks import MaskedmLSTMCell, MaskedOptimizedLSTMCell, MaskedRNN
+from hydra.utils import instantiate
+from dataclasses import field
+
 
 import wandb
 
-# from popjaxrl.envs import make
-from memory_rl.utils import LogWrapper, make_trajectory_buffer, periodic_incremental_update
-
-
-class QNetwork(nn.Module):
-    action_dim: int
-    cell: nn.RNNCellBase
-
-    @nn.compact
-    def __call__(
-        self,
-        x: jnp.ndarray,
-        mask: jnp.ndarray,
-        initial_carry: jax.Array | None = None,
-        return_carry_history: bool = False,
-    ):
-        # B, T, H, W, C = x.shape
-        # x = x.reshape(-1, H, W, C)  # → [B·T, H, W, C]
-        # x = nn.Conv(
-        #     features=16,
-        #     kernel_size=(3, 3),
-        #     strides=(1, 1),
-        #     padding="SAME",
-        # )(x)
-        x = nn.Dense(128)(x)
-        x = nn.relu(x)
-
-        # x = x.reshape(x.shape[0], -1)
-        # F = x.shape[-1]
-        # x = x.reshape(B, T, F)
-        h, x = MaskedRNN(self.cell, return_carry=True)(  # type: ignore
-            x,
-            mask,
-            initial_carry=initial_carry,
-            return_carry_history=return_carry_history,
-        )
-        q_values = nn.Dense(self.action_dim)(x)
-
-        return h, q_values
-
-    def initialize_carry(self, input_shape):
-        key = jax.random.key(0)
-        return self.cell.initialize_carry(key, input_shape)
+from memory_rl.utils import (
+    LogWrapper,
+    make_trajectory_buffer,
+    periodic_incremental_update,
+)
+from memory_rl.networks import heads, torsos, Network
 
 
 # TODO: REMOVE CONFIGS
@@ -75,8 +40,7 @@ class DRQNConfig:
     tau: float
     target_network_frequency: int
     batch_size: int
-    cell: nn.RNNCellBase
-    cell_size: int
+    cell: dict = field(hash=False)
     sample_sequence_length: int
     update_hidden_state: bool
     start_e: float
@@ -84,6 +48,7 @@ class DRQNConfig:
     exploration_fraction: float
     train_frequency: int
     learning_starts: int
+    feature_extractor: dict = field(hash=False)
     track: bool
 
 
@@ -105,7 +70,7 @@ class DRQN:
     cfg: Any
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
-    q_network: QNetwork
+    q_network: Network
     optimizer: optax.GradientTransformation
     buffer: fbx.trajectory_buffer.TrajectoryBuffer
     epsilon_schedule: optax.Schedule
@@ -122,19 +87,21 @@ class DRQN:
         _, _, reward, done, _ = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
-        carry = self.q_network.initialize_carry((self.cfg.num_envs, self.cfg.cell_size))
+        carry = self.q_network.torso.initialize_carry(
+            (self.cfg.num_envs, self.cfg.cell["features"])
+        )
 
         params = self.q_network.init(
             q_key,
-            jnp.expand_dims(obs, 1),
-            jnp.expand_dims(done, 1),
-            carry,
+            observation=jnp.expand_dims(obs, 1),
+            mask=jnp.expand_dims(done, 1),
+            initial_carry=carry,
         )
         target_params = self.q_network.init(
             q_key,
-            jnp.expand_dims(obs, 1),
-            jnp.expand_dims(done, 1),
-            carry,
+            observation=jnp.expand_dims(obs, 1),
+            mask=jnp.expand_dims(done, 1),
+            initial_carry=carry,
         )
         optimizer_state = self.optimizer.init(params)
 
@@ -242,9 +209,9 @@ class DRQN:
 
             next_hidden_state, q_values = self.q_network.apply(
                 state.params,
-                jnp.expand_dims(state.obs, 1),
-                jnp.expand_dims(state.done, 1),
-                state.hidden_state,
+                observation=jnp.expand_dims(state.obs, 1),
+                mask=jnp.expand_dims(state.done, 1),
+                initial_carry=state.hidden_state,
             )
             greedy_action = q_values.squeeze(1).argmax(axis=-1)
 
@@ -300,9 +267,11 @@ class DRQN:
 
             next_hidden_state, q_next_target = self.q_network.apply(
                 state.target_params,
-                batch.experience.next_obs,
-                batch.experience.next_done,
-                jax.tree.map(lambda x: x[:, 0, :], batch.experience.next_hidden_state),
+                observation=batch.experience.next_obs,
+                mask=batch.experience.next_done,
+                initial_carry=jax.tree.map(
+                    lambda x: x[:, 0, :], batch.experience.next_hidden_state
+                ),
                 return_carry_history=self.cfg.update_hidden_state,
             )
             q_next_target = jnp.max(q_next_target, axis=-1)
@@ -315,9 +284,11 @@ class DRQN:
             def loss_fn(params):
                 hidden_state, q_value = self.q_network.apply(
                     params,
-                    batch.experience.obs,
-                    batch.experience.done,
-                    jax.tree.map(lambda x: x[:, 0, :], batch.experience.hidden_state),
+                    observation=batch.experience.obs,
+                    mask=batch.experience.done,
+                    initial_carry=jax.tree.map(
+                        lambda x: x[:, 0, :], batch.experience.hidden_state
+                    ),
                     return_carry_history=self.cfg.update_hidden_state,
                 )
                 action = jnp.expand_dims(batch.experience.action, axis=-1)
@@ -422,8 +393,8 @@ class DRQN:
             reset_key, self.env_params
         )
         done = jnp.zeros(self.cfg.num_envs, dtype=jnp.bool)
-        hidden_state = self.q_network.initialize_carry(
-            (self.cfg.num_envs, self.cfg.cell_size)
+        hidden_state = self.q_network.torso.initialize_carry(
+            (self.cfg.num_envs, self.cfg.cell["features"])
         )
 
         state = state.replace(obs=obs, done=done, hidden_state=hidden_state, env_state=env_state)  # type: ignore
@@ -436,9 +407,9 @@ class DRQN:
 
             hidden_state, q_values = self.q_network.apply(
                 state.params,
-                jnp.expand_dims(state.obs, 1),
-                jnp.expand_dims(state.done, 1),
-                state.hidden_state,
+                observation=jnp.expand_dims(state.obs, 1),
+                mask=jnp.expand_dims(state.done, 1),
+                initial_carry=state.hidden_state,
             )
             action = q_values.squeeze(1).argmax(axis=-1)
 
@@ -480,9 +451,16 @@ class Transition:
 
 def make_drqn(cfg, env, env_params) -> DRQN:
 
-    q_network = QNetwork(
-        action_dim=env.action_space(env_params).n,
-        cell=get_class(cfg.algorithm.cell)(cfg.algorithm.cell_size),
+    # q_network = QNetwork(
+    #     action_dim=env.action_space(env_params).n,
+    #     cell=get_class(cfg.algorithm.cell)(cfg.algorithm.cell_size),
+    # )
+    q_network = Network(
+        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        torso=torsos.RNN(
+            cell=instantiate(cfg.algorithm.cell),
+        ),
+        head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
     buffer = make_trajectory_buffer(
         add_batch_size=cfg.algorithm.num_envs,
@@ -505,6 +483,7 @@ def make_drqn(cfg, env, env_params) -> DRQN:
 
     print(cfg.algorithm)
     algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
+    # algorithm_cfg = {k: v for k, v in algorithm_cfg.items() if type(v) is not dict}
     return DRQN(
         cfg=DRQNConfig(**algorithm_cfg, track=cfg.logger.track),  # type: ignore
         env=env,  # type: ignore

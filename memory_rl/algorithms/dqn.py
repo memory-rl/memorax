@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
@@ -13,36 +13,11 @@ import optax
 from flax import core
 from gymnax.wrappers import FlattenObservationWrapper
 from omegaconf import OmegaConf
+from hydra.utils import instantiate
 
 import wandb
 from memory_rl.utils import LogWrapper
-
-
-class QNetwork(nn.Module):
-    """
-    Convolutional Q-network mapping observations to action Q-values.
-    """
-
-    action_dim: int
-
-    @nn.compact
-    def __call__(
-        self,
-        x: jnp.ndarray,
-    ):
-        # x = nn.Conv(
-        #     features=16,
-        #     kernel_size=(3, 3),
-        #     strides=(1, 1),
-        # )(x)
-        x = nn.Dense(128)(x)
-        x = nn.relu(x)
-        # x = x.reshape((x.shape[0], -1))
-        x = nn.Dense(128)(x)
-        x = nn.relu(x)
-        q_values = nn.Dense(self.action_dim)(x)
-
-        return q_values
+from memory_rl.networks import heads, Network
 
 
 @chex.dataclass(frozen=True)
@@ -61,6 +36,7 @@ class DQNConfig:
     exploration_fraction: float
     train_frequency: int
     learning_starts: int
+    feature_extractor: dict = field(hash=False)
     track: bool
 
 
@@ -88,7 +64,7 @@ class DQN:
     cfg: Any
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
-    q_network: QNetwork
+    q_network: Network
     optimizer: optax.GradientTransformation
     buffer: fbx.trajectory_buffer.TrajectoryBuffer
     epsilon_schedule: optax.Schedule
@@ -404,8 +380,9 @@ def make_dqn(cfg, env, env_params) -> DQN:
         An initialized DQN instance ready for training.
     """
 
-    q_network = QNetwork(
-        action_dim=env.action_space(env_params).n,
+    q_network = Network(
+        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
     buffer = fbx.make_flat_buffer(
         max_length=cfg.algorithm.buffer_size,

@@ -1,6 +1,6 @@
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Callable
 
@@ -16,100 +16,102 @@ from flax.training.train_state import TrainState
 from gymnax.wrappers import FlattenObservationWrapper
 from hydra.utils import get_class
 from omegaconf import OmegaConf
+from hydra.utils import instantiate
 from optax import linear_schedule
-from memory_rl.recurrent_networks import MaskedGRUCell, MaskedRNN
+
 
 import wandb
 from memory_rl.utils import LogWrapper
 from memory_rl.utils import compute_recurrent_gae as compute_gae
+from memory_rl.networks import feature_extractors, heads, torsos, Network
 
 
-class ActorNetwork(nn.Module):
-    action_dim: int
-    cell: nn.RNNCellBase
-
-    @nn.compact
-    def __call__(
-        self,
-        x: jnp.ndarray,
-        mask: jnp.ndarray,
-        initial_carry: jnp.ndarray | None = None,
-    ):
-        actor_features = nn.Dense(
-            128,
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        actor_features = nn.tanh(actor_features)
-
-        h, actor_output = MaskedRNN(  # type: ignore
-            self.cell,
-            time_major=False,
-            return_carry=True,
-        )(actor_features, mask, initial_carry=initial_carry)
-
-        actor_output_dense = nn.Dense(
-            128,
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )(actor_output)
-        actor_output_dense = nn.tanh(actor_output_dense)
-
-        logits = nn.Dense(
-            self.action_dim,
-            kernel_init=nn.initializers.orthogonal(scale=0.01),
-            bias_init=nn.initializers.constant(0.0),
-        )(actor_output_dense)
-        probs = distrax.Categorical(logits=logits)
-        return h, probs
-
-    def initialize_carry(
-        self, key, input_shape
-    ):  # input_shape here is (batch_size, feature_dim_of_cell_input)
-        return self.cell.initialize_carry(key, input_shape)
-
-
-class CriticNetwork(nn.Module):
-    cell: nn.RNNCellBase
-
-    @nn.compact
-    def __call__(
-        self,
-        x: jnp.ndarray,
-        mask: jnp.ndarray,
-        initial_carry: jnp.ndarray | None = None,
-    ):
-        critic_features = nn.Dense(
-            128,
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        critic_features = nn.tanh(critic_features)
-
-        h, critic_output = MaskedRNN(  # type: ignore
-            self.cell,
-            time_major=False,
-            return_carry=True,
-        )(critic_features, mask, initial_carry=initial_carry)
-
-        critic_output_dense = nn.Dense(
-            128,
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )(critic_output)
-        critic_output_dense = nn.tanh(critic_output_dense)
-
-        value = nn.Dense(
-            1,
-            kernel_init=nn.initializers.orthogonal(scale=1.0),
-            bias_init=nn.initializers.constant(0.0),
-        )(critic_output_dense)
-        return h, value.squeeze(-1)
-
-    def initialize_carry(
-        self, key, input_shape
-    ):  # (batch_size, feature_dim_of_cell_input)
-        return self.cell.initialize_carry(key, input_shape)
+# class ActorNetwork(nn.Module):
+#     action_dim: int
+#     cell: nn.RNNCellBase
+#
+#     @nn.compact
+#     def __call__(
+#         self,
+#         x: jnp.ndarray,
+#         mask: jnp.ndarray,
+#         initial_carry: jnp.ndarray | None = None,
+#     ):
+#         actor_features = nn.Dense(
+#             128,
+#             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+#             bias_init=nn.initializers.constant(0.0),
+#         )(x)
+#         actor_features = nn.tanh(actor_features)
+#
+#         h, actor_output = MaskedRNN(  # type: ignore
+#             self.cell,
+#             time_major=False,
+#             return_carry=True,
+#         )(actor_features, mask, initial_carry=initial_carry)
+#
+#         actor_output_dense = nn.Dense(
+#             128,
+#             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+#             bias_init=nn.initializers.constant(0.0),
+#         )(actor_output)
+#         actor_output_dense = nn.tanh(actor_output_dense)
+#
+#         logits = nn.Dense(
+#             self.action_dim,
+#             kernel_init=nn.initializers.orthogonal(scale=0.01),
+#             bias_init=nn.initializers.constant(0.0),
+#         )(actor_output_dense)
+#         probs = distrax.Categorical(logits=logits)
+#         return h, probs
+#
+#     def initialize_carry(
+#         self, key, input_shape
+#     ):  # input_shape here is (batch_size, feature_dim_of_cell_input)
+#         return self.cell.initialize_carry(key, input_shape)
+#
+#
+# class CriticNetwork(nn.Module):
+#     cell: nn.RNNCellBase
+#
+#     @nn.compact
+#     def __call__(
+#         self,
+#         x: jnp.ndarray,
+#         mask: jnp.ndarray,
+#         initial_carry: jnp.ndarray | None = None,
+#     ):
+#         critic_features = nn.Dense(
+#             128,
+#             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+#             bias_init=nn.initializers.constant(0.0),
+#         )(x)
+#         critic_features = nn.tanh(critic_features)
+#
+#         h, critic_output = MaskedRNN(  # type: ignore
+#             self.cell,
+#             time_major=False,
+#             return_carry=True,
+#         )(critic_features, mask, initial_carry=initial_carry)
+#
+#         critic_output_dense = nn.Dense(
+#             128,
+#             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+#             bias_init=nn.initializers.constant(0.0),
+#         )(critic_output)
+#         critic_output_dense = nn.tanh(critic_output_dense)
+#
+#         value = nn.Dense(
+#             1,
+#             kernel_init=nn.initializers.orthogonal(scale=1.0),
+#             bias_init=nn.initializers.constant(0.0),
+#         )(critic_output_dense)
+#         return h, value.squeeze(-1)
+#
+#     def initialize_carry(
+#         self, key, input_shape
+#     ):  # (batch_size, feature_dim_of_cell_input)
+#         return self.cell.initialize_carry(key, input_shape)
 
 
 @chex.dataclass(frozen=True)
@@ -143,9 +145,9 @@ class RPPOConfig:
     vf_coef: float
     max_grad_norm: float
     learning_starts: int
-    cell: nn.RNNCellBase
-    actor_cell_size: int
-    critic_cell_size: int
+    actor_cell: dict = field(hash=False)
+    critic_cell: dict = field(hash=False)
+    feature_extractor: dict = field(hash=False)
     track: bool
 
     @property
@@ -172,8 +174,8 @@ class RPPO:
     cfg: Any  # Full config object
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
-    actor_network: ActorNetwork
-    critic_network: CriticNetwork
+    actor_network: Network
+    critic_network: Network
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
 
@@ -185,23 +187,27 @@ class RPPO:
             env_keys, self.env_params
         )
         done = jnp.zeros(self.cfg.num_envs, dtype=bool)
-        actor_hidden_state = self.actor_network.initialize_carry(
-            jax.random.key(0),
-            (self.cfg.num_envs, self.cfg.actor_cell_size),
+        actor_hidden_state = self.actor_network.torso.initialize_carry(
+            (self.cfg.num_envs, self.cfg.actor_cell["features"]),
         )
-        critic_hidden_state = self.critic_network.initialize_carry(
-            jax.random.key(0),
-            (self.cfg.num_envs, self.cfg.critic_cell_size),
+        critic_hidden_state = self.critic_network.torso.initialize_carry(
+            (self.cfg.num_envs, self.cfg.critic_cell["features"]),
         )
 
         dummy_obs_for_init = jnp.expand_dims(obs, 1)  # (num_envs, 1, obs_dim)
         dummy_mask_for_init = jnp.expand_dims(done, 1)  # (num_envs, 1)
 
         actor_params = self.actor_network.init(
-            actor_key, dummy_obs_for_init, dummy_mask_for_init, actor_hidden_state
+            actor_key,
+            observation=dummy_obs_for_init,
+            mask=dummy_mask_for_init,
+            initial_carry=actor_hidden_state,
         )["params"]
         critic_params = self.critic_network.init(
-            critic_key, dummy_obs_for_init, dummy_mask_for_init, critic_hidden_state
+            critic_key,
+            observation=dummy_obs_for_init,
+            mask=dummy_mask_for_init,
+            initial_carry=critic_hidden_state,
         )["params"]
 
         actor_optimizer_state = self.actor_optimizer.init(actor_params)
@@ -238,18 +244,18 @@ class RPPO:
 
                 actor_h_next, probs = self.actor_network.apply(
                     {"params": state.actor_params},
-                    jnp.expand_dims(state.obs, 1),  # (B, 1, F_obs)
-                    jnp.expand_dims(state.done, 1),  # (B, 1) mask
-                    state.actor_hidden_state,
+                    observation=jnp.expand_dims(state.obs, 1),  # (B, 1, F_obs)
+                    mask=jnp.expand_dims(state.done, 1),  # (B, 1) mask
+                    initial_carry=state.actor_hidden_state,
                 )
                 critic_h_next, value = self.critic_network.apply(
                     {"params": state.critic_params},
-                    jnp.expand_dims(state.obs, 1),  # (B, 1, F_obs)
-                    jnp.expand_dims(state.done, 1),  # (B, 1) mask
-                    state.critic_hidden_state,
+                    observation=jnp.expand_dims(state.obs, 1),  # (B, 1, F_obs)
+                    mask=jnp.expand_dims(state.done, 1),  # (B, 1) mask
+                    initial_carry=state.critic_hidden_state,
                 )
 
-                value = value.squeeze(1)
+                value = value.squeeze((1, -1))
                 action = probs.sample(seed=action_key)
                 log_prob = probs.log_prob(action)
                 action = action.squeeze(1)
@@ -290,12 +296,12 @@ class RPPO:
 
             _, final_value = self.critic_network.apply(
                 {"params": state.critic_params},
-                jnp.expand_dims(state.obs, 1),
-                jnp.expand_dims(state.done, 1),
-                state.critic_hidden_state,  # Use the latest critic hidden state from scan
+                observation=jnp.expand_dims(state.obs, 1),
+                mask=jnp.expand_dims(state.done, 1),
+                initial_carry=state.critic_hidden_state,  # Use the latest critic hidden state from scan
             )
 
-            final_value = final_value.squeeze(1)
+            final_value = final_value.squeeze((1, -1))
 
             # Compute GAE on time-major data (T, B, ...)
             advantages, returns = compute_gae(
@@ -339,16 +345,17 @@ class RPPO:
                     ):
                         _, probs = self.actor_network.apply(
                             {"params": params["actor"]},
-                            transitions.observation,  # (B,T,F)
-                            transitions.done,  # (B,T) - mask
-                            initial_actor_h,  # (B,H)
+                            observation=transitions.observation,  # (B,T,F)
+                            mask=transitions.done,  # (B,T) - mask
+                            initial_carry=initial_actor_h,  # (B,H)
                         )
                         _, value = self.critic_network.apply(
                             {"params": params["critic"]},
-                            transitions.observation,  # (B,T,F)
-                            transitions.done,  # (B,T) - mask
-                            initial_critic_h,  # (B,H)
+                            observation=transitions.observation,  # (B,T,F)
+                            mask=transitions.done,  # (B,T) - mask
+                            initial_carry=initial_critic_h,  # (B,H)
                         )
+                        value = value.squeeze(-1)
 
                         log_prob = probs.log_prob(transitions.action)
                         entropy = probs.entropy().mean()
@@ -529,9 +536,8 @@ class RPPO:
             reset_key, self.env_params
         )
         done = jnp.zeros(self.cfg.num_envs, dtype=bool)
-        initial_actor_hidden_state = self.actor_network.initialize_carry(
-            jax.random.key(0),
-            (self.cfg.num_envs, self.cfg.actor_cell_size),
+        initial_actor_hidden_state = self.actor_network.torso.initialize_carry(
+            (self.cfg.num_envs, self.cfg.actor_cell["features"]),
         )
 
         def step(carry, _):
@@ -539,9 +545,9 @@ class RPPO:
 
             next_actor_h_state, probs = self.actor_network.apply(
                 {"params": state.actor_params},
-                jnp.expand_dims(obs, 1),  # CORRECT: (num_envs, 1, obs_dim)
-                jnp.expand_dims(done, 1),  # CORRECT: (num_envs, 1)
-                actor_h_state,
+                observation=jnp.expand_dims(obs, 1),  # CORRECT: (num_envs, 1, obs_dim)
+                mask=jnp.expand_dims(done, 1),  # CORRECT: (num_envs, 1)
+                initial_carry=actor_h_state,
             )
             action = jnp.argmax(probs.logits, axis=-1).squeeze(1)  # CORRECT: squeeze(1)
 
@@ -570,20 +576,31 @@ def make_rppo(cfg, env, env_params):
     obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
     done = jnp.zeros(cfg.algorithm.num_envs, dtype=bool)
 
-    actor_network = ActorNetwork(
-        action_dim=env.action_space(env_params).n,
-        cell=get_class(cfg.algorithm.cell)(
-            cfg.algorithm.actor_cell_size,  # GRU hidden size
-            kernel_init=nn.initializers.orthogonal(scale=1.0),
-            bias_init=nn.initializers.constant(0),
-        ),
+    # actor_network = ActorNetwork(
+    #     action_dim=env.action_space(env_params).n,
+    #     cell=get_class(cfg.algorithm.cell)(
+    #         cfg.algorithm.actor_cell_size,  # GRU hidden size
+    #         kernel_init=nn.initializers.orthogonal(scale=1.0),
+    #         bias_init=nn.initializers.constant(0),
+    #     ),
+    # )
+    # critic_network = CriticNetwork(
+    #     cell=get_class(cfg.algorithm.cell)(
+    #         cfg.algorithm.critic_cell_size,
+    #         kernel_init=nn.initializers.orthogonal(scale=1.0),
+    #         bias_init=nn.initializers.constant(0),
+    #     )
+    # )
+    actor = Network(
+        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        torso=torsos.RNN(instantiate(cfg.algorithm.actor_cell)),
+        head=heads.Categorical(action_dim=env.action_space(env_params).n),
     )
-    critic_network = CriticNetwork(
-        cell=get_class(cfg.algorithm.cell)(
-            cfg.algorithm.critic_cell_size,
-            kernel_init=nn.initializers.orthogonal(scale=1.0),
-            bias_init=nn.initializers.constant(0),
-        )
+
+    critic = Network(
+        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        torso=torsos.RNN(instantiate(cfg.algorithm.critic_cell)),
+        head=heads.VNetwork(),
     )
 
     # if cfg.anneal_lr:
@@ -609,8 +626,8 @@ def make_rppo(cfg, env, env_params):
         cfg=RPPOConfig(**cfg.algorithm, track=cfg.logger.track),
         env=env,
         env_params=env_params,
-        actor_network=actor_network,
-        critic_network=critic_network,
+        actor_network=actor,
+        critic_network=critic,
         actor_optimizer=actor_optimizer,
         critic_optimizer=critic_optimizer,
     )

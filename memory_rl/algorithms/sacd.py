@@ -8,12 +8,13 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax.training import train_state
-from memory_rl.networks import DoubleQNetwork, StochasticDiscreteActor, Temperature
 from omegaconf import OmegaConf
+from hydra.utils import instantiate
 from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 
 import wandb
 from memory_rl.utils import LogWrapper, periodic_incremental_update
+from memory_rl.networks import feature_extractors, heads, torsos, Network
 
 
 # TODO : REFACTOR OR REMOVE
@@ -435,17 +436,35 @@ def make_sacd(cfg, env, env_params) -> SACD:
     action_dim = env.action_space(env_params).n
 
     # Define networks
-    actor_network = StochasticDiscreteActor(
-        hidden_dims=cfg.algorithm.hidden_dims,
-        action_dim=action_dim,
-        final_fc_init_scale=cfg.algorithm.policy_final_fc_init_scale,
+    # actor_network = StochasticDiscreteActor(
+    #     hidden_dims=cfg.algorithm.hidden_dims,
+    #     action_dim=action_dim,
+    #     final_fc_init_scale=cfg.algorithm.policy_final_fc_init_scale,
+    # )
+    #
+    # critic_network = DoubleQNetwork(
+    #     action_dim=action_dim, hidden_dims=cfg.algorithm.hidden_dims
+    # )
+    #
+    # temp_network = Temperature(initial_temperature=cfg.algorithm.init_temperature)
+    actor_network = Network(
+        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        head=heads.Categorical(action_dim=action_dim),
     )
-
-    critic_network = DoubleQNetwork(
-        action_dim=action_dim, hidden_dims=cfg.algorithm.hidden_dims
+    critic_network = nn.vmap(
+        Network,
+        variable_axes={"params": 0},
+        split_rngs={"params": True},
+        in_axes=None,
+        out_axes=0,
+        axis_size=2,
+    )(
+        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        head=heads.VNetwork(),
     )
-
-    temp_network = Temperature(initial_temperature=cfg.algorithm.init_temperature)
+    temp_network = Network(
+        head=heads.Temperature(initial_temperature=cfg.algorithm.init_temperature)
+    )
 
     # Define optimizers
     actor_optimizer = optax.adam(learning_rate=cfg.algorithm.policy_lr)

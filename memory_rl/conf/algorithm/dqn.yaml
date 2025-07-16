@@ -14,3 +14,8 @@ exploration_fraction: 0.5
 
 learning_starts:     10000
 train_frequency:     10
+
+feature_extractor:
+  _target_: memory_rl.networks.feature_extractors.MLP
+  features: [32, 32]
+

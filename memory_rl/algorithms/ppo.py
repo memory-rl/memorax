@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
@@ -13,60 +13,63 @@ import optax
 from flax import core
 from gymnax.wrappers import FlattenObservationWrapper
 from omegaconf import OmegaConf
+from hydra.utils import instantiate
 
 from memory_rl.utils import LogWrapper, compute_gae
+from memory_rl.networks import feature_extractors, heads, torsos, Network
 
 
-class Actor(nn.Module):
-    action_dim: int
-
-    @nn.compact
-    def __call__(self, x: jnp.ndarray):
-        x = nn.Dense(
-            64,
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        x = nn.relu(x)
-        x = nn.Dense(
-            64,
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        x = nn.relu(x)
-        logits = nn.Dense(
-            self.action_dim,
-            kernel_init=nn.initializers.orthogonal(scale=0.01),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        probs = distrax.Categorical(logits=logits)
-
-        return probs
-
-
-class Critic(nn.Module):
-
-    @nn.compact
-    def __call__(self, x: chex.Array):
-        x = nn.Dense(
-            64,
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        x = nn.relu(x)
-        x = nn.Dense(
-            64,
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        x = nn.relu(x)
-
-        value = nn.Dense(
-            1,
-            kernel_init=nn.initializers.orthogonal(scale=1.0),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        return value.squeeze(-1)
+# class Actor(nn.Module):
+#     action_dim: int
+#
+#     @nn.compact
+#     def __call__(self, x: jnp.ndarray):
+#         x = nn.Dense(
+#             64,
+#             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+#             bias_init=nn.initializers.constant(0.0),
+#         )(x)
+#         x = nn.relu(x)
+#         x = nn.Dense(
+#             64,
+#             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+#             bias_init=nn.initializers.constant(0.0),
+#         )(x)
+#         x = nn.relu(x)
+#         logits = nn.Dense(
+#             self.action_dim,
+#             kernel_init=nn.initializers.orthogonal(scale=0.01),
+#             bias_init=nn.initializers.constant(0.0),
+#         )(x)
+#         probs = distrax.Categorical(logits=logits)
+#
+#         return probs
+#
+#
+# class Critic(nn.Module):
+#
+#     @nn.compact
+#     def __call__(self, x: chex.Array):
+#         x = nn.Dense(
+#             64,
+#             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+#             bias_init=nn.initializers.constant(0.0),
+#         )(x)
+#         x = nn.relu(x)
+#         x = nn.Dense(
+#             64,
+#             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
+#             bias_init=nn.initializers.constant(0.0),
+#         )(x)
+#         x = nn.relu(x)
+#
+#         value = nn.Dense(
+#             1,
+#             kernel_init=nn.initializers.orthogonal(scale=1.0),
+#             bias_init=nn.initializers.constant(0.0),
+#         )(x)
+#         return value.squeeze(-1)
+#
 
 
 @chex.dataclass(frozen=True)
@@ -100,6 +103,7 @@ class PPOConfig:
     vf_coef: float
     max_grad_norm: float
     learning_starts: int
+    feature_extractor: dict = field(hash=False)
     track: bool
 
     @property
@@ -123,8 +127,8 @@ class PPO:
     cfg: PPOConfig
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
-    actor: Actor
-    critic: Critic
+    actor: Network
+    critic: Network
     optimizer: optax.GradientTransformation
 
     def init(self, key):
@@ -171,7 +175,7 @@ class PPO:
                 action = probs.sample(seed=action_key)
                 log_prob = probs.log_prob(action)
 
-                value = self.critic.apply(state.critic_params, state.obs)
+                value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
 
                 step_key = jax.random.split(step_key, self.cfg.num_envs)
                 next_obs, env_state, reward, done, info = jax.vmap(
@@ -204,7 +208,7 @@ class PPO:
                 carry,
                 length=self.cfg.num_steps,
             )
-            final_value = self.critic.apply(state.critic_params, state.obs)
+            final_value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
 
             advantages, returns = compute_gae(
                 self.cfg.gamma,
@@ -244,7 +248,9 @@ class PPO:
                         return actor_loss - self.cfg.ent_coef * entropy
 
                     def critic_loss_fn(params, transitions, advantages, returns):
-                        value = self.critic.apply(params, transitions.observation)
+                        value = self.critic.apply(
+                            params, transitions.observation
+                        ).squeeze(-1)
 
                         if self.cfg.clip_vloss:
                             critic_loss = jnp.square(value - returns)
@@ -367,8 +373,15 @@ class PPO:
 
 def make_ppo(cfg, env, env_params):
 
-    actor = Actor(action_dim=env.action_space(env_params).n)
-    critic = Critic()
+    actor = Network(
+        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        head=heads.Categorical(action_dim=env.action_space(env_params).n),
+    )
+
+    critic = Network(
+        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        head=heads.VNetwork(),
+    )
 
     if cfg.algorithm.anneal_lr:
         learning_rate = optax.linear_schedule(

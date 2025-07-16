@@ -19,3 +19,11 @@ target_entropy_multiplier: 0.5
 max_action:          1.0
 backup_entropy:      true
 learning_starts:     5_000
+
+actor_feature_extractor:
+  _target_: memory_rl.networks.feature_extractors.MLP
+  features: [256, 256]
+
+critic_feature_extractor:
+  _target_: memory_rl.networks.feature_extractors.MLP
+  features: [256, 256]

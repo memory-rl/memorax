@@ -12,17 +12,17 @@ import jax.numpy as jnp
 import optax
 from flax.training import train_state
 from hydra.utils import get_class
-from memory_rl.networks import (
-    RecurrentDoubleQNetwork,
-    RecurrentStochasticDiscreteActor,
-    Temperature,
-)
 from omegaconf import OmegaConf
-from memory_rl.recurrent_networks import MaskedGRUCell
+from hydra.utils import instantiate
 from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 
 import wandb
-from memory_rl.utils import LogWrapper, make_trajectory_buffer, periodic_incremental_update
+from memory_rl.utils import (
+    LogWrapper,
+    make_trajectory_buffer,
+    periodic_incremental_update,
+)
+from memory_rl.networks import feature_extractors, heads, torsos, Network
 
 
 @chex.dataclass
@@ -513,20 +513,40 @@ def make_rsacd(cfg, env, env_params) -> RSACD:
     action_dim = env.action_space(env_params).n
 
     # Define networks
-    actor_network = RecurrentStochasticDiscreteActor(
-        cell=get_class(cfg.algorithm.cell)(cfg.algorithm.actor_cell_size),
-        hidden_dims=cfg.algorithm.hidden_dims,
-        action_dim=action_dim,
-        final_fc_init_scale=cfg.algorithm.policy_final_fc_init_scale,
+    # actor_network = RecurrentStochasticDiscreteActor(
+    #     cell=get_class(cfg.algorithm.cell)(cfg.algorithm.actor_cell_size),
+    #     hidden_dims=cfg.algorithm.hidden_dims,
+    #     action_dim=action_dim,
+    #     final_fc_init_scale=cfg.algorithm.policy_final_fc_init_scale,
+    # )
+    #
+    # critic_network = RecurrentDoubleQNetwork(
+    #     cell=get_class(cfg.algorithm.cell)(cfg.algorithm.critic_cell_size),
+    #     action_dim=action_dim,
+    #     hidden_dims=cfg.algorithm.hidden_dims,
+    # )
+    #
+    # temp_network = Temperature(initial_temperature=cfg.algorithm.init_temperature)
+    actor_network = Network(
+        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        torso=torsos.RNN(cell=instantiate(cfg.algorithm.cell)),
+        head=heads.Categorical(action_dim=action_dim),
     )
-
-    critic_network = RecurrentDoubleQNetwork(
-        cell=get_class(cfg.algorithm.cell)(cfg.algorithm.critic_cell_size),
-        action_dim=action_dim,
-        hidden_dims=cfg.algorithm.hidden_dims,
+    critic_network = nn.vmap(
+        Network,
+        variable_axes={"params": 0},
+        split_rngs={"params": True},
+        in_axes=None,
+        out_axes=0,
+        axis_size=2,
+    )(
+        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        torso=torsos.RNN(cell=instantiate(cfg.algorithm.cell)),
+        head=heads.VNetwork(),
     )
-
-    temp_network = Temperature(initial_temperature=cfg.algorithm.init_temperature)
+    temp_network = Network(
+        head=heads.Temperature(initial_temperature=cfg.algorithm.init_temperature)
+    )
 
     # Define optimizers
     actor_optimizer = optax.adam(learning_rate=cfg.algorithm.policy_lr)

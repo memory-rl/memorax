@@ -12,7 +12,7 @@ from popjaxrl.envs import make as make_popjaxrl
 
 
 def make_brax(env_id):
-    env = BraxGymnaxWrapper(env_id)
+    env = BraxGymnaxWrapper(env_id, backend="mjx")
     return env, None
 
 

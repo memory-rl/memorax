@@ -16,7 +16,7 @@ class CausalConv1D(nn.Module):
         Args:
         - x: Input tensor of shape (batch_size, sequence_length, features)
         
-        Output:
+        Returns:
         - Convolved tensor of shape (batch_size, sequence_length, features)
         """
         assert x.ndim == 3, f"Input must be a 3D tensor (batch_size, sequence_length, features), got {x.ndim}D tensor"
@@ -33,7 +33,8 @@ class BlockLinear(nn.Module):
         """
         Args: 
         - x: Input tensor of shape (batch_size, in_features)
-        Output:
+        
+        Returns:
         - Output tensor of shape (batch_size, out_features)
         """
         assert x.ndim == 2, f"Input must be a 2D tensor (batch_size, in_features), but got {x.ndim}D tensor"
@@ -50,8 +51,7 @@ class sLSTMCarry():
     n: jnp.ndarray 
     h: jnp.ndarray 
     m: jnp.ndarray
-    # for 1D conv we need to store that past ker_size - 1 values
-    x_prev: jnp.ndarray 
+    x_prev: jnp.ndarray # for 1D conv we need to store that past ker_size - 1 values
 
 class sLSTM(nn.RNNCellBase):  
     inp_dim: int

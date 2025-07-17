@@ -8,7 +8,6 @@ tau:                 1.0
 target_network_frequency: 1000
 batch_size:          128
 
-# cell: memory_rl.recurrent_networks.MaskedOptimizedLSTMCell
 cell: 
   _target_: memory_rl.networks.recurrent.MaskedGRUCell
   features:           128
@@ -24,5 +23,7 @@ learning_starts:     10000
 train_frequency:     10
 
 feature_extractor:
-  _target_: memory_rl.networks.feature_extractors.MLP
-  features: [64]
+  _target_: memory_rl.networks.MLP
+  features: [128]
+
+

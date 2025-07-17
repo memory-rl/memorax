@@ -10,19 +10,16 @@ import gymnax
 import jax
 import jax.numpy as jnp
 import optax
-from flax.training import train_state
-from hydra.utils import get_class
-from omegaconf import OmegaConf
-from hydra.utils import instantiate
-from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
-
 import wandb
-from memory_rl.utils import (
-    LogWrapper,
-    make_trajectory_buffer,
-    periodic_incremental_update,
-)
-from memory_rl.networks import feature_extractors, heads, torsos, Network
+from flax.training import train_state
+from hydra.utils import get_class, instantiate
+from omegaconf import OmegaConf
+
+from memory_rl.networks import RNN, Network, heads
+from memory_rl.utils import (LogWrapper, make_trajectory_buffer,
+                             periodic_incremental_update)
+from memory_rl.utils.base_types import (OnlineAndTargetState,
+                                        RNNOffPolicyLearnerState)
 
 
 @chex.dataclass
@@ -528,8 +525,8 @@ def make_rsacd(cfg, env, env_params) -> RSACD:
     #
     # temp_network = Temperature(initial_temperature=cfg.algorithm.init_temperature)
     actor_network = Network(
-        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        torso=torsos.RNN(cell=instantiate(cfg.algorithm.cell)),
+        feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
+        torso=RNN(cell=instantiate(cfg.algorithm.cell)),
         head=heads.Categorical(action_dim=action_dim),
     )
     critic_network = nn.vmap(
@@ -540,8 +537,8 @@ def make_rsacd(cfg, env, env_params) -> RSACD:
         out_axes=0,
         axis_size=2,
     )(
-        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        torso=torsos.RNN(cell=instantiate(cfg.algorithm.cell)),
+        feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
+        torso=RNN(cell=instantiate(cfg.algorithm.cell)),
         head=heads.VNetwork(),
     )
     temp_network = Network(

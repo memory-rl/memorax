@@ -6,20 +6,22 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 import chex
 import flashbax as fbx
 import flax.linen as nn
-from flax import core
 import gymnax
 import jax
 import jax.numpy as jnp
 import optax
+import wandb
+from flax import core
 from flax.training import train_state
 from hydra.utils import instantiate
-from omegaconf import OmegaConf, DictConfig
-from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
+from omegaconf import DictConfig, OmegaConf
 
-import wandb
-from memory_rl.utils import BraxGymnaxWrapper, LogWrapper, periodic_incremental_update
-from memory_rl.networks import heads, torsos, Network
+from memory_rl.networks import Network, heads
 from memory_rl.networks.heads import Temperature
+from memory_rl.utils import (BraxGymnaxWrapper, LogWrapper,
+                             periodic_incremental_update)
+from memory_rl.utils.base_types import (OnlineAndTargetState,
+                                        RNNOffPolicyLearnerState)
 
 
 # TODO : REFACTOR OR REMOVE
@@ -93,7 +95,10 @@ class SAC:
             env_keys, self.env_params
         )
         action = jnp.zeros(
-            (self.cfg.algorithm.num_envs, self.env.action_space(self.env_params).shape[0])
+            (
+                self.cfg.algorithm.num_envs,
+                self.env.action_space(self.env_params).shape[0],
+            )
         )
         _, _, reward, done, _ = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
@@ -203,7 +208,9 @@ class SAC:
         (_, info), grads = jax.value_and_grad(temperature_loss_fn, has_aux=True)(
             state.temp_params
         )
-        updates, optimizer_state = self.temp_optimizer.update(grads, state.temp_optimizer_state, state.temp_params)
+        updates, optimizer_state = self.temp_optimizer.update(
+            grads, state.temp_optimizer_state, state.temp_params
+        )
         temp_params = optax.apply_updates(state.temp_params, updates)
 
         state = state.replace(
@@ -230,7 +237,9 @@ class SAC:
         (_, info), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
             state.actor_params
         )
-        updates, optimizer_state = self.actor_optimizer.update(grads, state.actor_optimizer_state, state.actor_params)
+        updates, optimizer_state = self.actor_optimizer.update(
+            grads, state.actor_optimizer_state, state.actor_params
+        )
         actor_params = optax.apply_updates(state.actor_params, updates)
 
         state = state.replace(
@@ -253,11 +262,16 @@ class SAC:
         next_q = jnp.minimum(next_q1, next_q2)
 
         temperature = self.temp_network.apply(state.temp_params)
-        target_q = batch.reward + self.cfg.algorithm.gamma * (1 - batch.next_done) * next_q
+        target_q = (
+            batch.reward + self.cfg.algorithm.gamma * (1 - batch.next_done) * next_q
+        )
 
         if self.cfg.algorithm.backup_entropy:
             target_q -= (
-                self.cfg.algorithm.gamma * (1 - batch.next_done) * temperature * next_log_probs
+                self.cfg.algorithm.gamma
+                * (1 - batch.next_done)
+                * temperature
+                * next_log_probs
             )
 
         target_q = jax.lax.stop_gradient(target_q)
@@ -277,9 +291,10 @@ class SAC:
             state.critic_params
         )
 
-        updates, optimizer_state = self.critic_optimizer.update(grads, state.critic_optimizer_state, state.critic_params)
+        updates, optimizer_state = self.critic_optimizer.update(
+            grads, state.critic_optimizer_state, state.critic_params
+        )
         critic_params = optax.apply_updates(state.critic_params, updates)
-
 
         # Update target network periodically
         target_params = periodic_incremental_update(
@@ -290,9 +305,12 @@ class SAC:
             self.cfg.algorithm.tau,
         )
 
-        state = state.replace(critic_params=critic_params, critic_target_params=target_params, critic_optimizer_state=optimizer_state)
+        state = state.replace(
+            critic_params=critic_params,
+            critic_target_params=target_params,
+            critic_optimizer_state=optimizer_state,
+        )
         return state, info
-        
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(self, key: chex.PRNGKey, state: SACState, num_steps: int):
@@ -343,16 +361,17 @@ class SAC:
             )
 
             # Update temperature using updated actor and critic
-            state, temp_info = self.update_temperature(
-                state, actor_info["entropy"]
-            )
+            state, temp_info = self.update_temperature(state, actor_info["entropy"])
 
             info = {**critic_info, **actor_info, **temp_info}
             return state, info
 
         def update_step(carry, _):
             (key, state), info = jax.lax.scan(
-                step, carry, length=self.cfg.algorithm.train_frequency // self.cfg.algorithm.num_envs
+                step,
+                carry,
+                length=self.cfg.algorithm.train_frequency
+                // self.cfg.algorithm.num_envs,
             )
 
             key, update_key = jax.random.split(key)
@@ -385,7 +404,9 @@ class SAC:
             return (key, state), info
 
         (key, state), info = jax.lax.scan(
-            update_step, (key, state), length=(num_steps // self.cfg.algorithm.train_frequency)
+            update_step,
+            (key, state),
+            length=(num_steps // self.cfg.algorithm.train_frequency),
         )
 
         return key, state, info
@@ -395,6 +416,16 @@ class SAC:
         key, sample_key = jax.random.split(state.key)
         dist = self.actor_network.apply(state.actor_params, obs)
         action = dist.sample(seed=sample_key)
+        action_scale = (
+            self.env.action_space(self.env_params).high
+            - self.env.action_space(self.env_params).low
+        ) / 2
+        action_bias = (
+            self.env.action_space(self.env_params).high
+            + self.env.action_space(self.env_params).low
+        ) / 2
+
+        action = action * action_scale + action_bias
         new_state = state.replace(key=key)
         return new_state, action
 
@@ -404,6 +435,14 @@ class SAC:
     ) -> jnp.ndarray:
         dist = self.actor_network.apply(state.actor_params, obs, temperature=0.0)
         action = dist.sample(seed=key)
+        action_scale = (
+            self.env.action_space(self.env_params).high
+            - self.env.action_space(self.env_params).low
+        ) / 2
+        action_bias = (
+            self.env.action_space(self.env_params).high
+            + self.env.action_space(self.env_params).low
+        ) / 2
         return action
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
@@ -439,7 +478,8 @@ def make_sac(cfg, env, env_params) -> SAC:
 
     # Define networks
     actor_network = Network(
-        feature_extractor=instantiate(cfg.algorithm.actor_feature_extractor),
+        feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
+        torso=instantiate(cfg.algorithm.actor.torso),
         head=heads.SquashedGaussian(action_dim=action_dim),
     )
     critic_network = nn.vmap(
@@ -450,7 +490,8 @@ def make_sac(cfg, env, env_params) -> SAC:
         out_axes=0,
         axis_size=2,
     )(
-        feature_extractor=instantiate(cfg.algorithm.critic_feature_extractor),
+        feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
+        torso=instantiate(cfg.algorithm.critic.torso),
         head=heads.ContinuousQNetwork(),
     )
     temp_network = Temperature(initial_temperature=cfg.algorithm.init_temperature)

@@ -1,13 +1,15 @@
 import gymnax
 import hydra
 import jax
+import wandb
 from omegaconf import DictConfig, OmegaConf
 
-import wandb
 from memory_rl import Algorithm, TMazeClassicActive, TMazeClassicPassive, make
 from memory_rl.environments.environment import make as make_env
 from memory_rl.utils import BraxGymnaxWrapper, NavixGymnaxWrapper
 from popjaxrl.envs import make as make_popjax_env
+
+OmegaConf.register_new_resolver("eval", eval)
 
 
 @hydra.main(version_base=None, config_path="memory_rl/conf", config_name="config")

@@ -10,34 +10,14 @@ import gymnax
 import jax
 import jax.numpy as jnp
 import optax
+import wandb
 from flax import core
 from gymnax.wrappers import FlattenObservationWrapper
-from omegaconf import OmegaConf
 from hydra.utils import instantiate
+from omegaconf import DictConfig, OmegaConf
 
-import wandb
+from memory_rl.networks import Network, heads
 from memory_rl.utils import LogWrapper
-from memory_rl.networks import heads, Network
-
-
-@chex.dataclass(frozen=True)
-class DQNConfig:
-    name: str
-    learning_rate: float
-    num_envs: int
-    num_eval_envs: int
-    buffer_size: int
-    gamma: float
-    tau: float
-    target_network_frequency: int
-    batch_size: int
-    start_e: float
-    end_e: float
-    exploration_fraction: float
-    train_frequency: int
-    learning_starts: int
-    feature_extractor: dict = field(hash=False)
-    track: bool
 
 
 @chex.dataclass(frozen=True)
@@ -61,7 +41,7 @@ class DQN:
     Deep Q-Network (DQN) reinforcement learning algorithm.
     """
 
-    cfg: Any
+    cfg: DictConfig
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
     q_network: Network
@@ -84,7 +64,7 @@ class DQN:
             env_state: Initial environment state.
         """
         key, env_key, q_key = jax.random.split(key, 3)
-        env_keys = jax.random.split(env_key, self.cfg.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
 
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
@@ -125,10 +105,10 @@ class DQN:
 
             key, sample_key, step_key = jax.random.split(key, 3)
 
-            sample_key = jax.random.split(sample_key, self.cfg.num_envs)
+            sample_key = jax.random.split(sample_key, self.cfg.algorithm.num_envs)
             action = jax.vmap(self.env.action_space(self.env_params).sample)(sample_key)
 
-            step_key = jax.random.split(step_key, self.cfg.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
             next_obs, env_state, reward, done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
@@ -150,7 +130,7 @@ class DQN:
             return (key, state), info
 
         (key, state), _ = jax.lax.scan(
-            step, (key, state), length=num_steps // self.cfg.num_envs
+            step, (key, state), length=num_steps // self.cfg.algorithm.num_envs
         )
         return key, state
 
@@ -185,7 +165,7 @@ class DQN:
 
             key, step_key, action_key, sample_key = jax.random.split(key, 4)
 
-            sample_key = jax.random.split(sample_key, self.cfg.num_envs)
+            sample_key = jax.random.split(sample_key, self.cfg.algorithm.num_envs)
             random_action = jax.vmap(self.env.action_space(self.env_params).sample)(
                 sample_key
             )
@@ -200,7 +180,7 @@ class DQN:
                 greedy_action,
             )
 
-            step_key = jax.random.split(step_key, self.cfg.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
             next_obs, env_state, reward, done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
@@ -214,7 +194,7 @@ class DQN:
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
-                step=state.step + self.cfg.num_envs,
+                step=state.step + self.cfg.algorithm.num_envs,
                 obs=next_obs,  # type: ignore
                 env_state=env_state,  # type: ignore
                 buffer_state=buffer_state,
@@ -236,7 +216,7 @@ class DQN:
 
             next_q_value = (
                 batch.first.reward
-                + (1 - batch.first.done) * self.cfg.gamma * q_next_target
+                + (1 - batch.first.done) * self.cfg.algorithm.gamma * q_next_target
             )
 
             def loss_fn(params):
@@ -257,10 +237,12 @@ class DQN:
             )
             params = optax.apply_updates(state.params, updates)
             target_params = optax.periodic_update(
-                optax.incremental_update(params, state.target_params, self.cfg.tau),
+                optax.incremental_update(
+                    params, state.target_params, self.cfg.algorithm.tau
+                ),
                 state.target_params,
                 state.step,
-                self.cfg.target_network_frequency,
+                self.cfg.algorithm.target_network_frequency,
             )
 
             state = state.replace(
@@ -278,13 +260,14 @@ class DQN:
             (key, state), info = jax.lax.scan(
                 step,
                 carry,
-                length=self.cfg.train_frequency // self.cfg.num_envs,
+                length=self.cfg.algorithm.train_frequency
+                // self.cfg.algorithm.num_envs,
             )
 
             key, update_key = jax.random.split(key)
             state, loss, q_value = update(update_key, state)
 
-            if self.cfg.track:
+            if self.cfg.logger.track:
 
                 def callback(step, info, loss, q_value):
                     if step % 100 == 0:
@@ -309,7 +292,7 @@ class DQN:
         (key, state), info = jax.lax.scan(
             learn,
             (key, state),
-            length=(num_steps // self.cfg.train_frequency),
+            length=(num_steps // self.cfg.algorithm.train_frequency),
         )
         return key, state, info
 
@@ -330,7 +313,7 @@ class DQN:
             info: Evaluation metrics (rewards, episode lengths, etc.).
         """
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.num_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
@@ -347,7 +330,7 @@ class DQN:
             action = q_values.argmax(axis=-1)
 
             key, step_key = jax.random.split(key)
-            step_key = jax.random.split(step_key, self.cfg.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
             obs, env_state, _, _, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
@@ -382,6 +365,7 @@ def make_dqn(cfg, env, env_params) -> DQN:
 
     q_network = Network(
         feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        torso=instantiate(cfg.algorithm.torso),
         head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
     buffer = fbx.make_flat_buffer(
@@ -398,9 +382,9 @@ def make_dqn(cfg, env, env_params) -> DQN:
         int(cfg.algorithm.exploration_fraction * cfg.total_timesteps),
         cfg.algorithm.learning_starts,
     )
-    algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
+    # algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
     return DQN(
-        cfg=DQNConfig(**algorithm_cfg, track=cfg.logger.track),  # type: ignore
+        cfg=cfg,  # type: ignore
         env=env,  # type: ignore
         env_params=env_params,  # type: ignore
         q_network=q_network,  # type: ignore

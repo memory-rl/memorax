@@ -2,6 +2,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from flax.linen.recurrent import RNNCellBase
+
 from memory_rl.networks.recurrent import MaskedRNN
 
 
@@ -15,6 +16,7 @@ class RNN(nn.Module):
         mask: jnp.ndarray,
         initial_carry: jnp.ndarray | None = None,
         return_carry_history: bool = False,
+        **kwargs,
     ):
         hidden_state, x = MaskedRNN(self.cell, return_carry=True)(
             x,

@@ -13,13 +13,11 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from optax import linear_schedule
 
+from memory_rl.networks import RNN, Network, heads
 from memory_rl.utils import compute_recurrent_gae as compute_gae
-
-from omegaconf import OmegaConf
-from memory_rl.networks import feature_extractors, torsos, heads, Network
 
 # Enable JAX debug mode for NaN detection
 jax.config.update("jax_debug_nans", True)
@@ -63,6 +61,7 @@ class Transition:
 #     @property
 #     def batch_size(self):
 #         return self.num_envs * self.num_steps
+
 
 @chex.dataclass(frozen=True)
 class RPPOState:
@@ -530,14 +529,14 @@ def make_rppo_continuous(cfg, env, env_params):
     # )
     actor_network = Network(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        torso=torsos.RNN(instantiate(cfg.algorithm.actor.cell)),
+        torso=RNN(instantiate(cfg.algorithm.actor.cell)),
         head=heads.SquashedGaussian(
             action_dim=action_dim,
         ),
     )
     critic_network = Network(
         feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        torso=torsos.RNN(instantiate(cfg.algorithm.critic.cell)),
+        torso=RNN(instantiate(cfg.algorithm.critic.cell)),
         head=heads.VNetwork(),
     )
 

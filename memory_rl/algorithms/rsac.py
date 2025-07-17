@@ -6,20 +6,19 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
-from flax.training import train_state
-from hydra.utils import get_class
-from omegaconf import OmegaConf
-from hydra.utils import instantiate
-from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
-
 import wandb
+from flax.training import train_state
+from hydra.utils import get_class, instantiate
+from omegaconf import OmegaConf
+
+from memory_rl.networks import RNN, Network, heads
 from memory_rl.utils import (
     BraxGymnaxWrapper,
     LogWrapper,
     make_trajectory_buffer,
     periodic_incremental_update,
 )
-from memory_rl.networks import feature_extractors, heads, torsos, Network
+from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 
 
 @chex.dataclass
@@ -531,7 +530,7 @@ def make_rsac(cfg, env, env_params) -> RSAC:
     # )
     actor_network = Network(
         feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        torso=torsos.RNN(cell=instantiate(cfg.algorithm.cell)),
+        torso=RNN(cell=instantiate(cfg.algorithm.cell)),
         head=heads.SquashedGaussian(action_dim=action_dim),
     )
 
@@ -544,7 +543,7 @@ def make_rsac(cfg, env, env_params) -> RSAC:
         axis_size=2,
     )(
         feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        torso=torsos.RNN(cell=instantiate(cfg.algorithm.cell)),
+        torso=RNN(cell=instantiate(cfg.algorithm.cell)),
         head=heads.VNetwork(),
     )
     temp_network = Network(

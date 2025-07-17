@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Callable
 
@@ -10,22 +10,15 @@ import gymnax
 import jax
 import jax.numpy as jnp
 import optax
+import wandb
 from flax import core
 from gymnax.wrappers.purerl import FlattenObservationWrapper
-from hydra.utils import get_class
-from omegaconf import OmegaConf
-from hydra.utils import instantiate
-from dataclasses import field
+from hydra.utils import get_class, instantiate
+from omegaconf import DictConfig, OmegaConf
 
-
-import wandb
-
-from memory_rl.utils import (
-    LogWrapper,
-    make_trajectory_buffer,
-    periodic_incremental_update,
-)
-from memory_rl.networks import heads, torsos, Network
+from memory_rl.networks import RNN, Network, heads
+from memory_rl.utils import (LogWrapper, make_trajectory_buffer,
+                             periodic_incremental_update)
 
 
 # TODO: REMOVE CONFIGS
@@ -67,7 +60,7 @@ class DRQNState:
 
 @chex.dataclass(frozen=True)
 class DRQN:
-    cfg: Any
+    cfg: DictConfig
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
     q_network: Network
@@ -78,7 +71,7 @@ class DRQN:
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
         key, env_key, q_key = jax.random.split(key, 3)
-        env_keys = jax.random.split(env_key, self.cfg.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
 
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
@@ -88,7 +81,7 @@ class DRQN:
             env_keys, env_state, action, self.env_params
         )
         carry = self.q_network.torso.initialize_carry(
-            (self.cfg.num_envs, self.cfg.cell["features"])
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.cell.features)
         )
 
         params = self.q_network.init(
@@ -147,10 +140,10 @@ class DRQN:
 
             key, sample_key, step_key = jax.random.split(key, 3)
 
-            sample_key = jax.random.split(sample_key, self.cfg.num_envs)
+            sample_key = jax.random.split(sample_key, self.cfg.algorithm.num_envs)
             action = jax.vmap(self.env.action_space(self.env_params).sample)(sample_key)
 
-            step_key = jax.random.split(step_key, self.cfg.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
             next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
@@ -181,7 +174,7 @@ class DRQN:
             return (key, state), info
 
         (key, state), _ = jax.lax.scan(
-            step, (key, state), length=num_steps // self.cfg.num_envs
+            step, (key, state), length=num_steps // self.cfg.algorithm.num_envs
         )
         return key, state
 
@@ -202,7 +195,7 @@ class DRQN:
 
             key, step_key, action_key, sample_key = jax.random.split(key, 4)
 
-            sample_key = jax.random.split(sample_key, self.cfg.num_envs)
+            sample_key = jax.random.split(sample_key, self.cfg.algorithm.num_envs)
             random_action = jax.vmap(self.env.action_space(self.env_params).sample)(
                 sample_key
             )
@@ -222,7 +215,7 @@ class DRQN:
                 greedy_action,
             )
 
-            step_key = jax.random.split(step_key, self.cfg.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
             next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
@@ -246,7 +239,7 @@ class DRQN:
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
-                step=state.step + self.cfg.num_envs,
+                step=state.step + self.cfg.algorithm.num_envs,
                 obs=next_obs,  # type: ignore
                 done=next_done,  # type: ignore
                 hidden_state=next_hidden_state,  # type: ignore
@@ -272,13 +265,15 @@ class DRQN:
                 initial_carry=jax.tree.map(
                     lambda x: x[:, 0, :], batch.experience.next_hidden_state
                 ),
-                return_carry_history=self.cfg.update_hidden_state,
+                return_carry_history=self.cfg.algorithm.update_hidden_state,
             )
             q_next_target = jnp.max(q_next_target, axis=-1)
 
             next_q_value = (
                 batch.experience.reward
-                + (1 - batch.experience.next_done) * self.cfg.gamma * q_next_target
+                + (1 - batch.experience.next_done)
+                * self.cfg.algorithm.gamma
+                * q_next_target
             )
 
             def loss_fn(params):
@@ -289,7 +284,7 @@ class DRQN:
                     initial_carry=jax.tree.map(
                         lambda x: x[:, 0, :], batch.experience.hidden_state
                     ),
-                    return_carry_history=self.cfg.update_hidden_state,
+                    return_carry_history=self.cfg.algorithm.update_hidden_state,
                 )
                 action = jnp.expand_dims(batch.experience.action, axis=-1)
                 q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
@@ -307,11 +302,11 @@ class DRQN:
                 params,
                 state.target_params,
                 state.step,
-                self.cfg.target_network_frequency,
-                self.cfg.tau,
+                self.cfg.algorithm.target_network_frequency,
+                self.cfg.algorithm.tau,
             )
 
-            if self.cfg.update_hidden_state:
+            if self.cfg.algorithm.update_hidden_state:
                 hidden_state = jax.tree.map(
                     lambda x: jnp.swapaxes(x, 0, 1), hidden_state
                 )
@@ -344,13 +339,14 @@ class DRQN:
             (key, state), info = jax.lax.scan(
                 step,
                 carry,
-                length=self.cfg.train_frequency // self.cfg.num_envs,
+                length=self.cfg.algorithm.train_frequency
+                // self.cfg.algorithm.num_envs,
             )
 
             key, update_key = jax.random.split(key)
             state, loss, q_value = update(update_key, state)
 
-            if self.cfg.track:
+            if self.cfg.logger.track:
 
                 def callback(step, info, loss, q_value):
                     if step % 100 == 0:
@@ -378,7 +374,7 @@ class DRQN:
         ), info = jax.lax.scan(
             learn,
             (key, state),
-            length=(num_steps // self.cfg.train_frequency),
+            length=(num_steps // self.cfg.algorithm.train_frequency),
         )
         return key, state, info
 
@@ -388,13 +384,13 @@ class DRQN:
     ) -> tuple[chex.PRNGKey, dict]:
 
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.num_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        done = jnp.zeros(self.cfg.num_envs, dtype=jnp.bool)
+        done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=jnp.bool)
         hidden_state = self.q_network.torso.initialize_carry(
-            (self.cfg.num_envs, self.cfg.cell["features"])
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.cell.features)
         )
 
         state = state.replace(obs=obs, done=done, hidden_state=hidden_state, env_state=env_state)  # type: ignore
@@ -414,7 +410,7 @@ class DRQN:
             action = q_values.squeeze(1).argmax(axis=-1)
 
             key, step_key = jax.random.split(key)
-            step_key = jax.random.split(step_key, self.cfg.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
             obs, env_state, _, done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
@@ -453,7 +449,7 @@ def make_drqn(cfg, env, env_params) -> DRQN:
 
     q_network = Network(
         feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        torso=torsos.RNN(
+        torso=RNN(
             cell=instantiate(cfg.algorithm.cell),
         ),
         head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
@@ -477,10 +473,8 @@ def make_drqn(cfg, env, env_params) -> DRQN:
         cfg.algorithm.learning_starts,
     )
 
-    print(cfg.algorithm)
-    algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
     return DRQN(
-        cfg=DRQNConfig(**algorithm_cfg, track=cfg.logger.track),  # type: ignore
+        cfg=cfg,  # type: ignore
         env=env,  # type: ignore
         env_params=env_params,  # type: ignore
         q_network=q_network,  # type: ignore

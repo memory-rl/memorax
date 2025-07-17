@@ -11,20 +11,17 @@ import gymnax
 import jax
 import jax.numpy as jnp
 import optax
+import wandb
 from flax import core, struct
 from flax.training.train_state import TrainState
 from gymnax.wrappers import FlattenObservationWrapper
-from hydra.utils import get_class
-from omegaconf import OmegaConf
-from hydra.utils import instantiate
+from hydra.utils import get_class, instantiate
+from omegaconf import DictConfig, OmegaConf
 from optax import linear_schedule
 
-
-import wandb
+from memory_rl.networks import RNN, Network, heads
 from memory_rl.utils import LogWrapper
 from memory_rl.utils import compute_recurrent_gae as compute_gae
-from memory_rl.networks import feature_extractors, heads, torsos, Network
-
 
 # class ActorNetwork(nn.Module):
 #     action_dim: int
@@ -125,7 +122,6 @@ class Transition:
     value: chex.Array
 
 
-
 @chex.dataclass(frozen=True)
 class RPPOState:
     step: int
@@ -142,7 +138,7 @@ class RPPOState:
 
 @chex.dataclass(frozen=True)
 class RPPO:
-    cfg: Any
+    cfg: DictConfig
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
     actor_network: Network
@@ -336,18 +332,18 @@ class RPPO:
                             ratio * advantages,
                             jnp.clip(
                                 ratio,
-                                1.0 - self.cfg.clip_coef,
-                                1.0 + self.cfg.clip_coef,
+                                1.0 - self.cfg.algorithm.clip_coef,
+                                1.0 + self.cfg.algorithm.clip_coef,
                             )
                             * advantages,
                         ).mean()
 
-                        if self.cfg.clip_vloss:
+                        if self.cfg.algorithm.clip_vloss:
                             critic_loss = jnp.square(value - returns)
                             clipped_value = transitions.value + jnp.clip(
                                 (value - transitions.value),
-                                -self.cfg.clip_coef,
-                                self.cfg.clip_coef,
+                                -self.cfg.algorithm.clip_coef,
+                                self.cfg.algorithm.clip_coef,
                             )
                             clipped_critic_loss = jnp.square(clipped_value - returns)
                             critic_loss = (
@@ -359,8 +355,8 @@ class RPPO:
 
                         loss = (
                             actor_loss
-                            + self.cfg.vf_coef * critic_loss
-                            - self.cfg.ent_coef * entropy
+                            + self.cfg.algorithm.vf_coef * critic_loss
+                            - self.cfg.algorithm.ent_coef * entropy
                         )
 
                         return loss, (actor_loss, critic_loss, entropy)
@@ -412,7 +408,9 @@ class RPPO:
 
                 key, permutation_key = jax.random.split(key)
 
-                permutation = jax.random.permutation(permutation_key, self.cfg.algorithm.num_envs)
+                permutation = jax.random.permutation(
+                    permutation_key, self.cfg.algorithm.num_envs
+                )
 
                 batch = (
                     initial_actor_h_epoch,
@@ -494,7 +492,8 @@ class RPPO:
         (key, state), info = jax.lax.scan(
             update_step,
             (key, state),
-            length=num_steps // (self.cfg.algorithm.num_envs * self.cfg.algorithm.num_steps),
+            length=num_steps
+            // (self.cfg.algorithm.num_envs * self.cfg.algorithm.num_steps),
         )
 
         return key, state, info
@@ -564,14 +563,17 @@ def make_rppo(cfg, env, env_params):
     # )
     actor = Network(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        torso=torsos.RNN(instantiate(cfg.algorithm.actor.cell)),
-        head=heads.Categorical(action_dim=env.action_space(env_params).n),
+        torso=RNN(instantiate(cfg.algorithm.actor.cell)),
+        head=heads.Categorical(
+            action_dim=env.action_space(env_params).n,
+            kernel_init=nn.initializers.orthogonal(scale=0.01),
+        ),
     )
 
     critic = Network(
         feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        torso=torsos.RNN(instantiate(cfg.algorithm.critic.cell)),
-        head=heads.VNetwork(),
+        torso=RNN(instantiate(cfg.algorithm.critic.cell)),
+        head=heads.VNetwork(kernel_init=nn.initializers.orthogonal(scale=1.0)),
     )
 
     # if cfg.anneal_lr:

@@ -7,14 +7,14 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
-from flax.training import train_state
-from omegaconf import OmegaConf
-from hydra.utils import instantiate
-from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
-
 import wandb
+from flax.training import train_state
+from hydra.utils import instantiate
+from omegaconf import OmegaConf
+
+from memory_rl.networks import Network, heads
 from memory_rl.utils import LogWrapper, periodic_incremental_update
-from memory_rl.networks import feature_extractors, heads, torsos, Network
+from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
 
 
 # TODO : REFACTOR OR REMOVE
@@ -448,7 +448,8 @@ def make_sacd(cfg, env, env_params) -> SACD:
     #
     # temp_network = Temperature(initial_temperature=cfg.algorithm.init_temperature)
     actor_network = Network(
-        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
+        torso=instantiate(cfg.algorithm.actor.torso),
         head=heads.Categorical(action_dim=action_dim),
     )
     critic_network = nn.vmap(
@@ -459,7 +460,8 @@ def make_sacd(cfg, env, env_params) -> SACD:
         out_axes=0,
         axis_size=2,
     )(
-        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
+        torso=instantiate(cfg.algorithm.critic.torso),
         head=heads.VNetwork(),
     )
     temp_network = Network(

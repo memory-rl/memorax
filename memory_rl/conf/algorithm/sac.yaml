@@ -2,12 +2,12 @@ name: sac
 policy_lr:            3e-4
 q_lr:           3e-4
 temp_lr:             3e-4
-num_envs:            10
-num_eval_envs:       10
+num_envs:            5
+num_eval_envs:       5
 buffer_size:         100_000
 gamma:               0.99
 tau:                 5e-3
-train_frequency:     10
+train_frequency:     5
 target_update_frequency: 1
 batch_size:          256
 init_temperature:    1.0
@@ -19,10 +19,19 @@ max_action:          1.0
 backup_entropy:      true
 learning_starts:     5_000
 
-actor_feature_extractor:
-  _target_: memory_rl.networks.feature_extractors.MLP
-  features: [256, 256]
+actor:
+  feature_extractor:
+    _target_: memory_rl.networks.MLP
+    features: [256]
+  torso:
+    _target_: memory_rl.networks.MLP
+    features: [256]
 
-critic_feature_extractor:
-  _target_: memory_rl.networks.feature_extractors.MLP
-  features: [256, 256]
+critic:
+  feature_extractor:
+    _target_: memory_rl.networks.MLP
+    features: [256]
+  torso:
+    _target_: memory_rl.networks.MLP
+    features: [256]
+

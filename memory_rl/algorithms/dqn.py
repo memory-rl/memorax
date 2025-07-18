@@ -10,12 +10,12 @@ import gymnax
 import jax
 import jax.numpy as jnp
 import optax
-import wandb
 from flax import core
 from gymnax.wrappers import FlattenObservationWrapper
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
+import wandb
 from memory_rl.networks import Network, heads
 from memory_rl.utils import LogWrapper
 
@@ -206,7 +206,8 @@ class DQN:
             key: chex.PRNGKey, state: DQNState
         ) -> tuple[DQNState, chex.Array, chex.Array]:
 
-            batch = self.buffer.sample(state.buffer_state, key).experience
+            key, sample_key = jax.random.split(key)
+            batch = self.buffer.sample(state.buffer_state, sample_key).experience
 
             q_next_target = self.q_network.apply(
                 state.target_params,
@@ -251,7 +252,7 @@ class DQN:
                 optimizer_state=optimizer_state,
             )
 
-            return state, loss, q_value.mean()
+            return key, state, loss, q_value.mean()
 
         def learn(
             carry: tuple[chex.PRNGKey, DQNState], _
@@ -264,8 +265,7 @@ class DQN:
                 // self.cfg.algorithm.num_envs,
             )
 
-            key, update_key = jax.random.split(key)
-            state, loss, q_value = update(update_key, state)
+            key, state, loss, q_value = update(key, state)
 
             if self.cfg.logger.track:
 

@@ -16,7 +16,7 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 from optax import linear_schedule
 
-from memory_rl.networks import RNN, Network, heads
+from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import compute_recurrent_gae as compute_gae
 
 # Enable JAX debug mode for NaN detection
@@ -82,8 +82,8 @@ class RPPO:
     cfg: DictConfig
     env: Any
     env_params: Any
-    actor_network: Network
-    critic_network: Network
+    actor_network: RecurrentNetwork
+    critic_network: RecurrentNetwork
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
 
@@ -527,16 +527,16 @@ def make_rppo_continuous(cfg, env, env_params):
     #     cell=MaskedGRUCell(cfg.algorithm.critic_cell_size),
     #     hidden_dims=cfg.algorithm.hidden_dims,
     # )
-    actor_network = Network(
+    actor_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        torso=RNN(instantiate(cfg.algorithm.actor.cell)),
+        cell=instantiate(cfg.algorithm.actor.cell),
         head=heads.SquashedGaussian(
             action_dim=action_dim,
         ),
     )
-    critic_network = Network(
+    critic_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        torso=RNN(instantiate(cfg.algorithm.critic.cell)),
+        cell=instantiate(cfg.algorithm.critic.cell),
         head=heads.VNetwork(),
     )
 

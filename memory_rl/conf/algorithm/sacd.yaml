@@ -10,12 +10,11 @@ tau:                 5e-3
 train_frequency:     10
 target_update_frequency: 1
 batch_size:          256
-hidden_dims:         [256, 256]
 init_temperature:    1.0
 policy_log_std_min: -10.0
 policy_log_std_max: 2.0
 policy_final_fc_init_scale: 1e-3
-target_entropy_multiplier: 0.5
+target_entropy_multiplier: 1
 backup_entropy:      true
 learning_starts:     5_000
 
@@ -26,6 +25,10 @@ actor:
   torso:
     _target_: memory_rl.networks.MLP
     features: [256]
+  head:
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1e-3
 
 critic:
   feature_extractor:

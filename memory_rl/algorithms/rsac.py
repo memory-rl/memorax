@@ -11,7 +11,7 @@ from flax.training import train_state
 from hydra.utils import get_class, instantiate
 from omegaconf import OmegaConf
 
-from memory_rl.networks import RNN, Network, heads
+from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import (
     BraxGymnaxWrapper,
     LogWrapper,
@@ -114,8 +114,8 @@ class RSAC:
         critic_params = self.critic_network.init(
             critic_key,
             jnp.expand_dims(obs, 1),
-            jnp.expand_dims(action, 1),
             jnp.expand_dims(done, 1),
+            jnp.expand_dims(action, 1),
         )["params"]
         critic = OnlineAndTargetState.create(
             apply_fn=self.critic_network.apply,
@@ -216,11 +216,11 @@ class RSAC:
                 {"params": actor_params}, batch.obs, batch.done
             )
             actions, log_probs = dist.sample_and_log_prob(seed=key)
-            _, q1, q2 = state.critic.apply_fn(
-                {"params": state.critic.params}, batch.obs, actions, batch.done
+            _, (q1, q2) = state.critic.apply_fn(
+                {"params": state.critic.params}, batch.obs, batch.done, actions
             )
             q = jnp.minimum(q1, q2)
-            actor_loss = (log_probs * temperature - q).mean()
+            actor_loss = (log_probs * temperature - q.squeeze(-1)).mean()
             return actor_loss, {"actor_loss": actor_loss, "entropy": -log_probs.mean()}
 
         (_, info), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
@@ -239,18 +239,18 @@ class RSAC:
         )
         next_actions, next_log_probs = dist.sample_and_log_prob(seed=key)
 
-        _, next_q1, next_q2 = state.critic.apply_fn(
+        _, (next_q1, next_q2) = state.critic.apply_fn(
             {"params": state.critic.target_params},
             batch.next_obs,
-            next_actions,
             batch.next_done,
+            next_actions,
         )
         next_q = jnp.minimum(next_q1, next_q2)
 
         temperature = state.temp.apply_fn({"params": state.temp.params})
-        target_q = (
-            batch.reward + self.cfg.algorithm.gamma * (1 - batch.next_done) * next_q
-        )
+        target_q = batch.reward + self.cfg.algorithm.gamma * (
+            1 - batch.next_done
+        ) * next_q.squeeze(-1)
 
         if self.cfg.algorithm.backup_entropy:
             target_q -= (
@@ -263,10 +263,12 @@ class RSAC:
         target_q = jax.lax.stop_gradient(target_q)
 
         def critic_loss_fn(critic_params):
-            _, q1, q2 = state.critic.apply_fn(
-                {"params": critic_params}, batch.obs, batch.action, batch.done
+            _, (q1, q2) = state.critic.apply_fn(
+                {"params": critic_params}, batch.obs, batch.done, batch.action
             )
-            critic_loss = ((q1 - target_q) ** 2 + (q2 - target_q) ** 2).mean()
+            critic_loss = (
+                (q1.squeeze(-1) - target_q) ** 2 + (q2.squeeze(-1) - target_q) ** 2
+            ).mean()
             return critic_loss, {
                 "critic_loss": critic_loss,
                 "q1": q1.mean(),
@@ -528,27 +530,25 @@ def make_rsac(cfg, env, env_params) -> RSAC:
     #     cell=get_class(cfg.algorithm.cell)(cfg.algorithm.critic_cell_size),
     #     hidden_dims=cfg.algorithm.hidden_dims,
     # )
-    actor_network = Network(
-        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        torso=RNN(cell=instantiate(cfg.algorithm.cell)),
+    actor_network = RecurrentNetwork(
+        feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
+        cell=instantiate(cfg.algorithm.actor.torso.cell),
         head=heads.SquashedGaussian(action_dim=action_dim),
     )
 
     critic_network = nn.vmap(
-        Network,
+        RecurrentNetwork,
         variable_axes={"params": 0},
         split_rngs={"params": True},
         in_axes=None,
         out_axes=0,
         axis_size=2,
     )(
-        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        torso=RNN(cell=instantiate(cfg.algorithm.cell)),
+        feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
+        cell=instantiate(cfg.algorithm.critic.torso.cell),
         head=heads.VNetwork(),
     )
-    temp_network = Network(
-        head=heads.Temperature(initial_temperature=cfg.algorithm.init_temperature)
-    )
+    temp_network = heads.Temperature(initial_temperature=cfg.algorithm.init_temperature)
 
     # Define optimizers
     actor_optimizer = optax.adam(learning_rate=cfg.algorithm.policy_lr)

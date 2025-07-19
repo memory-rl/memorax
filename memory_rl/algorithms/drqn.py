@@ -16,33 +16,11 @@ from gymnax.wrappers.purerl import FlattenObservationWrapper
 from hydra.utils import get_class, instantiate
 from omegaconf import DictConfig, OmegaConf
 
-from memory_rl.networks import RNN, Network, heads
-from memory_rl.utils import (LogWrapper, make_trajectory_buffer,
-                             periodic_incremental_update)
-
-
-# TODO: REMOVE CONFIGS
-@chex.dataclass(frozen=True)
-class DRQNConfig:
-    name: str
-    learning_rate: float
-    num_envs: int
-    num_eval_envs: int
-    buffer_size: int
-    gamma: float
-    tau: float
-    target_network_frequency: int
-    batch_size: int
-    cell: dict = field(hash=False)
-    sample_sequence_length: int
-    update_hidden_state: bool
-    start_e: float
-    end_e: float
-    exploration_fraction: float
-    train_frequency: int
-    learning_starts: int
-    feature_extractor: dict = field(hash=False)
-    track: bool
+from memory_rl.networks import RecurrentNetwork, heads
+from memory_rl.utils import (
+    make_trajectory_buffer,
+    periodic_incremental_update,
+)
 
 
 @chex.dataclass(frozen=True)
@@ -63,7 +41,7 @@ class DRQN:
     cfg: DictConfig
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
-    q_network: Network
+    q_network: RecurrentNetwork
     optimizer: optax.GradientTransformation
     buffer: fbx.trajectory_buffer.TrajectoryBuffer
     epsilon_schedule: optax.Schedule
@@ -80,7 +58,7 @@ class DRQN:
         _, _, reward, done, _ = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
-        carry = self.q_network.torso.initialize_carry(
+        carry = self.q_network.initialize_carry(
             (self.cfg.algorithm.num_envs, self.cfg.algorithm.cell.features)
         )
 
@@ -389,7 +367,7 @@ class DRQN:
             reset_key, self.env_params
         )
         done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=jnp.bool)
-        hidden_state = self.q_network.torso.initialize_carry(
+        hidden_state = self.q_network.initialize_carry(
             (self.cfg.algorithm.num_envs, self.cfg.algorithm.cell.features)
         )
 
@@ -447,11 +425,9 @@ class Transition:
 
 def make_drqn(cfg, env, env_params) -> DRQN:
 
-    q_network = Network(
+    q_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        torso=RNN(
-            cell=instantiate(cfg.algorithm.cell),
-        ),
+        cell=instantiate(cfg.algorithm.cell),
         head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
     buffer = make_trajectory_buffer(

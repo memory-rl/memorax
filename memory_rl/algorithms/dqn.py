@@ -368,6 +368,7 @@ def make_dqn(cfg, env, env_params) -> DQN:
         torso=instantiate(cfg.algorithm.torso),
         head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
+
     buffer = fbx.make_flat_buffer(
         max_length=cfg.algorithm.buffer_size,
         min_length=cfg.algorithm.batch_size,

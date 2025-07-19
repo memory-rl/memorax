@@ -16,7 +16,7 @@ sample_sequence_length: 4
 update_hidden_state: false
 
 start_e:             1.0
-end_e:               0.01
+end_e:               0.05
 exploration_fraction: 0.5
 
 learning_starts:     10000

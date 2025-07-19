@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
-from slstm_jax import sLSTM
-from mlstm_jax import mLSTM
+from slstm import sLSTM
+from mlstm import mLSTM
 import pytest
 import optax
 
@@ -34,8 +34,7 @@ def test_mlstm():
 
     rnn = nn.RNN(mLSTM(
         embedding_dim=embedding_dim,
-        v_dim_factor=1.0,
-        qk_dim_factor=1.0,
+        head_dim=16,
         num_heads=4,
         use_bias=True
     ))
@@ -95,8 +94,7 @@ def test_mlstm_overfit_dummy_data():
 
     rnn = nn.RNN(mLSTM(
         embedding_dim=embedding_dim,
-        v_dim_factor=1.0,
-        qk_dim_factor=1.0,
+        head_dim=16,
         num_heads=2,
         use_bias=True
     ))

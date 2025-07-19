@@ -20,6 +20,7 @@ class mLSTM(nn.RNNCellBase):
     use_bias: bool = True
     use_exp_f_gate = True
     ker_size: int = 4  # Default kernel size for 1D convolution
+    use_conv: bool = True
     
     @property
     def num_feature_axes(self) -> int:
@@ -31,13 +32,14 @@ class mLSTM(nn.RNNCellBase):
         embedding_dim: int, 
         num_heads: int, 
         head_dim: int,
-        ker_size: int
+        ker_size: int,
+        p_factor: float
     ) -> mLSTMCarry:
         
         return mLSTMCarry(
             C=jnp.zeros((batch_size, num_heads, head_dim, head_dim)), # (B, num_heads, head_dim, head_dim)
             n=jnp.ones((batch_size, num_heads, head_dim)), # (B, num_heads, head_dim)
-            x_prev=jnp.zeros((batch_size, ker_size - 1, embedding_dim))  # for 1D conv
+            x_prev=jnp.zeros((batch_size, ker_size - 1, embedding_dim * p_factor))  # for 1D conv
         )
   
     def initialize_carry(self, rng: jax.random.PRNGKey, input_shape: tuple[int, ...]) -> mLSTMCarry:
@@ -47,7 +49,8 @@ class mLSTM(nn.RNNCellBase):
             embedding_dim=self.embedding_dim,
             num_heads=self.num_heads,
             head_dim=self.head_dim,
-            ker_size=self.ker_size
+            ker_size=self.ker_size,
+            p_factor=self.p_factor
         )
   
     @nn.compact
@@ -70,7 +73,6 @@ class mLSTM(nn.RNNCellBase):
         W_f = nn.Dense(self.num_heads, use_bias=self.use_bias, name='W_f')
         W_o = nn.Dense(hid_dim, use_bias=self.use_bias, name='W_o')
         skip = nn.Conv(hid_dim, kernel_size=1, use_bias=False)
-        causal_conv = CausalConv1D(features=hid_dim, kernel_size=self.ker_size, dilation=1)
 
         group_norm = nn.GroupNorm(num_groups=self.num_heads)
         
@@ -84,7 +86,20 @@ class mLSTM(nn.RNNCellBase):
         x_l = up_l_proj(x_n)  # (B, embedding_dim * p_factor)
         x_r = up_r_proj(x_n)  # (B, hid_dim)
 
-        x_c = x_l#causal_conv(x_l) # TODO make this work with 1D conv
+        # x_prev is used to store the last ker_size - 1 values for causal convolution and has shape (batch_size, ker_size - 1, feature_dims)
+        x_window = jnp.expand_dims(x_l, axis=1) # shape (batch_size, 1, feature_dims)
+        x_window = jnp.concatenate([carry.x_prev, x_window], axis=1)  # shape (batch_size, ker_size, feature_dims)
+        if self.use_conv:
+            x_c = CausalConv1D(features=self.embedding_dim * self.p_factor, kernel_size=self.ker_size)(x_window)
+            x_c = nn.silu(x_c) # shape (batch_size, ker_size, feature_dims)
+            x_c = x_c[:, -1, :]  # take the last value, shape (batch_size, feature_dims)
+        else:
+            x_c = x_l
+            
+        # update x_prev for the next step
+        x_prev = x_window[:, 1:, :]  # shape (batch_size, ker_size - 1, feature_dims)
+
+
         x_c = nn.silu(x_c)
 
         q = W_q(x_c)
@@ -129,7 +144,7 @@ class mLSTM(nn.RNNCellBase):
         return mLSTMCarry(
             C=C,
             n=n,
-            x_prev=carry.x_prev # TODO: handle x_prev if needed in mLSTMCarry
+            x_prev=x_prev
         ), out
         
 

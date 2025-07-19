@@ -15,7 +15,6 @@ class Network(nn.Module):
     def __call__(
         self,
         observation: jnp.ndarray,
-        *_,
         action: Optional[jnp.ndarray] = None,
         **kwargs,
     ):

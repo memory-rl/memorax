@@ -1,9 +1,11 @@
 from functools import partial
 from typing import Any
 
+import gymnax
 import chex
 import flashbax as fbx
 import flax.linen as nn
+from flax import core
 import jax
 import jax.numpy as jnp
 import optax
@@ -41,15 +43,15 @@ class Transition:
 @chex.dataclass(frozen=True)
 class SACState:
     step: int
-    env_state: Any
+    env_state: gymnax.EnvState
     buffer_state: Any
-    actor_params: Any
-    critic_params: Any
-    critic_target_params: Any
-    temp_params: Any
-    actor_optimizer_state: Any
-    critic_optimizer_state: Any
-    temp_optimizer_state: Any
+    actor_params: core.FrozenDict[str, chex.ArrayTree]
+    critic_params: core.FrozenDict[str, chex.ArrayTree]
+    critic_target_params: core.FrozenDict[str, chex.ArrayTree]
+    temp_params: core.FrozenDict[str, chex.ArrayTree]
+    actor_optimizer_state: optax.OptState
+    critic_optimizer_state: optax.OptState
+    temp_optimizer_state: optax.OptState
     obs: chex.Array
 
 
@@ -168,7 +170,6 @@ class SAC:
         (_, info), grads = jax.value_and_grad(temperature_loss_fn, has_aux=True)(
             state.temp_params
         )
-        # new_temp = state.temp.apply_gradients(grads=grads)
         updates, optimizer_state = self.temp_optimizer.update(
             grads, state.temp_optimizer_state, state.temp_params
         )
@@ -221,13 +222,13 @@ class SAC:
         temperature = self.temp_network.apply(state.temp_params)
         target_q = (
             batch.first.reward
-            + self.cfg.algorithm.gamma * (1 - batch.second.done) * next_q
+            + self.cfg.algorithm.gamma * (1 - batch.first.done) * next_q
         )
 
         if self.cfg.algorithm.backup_entropy:
             target_q -= (
                 self.cfg.algorithm.gamma
-                * (1 - batch.second.done)
+                * (1 - batch.first.done)
                 * temperature
                 * next_log_probs
             )
@@ -331,7 +332,6 @@ class SAC:
             )
 
             key, update_key = jax.random.split(key)
-
             state, update_info = update(update_key, state)
             info.update(update_info)
 
@@ -382,7 +382,7 @@ class SAC:
 
             # Step environment
             env_key = jax.random.split(env_key, self.cfg.algorithm.num_eval_envs)
-            next_obs, env_state, reward, next_done, info = jax.vmap(
+            next_obs, env_state, reward, done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(env_key, state.env_state, action, self.env_params)
 

@@ -23,9 +23,9 @@ class CausalConv1D(nn.Module):
         return nn.Conv(self.features, self.kernel_size, kernel_dilation=self.dilation)(x)
   
 class BlockLinear(nn.Module):  
-    in_features: int  
     out_features: int  
-    num_blocks: int  
+    num_blocks: int 
+    use_bias: bool = True
   
     @nn.compact  
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -38,8 +38,7 @@ class BlockLinear(nn.Module):
         """
         assert x.ndim == 2, f"Input must be a 2D tensor (batch_size, in_features), but got {x.ndim}D tensor"
         
-        block_in_features = self.in_features // self.num_blocks  
         block_out_features = self.out_features // self.num_blocks  
         x_split = jnp.split(x, self.num_blocks, axis=1)  
-        y_split = [nn.Dense(block_out_features)(x_i) for x_i in x_split]
+        y_split = [nn.Dense(block_out_features, use_bias=self.use_bias)(x_i) for x_i in x_split]
         return jnp.concatenate(y_split, axis=1)

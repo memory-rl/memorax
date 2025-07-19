@@ -73,10 +73,10 @@ class sLSTM(nn.RNNCellBase):
         W_o = nn.Dense(features=self.head_num * self.head_dim)
         W_f = nn.Dense(features=self.head_num * self.head_dim)
 
-        R_z = BlockLinear(self.head_dim, self.head_dim, self.head_num)
-        R_i = BlockLinear(self.head_dim, self.head_dim, self.head_num)
-        R_f = BlockLinear(self.head_dim, self.head_dim, self.head_num)
-        R_o = BlockLinear(self.head_dim, self.head_dim, self.head_num)
+        R_z = BlockLinear(out_features=self.head_num * self.head_dim, num_blocks=self.head_num)
+        R_i = BlockLinear(out_features=self.head_num * self.head_dim, num_blocks=self.head_num)
+        R_f = BlockLinear(out_features=self.head_num * self.head_dim, num_blocks=self.head_num)
+        R_o = BlockLinear(out_features=self.head_num * self.head_dim, num_blocks=self.head_num)
 
         proj_dim = int(self.p_factor * self.head_num * self.head_dim)
         up_proj = nn.Dense(features=2 * proj_dim)
@@ -102,12 +102,10 @@ class sLSTM(nn.RNNCellBase):
         x_prev = x_window[:, 1:, :]  # shape (batch_size, ker_size - 1, feature_dims)
   
   
-        h_tm1_reshaped = h_tm1.reshape((batch_size, self.head_num, self.head_dim))  
-          
-        i_raw = W_i(x_c) + jax.vmap(R_i)(h_tm1_reshaped).reshape(batch_size, self.head_num * self.head_dim)  
-        f_raw = W_f(x_c) + jax.vmap(R_f)(h_tm1_reshaped).reshape(batch_size, self.head_num * self.head_dim)  
-        z_raw = W_z(x_c) + jax.vmap(R_z)(h_tm1_reshaped).reshape(batch_size, self.head_num * self.head_dim)  
-        o_raw = W_o(x_c) + jax.vmap(R_o)(h_tm1_reshaped).reshape(batch_size, self.head_num * self.head_dim)  
+        i_raw = W_i(x_c) + R_i(h_tm1)
+        f_raw = W_f(x_c) + R_f(h_tm1)
+        z_raw = W_z(x_c) + R_z(h_tm1)
+        o_raw = W_o(x_c) + R_o(h_tm1)
     
         logfplusm = m_tm1 + jax.nn.log_sigmoid(f_raw)  
           

@@ -66,9 +66,9 @@ class mLSTM(nn.RNNCellBase):
 
         hid_dim = self.num_heads * self.head_dim
         # Init weights        
-        W_q = nn.Dense(hid_dim, use_bias=self.use_bias, name='W_q') # TODO change this to BlockLinear
-        W_k = nn.Dense(hid_dim, use_bias=self.use_bias, name='W_k') # TODO change this to BlockLinear
-        W_v = nn.Dense(hid_dim, use_bias=self.use_bias, name='W_v') # TODO change this to BlockLinear 
+        W_q = BlockLinear(hid_dim, self.num_heads, use_bias=self.use_bias, name='W_q')
+        W_k = BlockLinear(hid_dim, self.num_heads, use_bias=self.use_bias, name='W_k')
+        W_v = BlockLinear(hid_dim, self.num_heads, use_bias=self.use_bias, name='W_v')
         W_i = nn.Dense(self.num_heads, use_bias=self.use_bias, name='W_i')
         W_f = nn.Dense(self.num_heads, use_bias=self.use_bias, name='W_f')
         W_o = nn.Dense(hid_dim, use_bias=self.use_bias, name='W_o')
@@ -100,7 +100,7 @@ class mLSTM(nn.RNNCellBase):
         x_prev = x_window[:, 1:, :]  # shape (batch_size, ker_size - 1, feature_dims)
 
 
-        x_c = nn.silu(x_c)
+        x_c = nn.silu(x_c) # (B, embedding_dim * p_factor)
 
         q = W_q(x_c)
         k = W_k(x_c) / jnp.sqrt(self.head_dim)

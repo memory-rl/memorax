@@ -14,7 +14,6 @@ import optax
 from flax import core, struct
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
-from optax import linear_schedule
 
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import compute_recurrent_gae as compute_gae
@@ -32,35 +31,6 @@ class Transition:
     info: chex.Array
     log_prob: chex.Array
     value: chex.Array
-
-
-# @chex.dataclass(frozen=True)
-# class RPPOConfig:
-#     name: str
-#     learning_rate: float
-#     num_envs: int
-#     num_eval_envs: int
-#     num_steps: int
-#     hidden_dims: tuple[int]
-#     anneal_lr: bool
-#     gamma: float
-#     gae_lambda: float
-#     num_minibatches: int
-#     update_epochs: int
-#     normalize_advantage: bool
-#     clip_coef: float
-#     clip_vloss: bool
-#     ent_coef: float
-#     vf_coef: float
-#     max_grad_norm: float
-#     learning_starts: int
-#     actor: dict = field(hash=False)
-#     critic: dict = field(hash=False)
-#     track: bool
-#
-#     @property
-#     def batch_size(self):
-#         return self.num_envs * self.num_steps
 
 
 @chex.dataclass(frozen=True)
@@ -97,10 +67,10 @@ class RPPO:
         done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
 
         # Initialize hidden states using the cell from the networks
-        actor_hidden_state = self.actor_network.torso.initialize_carry(
+        actor_hidden_state = self.actor_network.initialize_carry(
             (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.cell.features),
         )
-        critic_hidden_state = self.critic_network.torso.initialize_carry(
+        critic_hidden_state = self.critic_network.initialize_carry(
             (self.cfg.algorithm.num_envs, self.cfg.algorithm.critic.cell.features),
         )
 
@@ -270,9 +240,12 @@ class RPPO:
                         advantages,
                         returns,
                     ):
+                        actor_params = params["actor"]
+                        critic_params = params["critic"]
+
                         # Actor forward pass
                         _, dist = self.actor_network.apply(
-                            state.actor_params,
+                            actor_params,
                             transitions.observation,  # (B,T,F)
                             mask=transitions.done,  # (B,T) - mask
                             initial_carry=initial_actor_h,  # (B,H)
@@ -280,7 +253,7 @@ class RPPO:
 
                         # Critic forward pass
                         _, value = self.critic_network.apply(
-                            state.critic_params,
+                            critic_params,
                             transitions.observation,  # (B,T,F)
                             mask=transitions.done,  # (B,T) - mask
                             initial_carry=initial_critic_h,  # (B,H)
@@ -332,7 +305,6 @@ class RPPO:
 
                     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
                     (loss, (actor_loss, critic_loss, entropy_loss)), grads = grad_fn(
-                        # {"actor": state.actor_params, "critic": state.critic_params},
                         {"actor": state.actor_params, "critic": state.critic_params},
                         initial_actor_h_mb,  # (B,H)
                         initial_critic_h_mb,  # (B,H)
@@ -470,7 +442,7 @@ class RPPO:
             reset_key, self.env_params
         )
         done = jnp.zeros(self.cfg.algorithm.num_eval_envs, dtype=bool)
-        initial_actor_hidden_state = self.actor_network.torso.initialize_carry(
+        initial_actor_hidden_state = self.actor_network.initialize_carry(
             (self.cfg.algorithm.num_eval_envs, self.cfg.algorithm.actor.cell.features),
         )
 
@@ -478,17 +450,12 @@ class RPPO:
             key, obs, done, env_state, actor_h_state = carry
 
             next_actor_h_state, dist = self.actor_network.apply(
-                # {"params": state.actor_params},
                 state.actor_params,
                 jnp.expand_dims(obs, 1),  # (num_eval_envs, 1, obs_dim)
                 mask=jnp.expand_dims(done, 1),  # (num_eval_envs, 1)
                 initial_carry=actor_h_state,
-                # temperature=0.0,  # Deterministic evaluation
             )
-            # For evaluation, sample from the distribution (could also use mode)
-            key, action_key = jax.random.split(key)
-            action = dist.sample(seed=action_key).squeeze(1)
-            # action = dist.mode()
+            action = dist.mode().squeeze(1)
 
             key, step_key = jax.random.split(key)
             step_key = jax.random.split(step_key, self.cfg.algorithm.num_eval_envs)
@@ -512,32 +479,18 @@ def make_rppo_continuous(cfg, env, env_params):
     action_dim = env.action_space(env_params).shape[0]
 
     # Use networks from networks.py
-    # actor_network = RecurrentStochasticActor(
-    #     cell=MaskedGRUCell(cfg.algorithm.actor_cell_size),
-    #     hidden_dims=cfg.algorithm.hidden_dims,
-    #     action_dim=action_dim,
-    #     max_action=cfg.algorithm.max_action,
-    #     final_fc_init_scale=cfg.algorithm.policy_final_fc_init_scale,
-    #     log_std_min=cfg.algorithm.policy_log_std_min,
-    #     log_std_max=cfg.algorithm.policy_log_std_max,
-    #     tanh_squash_distribution=False,
-    # )
-    #
-    # critic_network = RecurrentVCritic(
-    #     cell=MaskedGRUCell(cfg.algorithm.critic_cell_size),
-    #     hidden_dims=cfg.algorithm.hidden_dims,
-    # )
     actor_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
         cell=instantiate(cfg.algorithm.actor.cell),
-        head=heads.SquashedGaussian(
+        head=heads.Gaussian(
             action_dim=action_dim,
+            kernel_init=nn.initializers.orthogonal(scale=0.01),
         ),
     )
     critic_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
         cell=instantiate(cfg.algorithm.critic.cell),
-        head=heads.VNetwork(),
+        head=heads.VNetwork(kernel_init=nn.initializers.orthogonal(scale=1.0)),
     )
 
     learning_rate = cfg.algorithm.learning_rate

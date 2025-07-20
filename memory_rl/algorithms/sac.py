@@ -13,7 +13,7 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig
 
 import wandb
-from memory_rl.utils import periodic_incremental_update, vmap
+from memory_rl.utils import periodic_incremental_update
 from memory_rl.networks import Network, heads
 
 
@@ -412,7 +412,7 @@ def make_sac(cfg, env, env_params) -> SAC:
         ),
     )
 
-    critic_network = vmap(
+    critic_network = nn.vmap(
         Network,
         variable_axes={"params": 0},
         split_rngs={"params": True},

@@ -53,6 +53,22 @@ class Categorical(nn.Module):
         return distrax.Categorical(logits=logits)
 
 
+class Gaussian(nn.Module):
+    action_dim: int
+    kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
+    bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray, **kwargs) -> distrax.MultivariateNormalDiag:
+        mean = nn.Dense(
+            self.action_dim, kernel_init=self.kernel_init, bias_init=self.bias_init
+        )(x)
+
+        log_std = self.param("log_std", nn.initializers.zeros, self.action_dim)
+        std = jnp.exp(log_std)
+        return distrax.MultivariateNormalDiag(loc=mean, scale_diag=std)
+
+
 class SquashedGaussian(nn.Module):
     action_dim: int
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
@@ -86,7 +102,7 @@ class Temperature(nn.Module):
     def __call__(self) -> jnp.ndarray:
         log_temp = self.param(
             "log_temp",
-            init_fn=constant(jnp.log(self.initial_temperature)),
-            shape=(),
+            constant(jnp.log(self.initial_temperature)),
+            (),
         )
         return jnp.exp(log_temp)

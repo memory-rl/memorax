@@ -24,15 +24,28 @@ policy_final_fc_init_scale: 1e-3
 
 actor:
   feature_extractor:
-    _target_: memory_rl.networks.feature_extractors.MLP
-    features: [128]
-  cell:
+    _target_: memory_rl.networks.MLP
+    features: [256]
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1.414
+  cell: 
     _target_: memory_rl.networks.recurrent.MaskedGRUCell
-    features: 128
-critic:
+    features: 256
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1.0
+
+critic: 
   feature_extractor:
-    _target_: memory_rl.networks.feature_extractors.MLP
-    features: [128]
+    _target_: memory_rl.networks.MLP
+    features: [256]
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1.414
   cell:
     _target_: memory_rl.networks.recurrent.MaskedGRUCell
-    features: 128
+    features: 256
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1.0

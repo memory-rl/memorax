@@ -1,8 +1,7 @@
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 import optax
-
 from ffm_cell import FFMCell
 
 
@@ -126,26 +125,17 @@ def test_memory_evolution():
     params = cell.init(key, carry, inputs)
 
     print(f"Initial memory state (first element): {carry.memory_state[0, 0, 0]}")
-    print(f"Initial timestep: {carry.timestep}")
 
     current_carry = carry
     for i in range(3):
         inputs = jax.random.normal(jax.random.fold_in(key, i), input_shape)
         current_carry, output = cell.apply(params, current_carry, inputs)
-        print(
-            f"Step {i}: timestep = {current_carry.timestep}, "
-            f"memory[0,0,0] = {current_carry.memory_state[0, 0, 0]}"
-        )
+        print(f"memory[0,0,0] = {current_carry.memory_state[0, 0, 0]}")
 
     # Check that memory changed
     assert not jnp.allclose(
         carry.memory_state, current_carry.memory_state
     ), "Memory state did not change"
-
-    # Check that timestep incremented
-    assert (
-        current_carry.timestep == 3.0
-    ), f"Expected timestep 3.0, got {current_carry.timestep}"
 
     print("Memory evolution test passed!")
 

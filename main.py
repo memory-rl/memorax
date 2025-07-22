@@ -1,7 +1,7 @@
 import hydra
 import jax
-from omegaconf import DictConfig, OmegaConf
 from hydra.utils import instantiate
+from omegaconf import DictConfig, OmegaConf
 
 from memory_rl import Algorithm, make
 from memory_rl.environments.environment import make as make_env
@@ -19,7 +19,7 @@ def main(cfg: DictConfig):
 
     env, env_params = make_env(cfg.environment)
 
-    algorithm: Algorithm = make(cfg.algorithm.name, cfg, env, env_params)
+    algorithm: Algorithm = make(cfg.algorithm.name, cfg, env, env_params, logger)
 
     key, state = algorithm.init(key)
 
@@ -28,7 +28,10 @@ def main(cfg: DictConfig):
     episodic_returns = info["returned_episode_returns"][info["returned_episode"]].mean()
     episodic_lengths = info["returned_episode_lengths"][info["returned_episode"]].mean()
     logger.log(
-        {"episodic_returns": episodic_returns, "episodic_lengths": episodic_lengths},
+        {
+            "evaluation/episodic_returns": episodic_returns,
+            "evaluation/episodic_lengths": episodic_lengths,
+        },
         step=state.step,
     )
 
@@ -51,8 +54,8 @@ def main(cfg: DictConfig):
                 info["returned_episode"]
             ].mean()
             data = {
-                "episodic_returns": episodic_returns,
-                "episodic_lengths": episodic_lengths,
+                "evaluation/episodic_returns": episodic_returns,
+                "evaluation/episodic_lengths": episodic_lengths,
             }
             logger.log(data, step=step)
 

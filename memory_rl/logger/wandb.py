@@ -1,11 +1,11 @@
-from dataclasses import dataclass
+import chex
 from omegaconf import DictConfig
-import wandb
 
+import wandb
 from memory_rl.logger.console import ConsoleLogger
 
 
-@dataclass
+@chex.dataclass(frozen=True)
 class WandbLogger(ConsoleLogger):
 
     entity: str | None = None
@@ -24,6 +24,8 @@ class WandbLogger(ConsoleLogger):
             config=cfg,
         )
 
-    def log(self, data, step):
-        super().log(data, step)
+    def emit(self, data, step):
+        super(WandbLogger, self).emit(
+            {k: v for k, v in data.items() if k.startswith("evaluation")}, step
+        )
         wandb.log(data, step=step)

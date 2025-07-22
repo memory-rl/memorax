@@ -14,8 +14,8 @@ import optax
 from flax import core, struct
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
-import tqdx
 
+from memory_rl.logger import Logger
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import compute_recurrent_gae as compute_gae
 
@@ -57,6 +57,7 @@ class RPPO:
     critic_network: RecurrentNetwork
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
+    logger: Logger
 
     def init(self, key):
         key, env_key, actor_key, critic_key = jax.random.split(key, 4)
@@ -404,22 +405,19 @@ class RPPO:
                 length=self.cfg.algorithm.update_epochs,
             )
 
-            if self.cfg.logger.debug:
+            def callback(logger, step, info):
+                if info["returned_episode"].any():
+                    data = {
+                        "training/episodic_return": info[
+                            "returned_episode_returns"
+                        ].mean(),
+                        "training/episodic_length": info[
+                            "returned_episode_lengths"
+                        ].mean(),
+                    }
+                    logger.log(data, step=step)
 
-                def callback(info, losses):
-                    return_values = info["returned_episode_returns"][
-                        info["returned_episode"]
-                    ]
-                    timesteps = (
-                        info["timestep"][info["returned_episode"]]
-                        * self.cfg.algorithm.num_envs
-                    )
-                    for t in range(len(timesteps)):
-                        print(
-                            f"global step={timesteps[t]}, episodic return={return_values[t]}"
-                        )
-
-                jax.debug.callback(callback, transitions.info, losses)
+            jax.debug.callback(callback, self.logger, state.step, transitions.info)
 
             return (
                 key,
@@ -475,7 +473,7 @@ class RPPO:
         return key, info
 
 
-def make_rppo_continuous(cfg, env, env_params):
+def make_rppo_continuous(cfg, env, env_params, logger):
 
     action_dim = env.action_space(env_params).shape[0]
 
@@ -512,4 +510,5 @@ def make_rppo_continuous(cfg, env, env_params):
         critic_network=critic_network,
         actor_optimizer=actor_optimizer,
         critic_optimizer=critic_optimizer,
+        logger=logger,
     )

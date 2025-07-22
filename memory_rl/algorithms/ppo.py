@@ -14,8 +14,8 @@ from flax import core
 from gymnax.wrappers import FlattenObservationWrapper
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
-import tqdx
 
+from memory_rl.logger import Logger
 from memory_rl.networks import Network, heads
 from memory_rl.utils import LogWrapper, compute_gae
 
@@ -50,6 +50,7 @@ class PPO:
     actor: Network
     critic: Network
     optimizer: optax.GradientTransformation
+    logger: Logger
 
     def init(self, key):
         key, env_key, actor_key, critic_key = jax.random.split(key, 4)
@@ -240,6 +241,23 @@ class PPO:
                     state,
                     minibatches,
                 )
+
+                def callback(logger, step, info, loss):
+                    if info["returned_episode"].any():
+                        data = {
+                            "training/episodic_return": info[
+                                "returned_episode_returns"
+                            ].mean(),
+                            "training/episodic_length": info[
+                                "returned_episode_lengths"
+                            ].mean(),
+                        }
+                        logger.log(data, step=step)
+
+                jax.debug.callback(
+                    callback, self.logger, state.step, transitions.info, loss
+                )
+
                 return (
                     key,
                     state,
@@ -293,7 +311,7 @@ class PPO:
         return key, info
 
 
-def make_ppo(cfg, env, env_params):
+def make_ppo(cfg, env, env_params, logger):
 
     actor = Network(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
@@ -334,4 +352,5 @@ def make_ppo(cfg, env, env_params):
         actor=actor,
         critic=critic,
         optimizer=optimizer,
+        logger=logger,
     )

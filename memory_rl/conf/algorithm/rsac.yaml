@@ -4,22 +4,41 @@ q_lr:           3e-4
 temp_lr:             3e-4
 num_envs:            10
 num_eval_envs:       10
-buffer_size:         1_000_000
+buffer_size:         100_000
 gamma:               0.99
 tau:                 5e-3
 train_frequency:     10
 target_update_frequency: 1
 batch_size:          256
-hidden_dims:         [256]
-cell: memory_rl.recurrent_networks.MaskedGRUCell
 actor_cell_size:           256
 critic_cell_size:           256
-sample_sequence_length:     8
+sample_sequence_length:     4
 init_temperature:    1.0
-policy_log_std_min: -10
-policy_log_std_max: 2
-policy_final_fc_init_scale: 1e-3
-target_entropy_multiplier: 0.5
+target_entropy_multiplier: 1.0
 max_action:          1.0
-backup_entropy:      true
+backup_entropy:      false
 learning_starts:     5_000
+
+
+actor:
+  feature_extractor:
+    _target_: memory_rl.networks.MLP
+    features: [256]
+  torso:
+    cell: 
+      _target_: flax.linen.GRUCell
+      features: 256
+  head:
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1e-3
+
+critic:
+  feature_extractor:
+    _target_: memory_rl.networks.MLP
+    features: [256]
+  torso:
+    cell: 
+      _target_: flax.linen.GRUCell
+      features: 256
+

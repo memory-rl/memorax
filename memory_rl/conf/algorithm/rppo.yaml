@@ -15,7 +15,30 @@ ent_coef: 0.01
 vf_coef: 0.5
 max_grad_norm: 0.5
 learning_starts: 0
-hidden_dims: [256]
-cell: memory_rl.recurrent_networks.MaskedGRUCell
-actor_cell_size: 256
-critic_cell_size: 256
+actor:
+  feature_extractor:
+    _target_: memory_rl.networks.MLP
+    features: [256]
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1.414
+  cell: 
+    _target_: flax.linen.GRUCell
+    features: 256
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1.0
+
+critic: 
+  feature_extractor:
+    _target_: memory_rl.networks.MLP
+    features: [256]
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1.414
+  cell:
+    _target_: flax.linen.GRUCell
+    features: 256
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1.0

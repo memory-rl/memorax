@@ -7,18 +7,14 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax.training import train_state
-from hydra.utils import get_class
-from memory_rl.networks import RecurrentDoubleCritic, RecurrentStochasticActor, Temperature
-from omegaconf import OmegaConf
-from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
+from hydra.utils import instantiate
 
-import wandb
-from memory_rl.utils import (
-    BraxGymnaxWrapper,
-    LogWrapper,
-    make_trajectory_buffer,
-    periodic_incremental_update,
-)
+from memory_rl.logger import Logger
+from memory_rl.networks import RecurrentNetwork, heads
+from memory_rl.utils import (make_trajectory_buffer,
+                             periodic_incremental_update)
+from memory_rl.utils.base_types import (OnlineAndTargetState,
+                                        RNNOffPolicyLearnerState)
 
 
 @chex.dataclass
@@ -73,6 +69,7 @@ class RSAC:
     critic_optimizer: optax.GradientTransformation
     temp_optimizer: optax.GradientTransformation
     buffer: Any
+    logger: Logger
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -114,8 +111,8 @@ class RSAC:
         critic_params = self.critic_network.init(
             critic_key,
             jnp.expand_dims(obs, 1),
-            jnp.expand_dims(action, 1),
             jnp.expand_dims(done, 1),
+            jnp.expand_dims(action, 1),
         )["params"]
         critic = OnlineAndTargetState.create(
             apply_fn=self.critic_network.apply,
@@ -216,11 +213,11 @@ class RSAC:
                 {"params": actor_params}, batch.obs, batch.done
             )
             actions, log_probs = dist.sample_and_log_prob(seed=key)
-            _, q1, q2 = state.critic.apply_fn(
-                {"params": state.critic.params}, batch.obs, actions, batch.done
+            _, (q1, q2) = state.critic.apply_fn(
+                {"params": state.critic.params}, batch.obs, batch.done, actions
             )
             q = jnp.minimum(q1, q2)
-            actor_loss = (log_probs * temperature - q).mean()
+            actor_loss = (log_probs * temperature - q.squeeze(-1)).mean()
             return actor_loss, {"actor_loss": actor_loss, "entropy": -log_probs.mean()}
 
         (_, info), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
@@ -239,18 +236,18 @@ class RSAC:
         )
         next_actions, next_log_probs = dist.sample_and_log_prob(seed=key)
 
-        _, next_q1, next_q2 = state.critic.apply_fn(
+        _, (next_q1, next_q2) = state.critic.apply_fn(
             {"params": state.critic.target_params},
             batch.next_obs,
-            next_actions,
             batch.next_done,
+            next_actions,
         )
         next_q = jnp.minimum(next_q1, next_q2)
 
         temperature = state.temp.apply_fn({"params": state.temp.params})
-        target_q = (
-            batch.reward + self.cfg.algorithm.gamma * (1 - batch.next_done) * next_q
-        )
+        target_q = batch.reward + self.cfg.algorithm.gamma * (
+            1 - batch.next_done
+        ) * next_q.squeeze(-1)
 
         if self.cfg.algorithm.backup_entropy:
             target_q -= (
@@ -263,10 +260,12 @@ class RSAC:
         target_q = jax.lax.stop_gradient(target_q)
 
         def critic_loss_fn(critic_params):
-            _, q1, q2 = state.critic.apply_fn(
-                {"params": critic_params}, batch.obs, batch.action, batch.done
+            _, (q1, q2) = state.critic.apply_fn(
+                {"params": critic_params}, batch.obs, batch.done, batch.action
             )
-            critic_loss = ((q1 - target_q) ** 2 + (q2 - target_q) ** 2).mean()
+            critic_loss = (
+                (q1.squeeze(-1) - target_q) ** 2 + (q2.squeeze(-1) - target_q) ** 2
+            ).mean()
             return critic_loss, {
                 "critic_loss": critic_loss,
                 "q1": q1.mean(),
@@ -377,26 +376,19 @@ class RSAC:
             state, update_info = update(update_key, state)
             info.update(update_info)
 
-            if self.cfg.logger.track:
+            def callback(logger, step, info):
+                if info["returned_episode"].any():
+                    data = {
+                        "training/episodic_return": info[
+                            "returned_episode_returns"
+                        ].mean(),
+                        "training/episodic_length": info[
+                            "returned_episode_lengths"
+                        ].mean(),
+                    }
+                    logger.log(data, step=step)
 
-                def callback(step, info):
-                    if step % 100 == 0:
-                        wandb.log(
-                            {
-                                "training/episodic_return": info[
-                                    "returned_episode_returns"
-                                ].mean(),
-                                "training/episodic_length": info[
-                                    "returned_episode_lengths"
-                                ].mean(),
-                                "losses/actor": info["actor_loss"],
-                                "losses/critic": info["critic_loss"],
-                                "losses/temp": info["temp_loss"],
-                            },
-                            step=step,
-                        )
-
-                jax.debug.callback(callback, state.step, info)
+            jax.debug.callback(callback, self.logger, state.step, info)
 
             return (key, state), info
 
@@ -509,27 +501,30 @@ class RSAC:
         return key, info
 
 
-def make_rsac(cfg, env, env_params) -> RSAC:
+def make_rsac(cfg, env, env_params, logger) -> RSAC:
 
     action_dim = env.action_space(env_params).shape[0]
 
     # Define networks
-    actor_network = RecurrentStochasticActor(
-        cell=get_class(cfg.algorithm.cell)(cfg.algorithm.actor_cell_size),
-        hidden_dims=cfg.algorithm.hidden_dims,
-        action_dim=action_dim,
-        max_action=cfg.algorithm.max_action,
-        final_fc_init_scale=cfg.algorithm.policy_final_fc_init_scale,
-        log_std_min=cfg.algorithm.policy_log_std_min,
-        log_std_max=cfg.algorithm.policy_log_std_max,
+    actor_network = RecurrentNetwork(
+        feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
+        cell=instantiate(cfg.algorithm.actor.torso.cell),
+        head=heads.SquashedGaussian(action_dim=action_dim),
     )
 
-    critic_network = RecurrentDoubleCritic(
-        cell=get_class(cfg.algorithm.cell)(cfg.algorithm.critic_cell_size),
-        hidden_dims=cfg.algorithm.hidden_dims,
+    critic_network = nn.vmap(
+        RecurrentNetwork,
+        variable_axes={"params": 0},
+        split_rngs={"params": True},
+        in_axes=None,
+        out_axes=0,
+        axis_size=2,
+    )(
+        feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
+        cell=instantiate(cfg.algorithm.critic.torso.cell),
+        head=heads.VNetwork(),
     )
-
-    temp_network = Temperature(initial_temperature=cfg.algorithm.init_temperature)
+    temp_network = heads.Temperature(initial_temperature=cfg.algorithm.init_temperature)
 
     # Define optimizers
     actor_optimizer = optax.adam(learning_rate=cfg.algorithm.policy_lr)
@@ -556,4 +551,5 @@ def make_rsac(cfg, env, env_params) -> RSAC:
         critic_optimizer=critic_optimizer,
         temp_optimizer=temp_optimizer,
         buffer=buffer,
+        logger=logger,
     )

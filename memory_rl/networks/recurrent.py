@@ -1,174 +1,20 @@
-from typing import Any, Callable, Tuple
+from typing import Any
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from flax.linen import initializers, transforms
-from flax.linen.activation import sigmoid, tanh
-from flax.linen.linear import Dense, default_kernel_init
-from flax.linen.module import nowrap
-from flax.typing import Array, Dtype, Initializer, PRNGKey
-from jax import random
-
-
-class mLSTMCell(nn.RNNCellBase):
-    """Multiplicative LSTM (mLSTM) cell as described in *xLSTM: Scaling RNNs*."""
-
-    features: int
-    gate_fn: Callable[..., Any] = sigmoid
-    activation_fn: Callable[..., Any] = tanh
-    kernel_init: Initializer = default_kernel_init
-    recurrent_kernel_init: Initializer = initializers.orthogonal()
-    bias_init: Initializer = initializers.zeros_init()
-    dtype: Dtype | None = None
-    param_dtype: Dtype = jnp.float32
-    carry_init: Initializer = initializers.zeros_init()
-
-    @nn.compact
-    def __call__(self, carry: Tuple[Array, Array], inputs: Array):
-        c_prev, h_prev = carry
-        hidden_size = h_prev.shape[-1]
-
-        dense_xm = Dense(
-            features=hidden_size,
-            use_bias=False,
-            kernel_init=self.kernel_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="xm",
-        )
-        dense_hm = Dense(
-            features=hidden_size,
-            use_bias=False,
-            kernel_init=self.recurrent_kernel_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="hm",
-        )
-        m_t = dense_xm(inputs) * dense_hm(h_prev)
-
-        def dense_x(name):
-            return Dense(
-                features=hidden_size,
-                use_bias=False,
-                kernel_init=self.kernel_init,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name=f"x{name}",
-            )
-
-        def dense_m(name):
-            return Dense(
-                features=hidden_size,
-                use_bias=True,  # bias lives in the multiplicative path
-                kernel_init=self.recurrent_kernel_init,
-                bias_init=self.bias_init,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name=f"m{name}",
-            )
-
-        i = self.gate_fn(dense_x("i")(inputs) + dense_m("i")(m_t))
-        f = self.gate_fn(dense_x("f")(inputs) + dense_m("f")(m_t))
-        g = self.activation_fn(dense_x("g")(inputs) + dense_m("g")(m_t))
-        o = self.gate_fn(dense_x("o")(inputs) + dense_m("o")(m_t))
-
-        c = f * c_prev + i * g
-        h = o * self.activation_fn(c)
-        return (c, h), h
-
-    @nn.nowrap
-    def initialize_carry(self, rng: PRNGKey, input_shape: Tuple[int, ...]):
-        """Initialize cell + hidden state to zeros."""
-        batch_shape = input_shape[:-1]
-        key_c, key_h = random.split(rng)
-        state_shape = batch_shape + (self.features,)
-        c0 = self.carry_init(key_c, state_shape, self.param_dtype)
-        h0 = self.carry_init(key_h, state_shape, self.param_dtype)
-        return (c0, h0)
-
-    @property
-    def num_feature_axes(self) -> int:
-        return 1
-
-
-class MaskedmLSTMCell(mLSTMCell):
-
-    @nn.compact
-    def __call__(self, carry, inputs, mask):
-        c, h = carry
-        initial_c, initial_h = self.initialize_carry(jax.random.key(0), inputs.shape)
-        c = jnp.where(
-            jnp.expand_dims(mask, axis=-1),
-            initial_c,
-            c,
-        )
-        h = jnp.where(
-            jnp.expand_dims(mask, axis=-1),
-            initial_h,
-            h,
-        )
-        return super().__call__((c, h), inputs)
-
-
-class MaskedGRUCell(nn.GRUCell):
-
-    @nn.compact
-    def __call__(self, carry, inputs, mask):
-        h = carry
-        h = jnp.where(
-            jnp.expand_dims(mask, axis=-1),
-            self.initialize_carry(jax.random.key(0), inputs.shape),
-            h,
-        )
-
-        return super().__call__(h, inputs)
-
-
-class MaskedLSTMCell(nn.LSTMCell):
-
-    @nn.compact
-    def __call__(self, carry, inputs, mask):
-        c, h = carry
-        initial_c, initial_h = self.initialize_carry(jax.random.key(0), inputs.shape)
-        c = jnp.where(
-            jnp.expand_dims(mask, axis=-1),
-            initial_c,
-            c,
-        )
-        h = jnp.where(
-            jnp.expand_dims(mask, axis=-1),
-            initial_h,
-            h,
-        )
-
-        return super().__call__((c, h), inputs)
-
-
-class MaskedOptimizedLSTMCell(nn.OptimizedLSTMCell):
-
-    @nn.compact
-    def __call__(self, carry, inputs, mask):
-        c, h = carry
-        initial_c, initial_h = self.initialize_carry(jax.random.key(0), inputs.shape)
-        c = jnp.where(
-            jnp.expand_dims(mask, axis=-1),
-            initial_c,
-            c,
-        )
-        h = jnp.where(
-            jnp.expand_dims(mask, axis=-1),
-            initial_h,
-            h,
-        )
-
-        return super().__call__((c, h), inputs)
 
 
 class MaskedRNN(nn.RNN):
 
     return_carry_history: bool = False
     burn_in_length: int = 0
+
+    @staticmethod
+    def _broadcast(mask: jax.Array, carry: jax.Array) -> jax.Array:
+        while mask.ndim < carry.ndim:
+            mask = mask[..., None]
+        return mask
 
     def __call__(
         self,
@@ -247,7 +93,16 @@ class MaskedRNN(nn.RNN):
         slice_carry = seq_lengths is not None and return_carry
 
         def scan_fn(cell, carry, x, mask):
-            carry, y = cell(carry, x, mask)
+            carry = jax.tree.map(
+                lambda initial_carry, carry: jnp.where(
+                    self._broadcast(mask, carry),
+                    initial_carry,
+                    carry,
+                ),
+                carry,
+                self.cell.initialize_carry(jax.random.key(0), x.shape),
+            )
+            carry, y = cell(carry, x)
             # When we have a segmentation mask we return the carry as an output
             # so that we can select the last carry for each sequence later.
             # This uses more memory but is faster than using jnp.where at each

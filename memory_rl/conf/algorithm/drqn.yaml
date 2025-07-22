@@ -8,16 +8,27 @@ tau:                 1.0
 target_network_frequency: 1000
 batch_size:          128
 
-# cell: memory_rl.recurrent_networks.MaskedOptimizedLSTMCell
-cell: memory_rl.recurrent_networks.MaskedGRUCell
-cell_size:           128
+cell: 
+  _target_: flax.linen.GRUCell
+  features:           128
+  # _target_: memory_rl.networks.rnns.ffm.ffm_cell.FFMCell
+  # input_size: 128
+  # output_size: 128
+  # memory_size: 128
+  # context_size: 64
+
 sample_sequence_length: 4
 update_hidden_state: false
 
 start_e:             1.0
-end_e:               0.01
+end_e:               0.05
 exploration_fraction: 0.5
 
 learning_starts:     10000
 train_frequency:     10
+
+feature_extractor:
+  _target_: memory_rl.networks.MLP
+  features: [128]
+
 

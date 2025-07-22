@@ -10,12 +10,30 @@ tau:                 5e-3
 train_frequency:     10
 target_update_frequency: 10
 batch_size:          256
-hidden_dims:         [256]
-cell: memory_rl.recurrent_networks.MaskedGRUCell
-actor_cell_size:           256
-critic_cell_size:           256
 sample_sequence_length:     1
 init_temperature:    1.0
 policy_final_fc_init_scale: 1e-3
 target_entropy_multiplier: 0.5
 learning_starts:     5_000
+
+actor:
+  feature_extractor:
+    _target_: memory_rl.networks.MLP
+    features: [256]
+  torso:
+    cell: 
+      _target_: flax.linen.GRUCell
+      features: 256
+  head:
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1e-3
+
+critic:
+  feature_extractor:
+    _target_: memory_rl.networks.MLP
+    features: [256]
+  torso:
+    cell: 
+      _target_: flax.linen.GRUCell
+      features: 256

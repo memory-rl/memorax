@@ -1,8 +1,5 @@
-import jax  
 import jax.numpy as jnp  
-import flax
 import flax.linen as nn  
-from typing import Tuple
 
 class CausalConv1D(nn.Module):  
     features: int  

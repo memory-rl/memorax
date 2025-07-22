@@ -1,18 +1,13 @@
-from dataclasses import field
 
-import chex
 import gymnax
 import hydra
-import jax
-import jax.numpy as jnp
-from gymnax.wrappers import FlattenObservationWrapper
 
 from memory_rl.utils import BraxGymnaxWrapper, LogWrapper, NavixGymnaxWrapper
 from popjaxrl.envs import make as make_popjaxrl
 
 
 def make_brax(env_id):
-    env = BraxGymnaxWrapper(env_id)
+    env = BraxGymnaxWrapper(env_id, backend="mjx")
     return env, None
 
 

@@ -14,6 +14,7 @@ import optax
 from flax import core, struct
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
+import tqdx
 
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import compute_recurrent_gae as compute_gae

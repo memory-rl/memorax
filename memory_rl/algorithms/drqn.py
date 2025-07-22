@@ -15,6 +15,7 @@ from flax import core
 from gymnax.wrappers.purerl import FlattenObservationWrapper
 from hydra.utils import get_class, instantiate
 from omegaconf import DictConfig, OmegaConf
+import tqdx
 
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import (
@@ -58,9 +59,7 @@ class DRQN:
         _, _, reward, done, _ = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
-        carry = self.q_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.cell.features)
-        )
+        carry = self.q_network.initialize_carry(obs.shape)
 
         params = self.q_network.init(
             q_key,
@@ -367,9 +366,7 @@ class DRQN:
             reset_key, self.env_params
         )
         done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=jnp.bool)
-        hidden_state = self.q_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.cell.features)
-        )
+        hidden_state = self.q_network.initialize_carry(obs.shape)
 
         state = state.replace(obs=obs, done=done, hidden_state=hidden_state, env_state=env_state)  # type: ignore
 

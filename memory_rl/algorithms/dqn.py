@@ -14,6 +14,7 @@ from flax import core
 from gymnax.wrappers import FlattenObservationWrapper
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
+import tqdx
 
 import wandb
 from memory_rl.networks import Network, heads
@@ -267,25 +268,25 @@ class DQN:
 
             key, state, loss, q_value = update(key, state)
 
-            if self.cfg.logger.track:
-
-                def callback(step, info, loss, q_value):
-                    if step % 100 == 0:
-                        wandb.log(
-                            {
-                                "training/episodic_return": info[
-                                    "returned_episode_returns"
-                                ].mean(),
-                                "training/episodic_length": info[
-                                    "returned_episode_lengths"
-                                ].mean(),
-                                "losses/loss": loss,
-                                "losses/q_value": q_value,
-                            },
-                            step=step,
-                        )
-
-                jax.debug.callback(callback, state.step, info, loss, q_value)
+            # if self.cfg.logger.track:
+            #
+            #     def callback(step, info, loss, q_value):
+            #         if step % 100 == 0:
+            #             wandb.log(
+            #                 {
+            #                     "training/episodic_return": info[
+            #                         "returned_episode_returns"
+            #                     ].mean(),
+            #                     "training/episodic_length": info[
+            #                         "returned_episode_lengths"
+            #                     ].mean(),
+            #                     "losses/loss": loss,
+            #                     "losses/q_value": q_value,
+            #                 },
+            #                 step=step,
+            #             )
+            #
+            #     jax.debug.callback(callback, state.step, info, loss, q_value)
 
             return (key, state), info
 

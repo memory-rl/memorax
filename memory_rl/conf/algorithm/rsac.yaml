@@ -26,7 +26,7 @@ actor:
     features: [256]
   torso:
     cell: 
-      _target_: memory_rl.networks.recurrent.MaskedGRUCell
+      _target_: flax.linen.GRUCell
       features: 256
   head:
     kernel_init:
@@ -39,6 +39,6 @@ critic:
     features: [256]
   torso:
     cell: 
-      _target_: memory_rl.networks.recurrent.MaskedGRUCell
+      _target_: flax.linen.GRUCell
       features: 256
 

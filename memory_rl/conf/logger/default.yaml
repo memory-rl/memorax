@@ -1,2 +1,2 @@
-track: false
-debug: false
+
+_target_: memory_rl.logger.Logger

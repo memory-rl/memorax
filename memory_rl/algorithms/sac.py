@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import optax
 from hydra.utils import instantiate
 from omegaconf import DictConfig
+import tqdx
 
 import wandb
 from memory_rl.utils import periodic_incremental_update

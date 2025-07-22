@@ -11,9 +11,10 @@ import jax.numpy as jnp
 import optax
 from hydra.utils import instantiate
 from omegaconf import DictConfig
+import tqdx
 
 import wandb
-from memory_rl.utils import periodic_incremental_update, vmap, make_trajectory_buffer
+from memory_rl.utils import periodic_incremental_update, make_trajectory_buffer
 from memory_rl.networks import RecurrentNetwork, heads
 
 
@@ -487,7 +488,7 @@ def make_rsacd(cfg, env, env_params) -> RSACD:
         ),
     )
 
-    critic_network = vmap(
+    critic_network = nn.vmap(
         RecurrentNetwork,
         variable_axes={"params": 0},
         split_rngs={"params": True},

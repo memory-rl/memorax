@@ -11,13 +11,13 @@ import jax.numpy as jnp
 import optax
 from hydra.utils import instantiate
 from omegaconf import DictConfig
+import tqdx
 
 import wandb
-from memory_rl.utils import periodic_incremental_update, vmap
+from memory_rl.utils import periodic_incremental_update
 from memory_rl.networks import Network, heads
 
 
-# TODO : REFACTOR OR REMOVE
 @chex.dataclass
 class Batch:
     """Data structure for a batch of transitions sampled from the replay buffer."""
@@ -412,7 +412,7 @@ def make_sacd(cfg, env, env_params) -> SACD:
         ),
     )
 
-    critic_network = vmap(
+    critic_network = nn.vmap(
         Network,
         variable_axes={"params": 0},
         split_rngs={"params": True},

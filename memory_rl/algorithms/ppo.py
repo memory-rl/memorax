@@ -14,6 +14,7 @@ from flax import core
 from gymnax.wrappers import FlattenObservationWrapper
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
+import tqdx
 
 from memory_rl.networks import Network, heads
 from memory_rl.utils import LogWrapper, compute_gae

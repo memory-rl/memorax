@@ -9,8 +9,13 @@ target_network_frequency: 1000
 batch_size:          128
 
 cell: 
-  _target_: memory_rl.networks.recurrent.MaskedGRUCell
+  _target_: flax.linen.GRUCell
   features:           128
+  # _target_: memory_rl.networks.rnns.ffm.ffm_cell.FFMCell
+  # input_size: 128
+  # output_size: 128
+  # memory_size: 128
+  # context_size: 64
 
 sample_sequence_length: 4
 update_hidden_state: false

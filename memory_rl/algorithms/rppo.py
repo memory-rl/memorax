@@ -18,97 +18,11 @@ from gymnax.wrappers import FlattenObservationWrapper
 from hydra.utils import get_class, instantiate
 from omegaconf import DictConfig, OmegaConf
 from optax import linear_schedule
+import tqdx
 
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import LogWrapper
 from memory_rl.utils import compute_recurrent_gae as compute_gae
-
-# class ActorNetwork(nn.Module):
-#     action_dim: int
-#     cell: nn.RNNCellBase
-#
-#     @nn.compact
-#     def __call__(
-#         self,
-#         x: jnp.ndarray,
-#         mask: jnp.ndarray,
-#         initial_carry: jnp.ndarray | None = None,
-#     ):
-#         actor_features = nn.Dense(
-#             128,
-#             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-#             bias_init=nn.initializers.constant(0.0),
-#         )(x)
-#         actor_features = nn.tanh(actor_features)
-#
-#         h, actor_output = MaskedRNN(  # type: ignore
-#             self.cell,
-#             time_major=False,
-#             return_carry=True,
-#         )(actor_features, mask, initial_carry=initial_carry)
-#
-#         actor_output_dense = nn.Dense(
-#             128,
-#             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-#             bias_init=nn.initializers.constant(0.0),
-#         )(actor_output)
-#         actor_output_dense = nn.tanh(actor_output_dense)
-#
-#         logits = nn.Dense(
-#             self.action_dim,
-#             kernel_init=nn.initializers.orthogonal(scale=0.01),
-#             bias_init=nn.initializers.constant(0.0),
-#         )(actor_output_dense)
-#         probs = distrax.Categorical(logits=logits)
-#         return h, probs
-#
-#     def initialize_carry(
-#         self, key, input_shape
-#     ):  # input_shape here is (batch_size, feature_dim_of_cell_input)
-#         return self.cell.initialize_carry(key, input_shape)
-#
-#
-# class CriticNetwork(nn.Module):
-#     cell: nn.RNNCellBase
-#
-#     @nn.compact
-#     def __call__(
-#         self,
-#         x: jnp.ndarray,
-#         mask: jnp.ndarray,
-#         initial_carry: jnp.ndarray | None = None,
-#     ):
-#         critic_features = nn.Dense(
-#             128,
-#             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-#             bias_init=nn.initializers.constant(0.0),
-#         )(x)
-#         critic_features = nn.tanh(critic_features)
-#
-#         h, critic_output = MaskedRNN(  # type: ignore
-#             self.cell,
-#             time_major=False,
-#             return_carry=True,
-#         )(critic_features, mask, initial_carry=initial_carry)
-#
-#         critic_output_dense = nn.Dense(
-#             128,
-#             kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-#             bias_init=nn.initializers.constant(0.0),
-#         )(critic_output)
-#         critic_output_dense = nn.tanh(critic_output_dense)
-#
-#         value = nn.Dense(
-#             1,
-#             kernel_init=nn.initializers.orthogonal(scale=1.0),
-#             bias_init=nn.initializers.constant(0.0),
-#         )(critic_output_dense)
-#         return h, value.squeeze(-1)
-#
-#     def initialize_carry(
-#         self, key, input_shape
-#     ):  # (batch_size, feature_dim_of_cell_input)
-#         return self.cell.initialize_carry(key, input_shape)
 
 
 @chex.dataclass(frozen=True)
@@ -546,21 +460,6 @@ def make_rppo(cfg, env, env_params):
     obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
     done = jnp.zeros(cfg.algorithm.num_envs, dtype=bool)
 
-    # actor_network = ActorNetwork(
-    #     action_dim=env.action_space(env_params).n,
-    #     cell=get_class(cfg.algorithm.cell)(
-    #         cfg.algorithm.actor_cell_size,  # GRU hidden size
-    #         kernel_init=nn.initializers.orthogonal(scale=1.0),
-    #         bias_init=nn.initializers.constant(0),
-    #     ),
-    # )
-    # critic_network = CriticNetwork(
-    #     cell=get_class(cfg.algorithm.cell)(
-    #         cfg.algorithm.critic_cell_size,
-    #         kernel_init=nn.initializers.orthogonal(scale=1.0),
-    #         bias_init=nn.initializers.constant(0),
-    #     )
-    # )
     actor = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
         cell=instantiate(cfg.algorithm.actor.cell),

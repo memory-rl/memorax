@@ -30,7 +30,7 @@ actor:
       _target_: flax.linen.initializers.orthogonal
       scale: 1.414
   cell: 
-    _target_: memory_rl.networks.recurrent.MaskedGRUCell
+    _target_: flax.linen.GRUCell
     features: 256
     kernel_init:
       _target_: flax.linen.initializers.orthogonal
@@ -44,7 +44,7 @@ critic:
       _target_: flax.linen.initializers.orthogonal
       scale: 1.414
   cell:
-    _target_: memory_rl.networks.recurrent.MaskedGRUCell
+    _target_: flax.linen.GRUCell
     features: 256
     kernel_init:
       _target_: flax.linen.initializers.orthogonal

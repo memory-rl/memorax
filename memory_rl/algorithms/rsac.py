@@ -10,6 +10,7 @@ import wandb
 from flax.training import train_state
 from hydra.utils import get_class, instantiate
 from omegaconf import OmegaConf
+import tqdx
 
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import (
@@ -516,20 +517,6 @@ def make_rsac(cfg, env, env_params) -> RSAC:
     action_dim = env.action_space(env_params).shape[0]
 
     # Define networks
-    # actor_network = RecurrentStochasticActor(
-    #     cell=get_class(cfg.algorithm.cell)(cfg.algorithm.actor_cell_size),
-    #     hidden_dims=cfg.algorithm.hidden_dims,
-    #     action_dim=action_dim,
-    #     max_action=cfg.algorithm.max_action,
-    #     final_fc_init_scale=cfg.algorithm.policy_final_fc_init_scale,
-    #     log_std_min=cfg.algorithm.policy_log_std_min,
-    #     log_std_max=cfg.algorithm.policy_log_std_max,
-    # )
-    #
-    # critic_network = RecurrentDoubleCritic(
-    #     cell=get_class(cfg.algorithm.cell)(cfg.algorithm.critic_cell_size),
-    #     hidden_dims=cfg.algorithm.hidden_dims,
-    # )
     actor_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
         cell=instantiate(cfg.algorithm.actor.torso.cell),

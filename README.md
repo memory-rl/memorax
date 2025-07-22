@@ -4,7 +4,7 @@ A unified reinforcement learning framework featuring memory-augmented algorithms
 
 ## Features
 
-* **Memory-RL**: JAX implementations of DQN, DRQN, PPO, Continuous PPO, SAC, SAC-D, and their memory-augmented variants.
+* **Memory-RL**: JAX implementations of DQN, PPO, Continuous PPO, SAC, SAC-D, and their memory-augmented variants.
 * **Recurrent Cells**: Support for multiple RNN cells, including LSTM, GRU, GPT2, FFM, xLSTM.
 * **Environments**: Support for Gymnax, bsuite, PopGym, and custom T-maze tasks.
 * **Configurable**: YAML-driven configuration for algorithms, environments, hyperparameters, logging, and sweep setups.

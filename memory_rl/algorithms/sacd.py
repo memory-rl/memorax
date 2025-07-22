@@ -12,7 +12,6 @@ from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-import wandb
 from memory_rl.logger import Logger
 from memory_rl.networks import Network, heads
 from memory_rl.utils import periodic_incremental_update

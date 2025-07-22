@@ -1,21 +1,16 @@
-import os
-from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Callable
+from typing import Any
 
 import chex
 import flashbax as fbx
-import flax.linen as nn
 import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from gymnax.wrappers.purerl import FlattenObservationWrapper
-from hydra.utils import get_class, instantiate
-from omegaconf import DictConfig, OmegaConf
+from hydra.utils import instantiate
+from omegaconf import DictConfig
 
-import wandb
 from memory_rl.logger import Logger
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import make_trajectory_buffer, periodic_incremental_update

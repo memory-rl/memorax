@@ -7,14 +7,11 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax.training import train_state
-from hydra.utils import get_class, instantiate
-from omegaconf import OmegaConf
+from hydra.utils import instantiate
 
-import wandb
 from memory_rl.logger import Logger
 from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.utils import (BraxGymnaxWrapper, LogWrapper,
-                             make_trajectory_buffer,
+from memory_rl.utils import (make_trajectory_buffer,
                              periodic_incremental_update)
 from memory_rl.utils.base_types import (OnlineAndTargetState,
                                         RNNOffPolicyLearnerState)

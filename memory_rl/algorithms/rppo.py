@@ -1,27 +1,16 @@
-import os
-import time
-from dataclasses import dataclass, field
-from functools import partial
-from typing import Any, Callable
 
 import chex
-import distrax
 import flax.linen as nn
 import gymnax
 import jax
 import jax.numpy as jnp
 import optax
-from flax import core, struct
-from flax.training.train_state import TrainState
-from gymnax.wrappers import FlattenObservationWrapper
-from hydra.utils import get_class, instantiate
-from omegaconf import DictConfig, OmegaConf
-from optax import linear_schedule
+from flax import core
+from hydra.utils import instantiate
+from omegaconf import DictConfig
 
-import wandb
 from memory_rl.logger import Logger
 from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.utils import LogWrapper
 from memory_rl.utils import compute_recurrent_gae as compute_gae
 
 

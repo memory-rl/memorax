@@ -1,7 +1,7 @@
 # Wrappers taken from https://github.com/luchris429/purejaxrl/blob/main/purejaxrl/wrappers.py
 
 from functools import partial
-from typing import Any, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 
 import chex
 import jax

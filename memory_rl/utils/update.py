@@ -1,6 +1,5 @@
 import chex
 import jax
-import jax.numpy as jnp
 from optax import incremental_update, periodic_update
 from optax._src import base
 

@@ -1,15 +1,11 @@
 # Reference: https://github.com/jenkspt/gpt-jax/blob/main/model.py
 
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 from dataclasses import dataclass
-from functools import partial
 import flax
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
-from flax.core import FrozenDict, freeze, unfreeze
-from flax.traverse_util import flatten_dict, unflatten_dict
-from memory_rl.networks.recurrent import MaskedRNN
 
 
 @dataclass(frozen=True)

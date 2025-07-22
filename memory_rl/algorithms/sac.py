@@ -1,21 +1,21 @@
 from functools import partial
 from typing import Any
 
-import gymnax
 import chex
 import flashbax as fbx
 import flax.linen as nn
-from flax import core
+import gymnax
 import jax
 import jax.numpy as jnp
 import optax
+from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
-import tqdx
 
 import wandb
-from memory_rl.utils import periodic_incremental_update
+from memory_rl.logger import Logger
 from memory_rl.networks import Network, heads
+from memory_rl.utils import periodic_incremental_update
 
 
 # TODO : REFACTOR OR REMOVE
@@ -68,6 +68,7 @@ class SAC:
     critic_optimizer: optax.GradientTransformation
     temp_optimizer: optax.GradientTransformation
     buffer: Any
+    logger: Logger
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -336,27 +337,19 @@ class SAC:
             state, update_info = update(update_key, state)
             info.update(update_info)
 
-            if self.cfg.logger.track:
+            def callback(logger, step, info):
+                if info["returned_episode"].any():
+                    data = {
+                        "training/episodic_return": info[
+                            "returned_episode_returns"
+                        ].mean(),
+                        "training/episodic_length": info[
+                            "returned_episode_lengths"
+                        ].mean(),
+                    }
+                    logger.log(data, step=step)
 
-                def callback(step, info):
-                    if step % 100 == 0:
-                        wandb.log(
-                            {
-                                "training/episodic_return": info[
-                                    "returned_episode_returns"
-                                ].mean(),
-                                "training/episodic_length": info[
-                                    "returned_episode_lengths"
-                                ].mean(),
-                                "losses/actor": info["actor_loss"],
-                                "losses/critic": info["critic_loss"],
-                                "losses/temp": info["temp_loss"],
-                                "losses/entropy": info["entropy"],
-                            },
-                            step=step,
-                        )
-
-                jax.debug.callback(callback, state.step, info)
+            jax.debug.callback(callback, self.logger, state.step, info)
 
             return (key, state), info
 
@@ -399,7 +392,7 @@ class SAC:
         return key, info
 
 
-def make_sac(cfg, env, env_params) -> SAC:
+def make_sac(cfg, env, env_params, logger) -> SAC:
 
     action_dim = env.action_space(env_params).shape[0]
 
@@ -452,4 +445,5 @@ def make_sac(cfg, env, env_params) -> SAC:
         critic_optimizer=critic_optimizer,
         temp_optimizer=temp_optimizer,
         buffer=buffer,
+        logger=logger,
     )

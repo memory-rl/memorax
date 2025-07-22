@@ -14,9 +14,9 @@ from flax import core
 from gymnax.wrappers import FlattenObservationWrapper
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
-import tqdx
 
 import wandb
+from memory_rl.logger import Logger
 from memory_rl.networks import Network, heads
 from memory_rl.utils import LogWrapper
 
@@ -49,6 +49,7 @@ class DQN:
     optimizer: optax.GradientTransformation
     buffer: fbx.trajectory_buffer.TrajectoryBuffer
     epsilon_schedule: optax.Schedule
+    logger: Logger
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key) -> tuple[chex.PRNGKey, DQNState, chex.Array, gymnax.EnvState]:
@@ -268,25 +269,21 @@ class DQN:
 
             key, state, loss, q_value = update(key, state)
 
-            # if self.cfg.logger.track:
-            #
-            #     def callback(step, info, loss, q_value):
-            #         if step % 100 == 0:
-            #             wandb.log(
-            #                 {
-            #                     "training/episodic_return": info[
-            #                         "returned_episode_returns"
-            #                     ].mean(),
-            #                     "training/episodic_length": info[
-            #                         "returned_episode_lengths"
-            #                     ].mean(),
-            #                     "losses/loss": loss,
-            #                     "losses/q_value": q_value,
-            #                 },
-            #                 step=step,
-            #             )
-            #
-            #     jax.debug.callback(callback, state.step, info, loss, q_value)
+            def callback(logger, step, info, loss, q_value):
+                if info["returned_episode"].any():
+                    data = {
+                        "training/episodic_returns": info["returned_episode_returns"][
+                            info["returned_episode"]
+                        ].mean(),
+                        "training/episodic_lengths": info["returned_episode_lengths"][
+                            info["returned_episode"]
+                        ].mean(),
+                        "losses/loss": loss,
+                        "losses/q_value": q_value,
+                    }
+                    logger.log(data, step=step)
+
+            jax.debug.callback(callback, self.logger, state.step, info, loss, q_value)
 
             return (key, state), info
 
@@ -353,7 +350,7 @@ class Transition:
     done: chex.Array
 
 
-def make_dqn(cfg, env, env_params) -> DQN:
+def make_dqn(cfg, env, env_params, logger) -> DQN:
     """
     Factory function to construct a DQN agent from Args.
 
@@ -393,4 +390,5 @@ def make_dqn(cfg, env, env_params) -> DQN:
         optimizer=optimizer,  # type: ignore
         buffer=buffer,  # type: ignore
         epsilon_schedule=epsilon_schedule,  # type: ignore
+        logger=logger,  # type: ignore
     )

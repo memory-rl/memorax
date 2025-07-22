@@ -11,15 +11,15 @@ import gymnax
 import jax
 import jax.numpy as jnp
 import optax
-import wandb
 from flax import core, struct
 from flax.training.train_state import TrainState
 from gymnax.wrappers import FlattenObservationWrapper
 from hydra.utils import get_class, instantiate
 from omegaconf import DictConfig, OmegaConf
 from optax import linear_schedule
-import tqdx
 
+import wandb
+from memory_rl.logger import Logger
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import LogWrapper
 from memory_rl.utils import compute_recurrent_gae as compute_gae
@@ -59,6 +59,7 @@ class RPPO:
     critic_network: RecurrentNetwork
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
+    logger: Logger
 
     def init(self, key):
         key, env_key, actor_key, critic_key = jax.random.split(key, 4)
@@ -375,28 +376,19 @@ class RPPO:
                 length=self.cfg.algorithm.update_epochs,
             )
 
-            if self.cfg.logger.track:
+            def callback(logger, step, info):
+                if info["returned_episode"].any():
+                    data = {
+                        "training/episodic_return": info[
+                            "returned_episode_returns"
+                        ].mean(),
+                        "training/episodic_length": info[
+                            "returned_episode_lengths"
+                        ].mean(),
+                    }
+                    logger.log(data, step=step)
 
-                def callback(step, info, losses):
-                    if step % 128 == 0:
-                        loss, actor_loss, critic_loss, entropy_loss = losses
-                        wandb.log(
-                            {
-                                "training/episodic_return": info[
-                                    "returned_episode_returns"
-                                ].mean(),
-                                "training/episodic_length": info[
-                                    "returned_episode_lengths"
-                                ].mean(),
-                                "losses/loss": loss.mean().item(),
-                                "losses/actor_loss": actor_loss.mean().item(),
-                                "losses/critic_loss": critic_loss.mean().item(),
-                                "losses/entropy_loss": entropy_loss.mean().item(),
-                            },
-                            step=step,
-                        )
-
-                jax.debug.callback(callback, state.step, transitions.info, losses)
+            jax.debug.callback(callback, self.logger, state.step, transitions.info)
 
             return (
                 key,
@@ -452,7 +444,7 @@ class RPPO:
         return key, info
 
 
-def make_rppo(cfg, env, env_params):
+def make_rppo(cfg, env, env_params, logger):
     key = jax.random.key(cfg.seed)
     key, reset_key = jax.random.split(key, 2)
 
@@ -502,4 +494,5 @@ def make_rppo(cfg, env, env_params):
         critic_network=critic,
         actor_optimizer=actor_optimizer,
         critic_optimizer=critic_optimizer,
+        logger=logger,
     )

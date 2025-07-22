@@ -10,18 +10,15 @@ import gymnax
 import jax
 import jax.numpy as jnp
 import optax
-import wandb
 from flax import core
 from gymnax.wrappers.purerl import FlattenObservationWrapper
 from hydra.utils import get_class, instantiate
 from omegaconf import DictConfig, OmegaConf
-import tqdx
 
+import wandb
+from memory_rl.logger import Logger
 from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.utils import (
-    make_trajectory_buffer,
-    periodic_incremental_update,
-)
+from memory_rl.utils import make_trajectory_buffer, periodic_incremental_update
 
 
 @chex.dataclass(frozen=True)
@@ -46,6 +43,7 @@ class DRQN:
     optimizer: optax.GradientTransformation
     buffer: fbx.trajectory_buffer.TrajectoryBuffer
     epsilon_schedule: optax.Schedule
+    logger: Logger
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -323,25 +321,21 @@ class DRQN:
             key, update_key = jax.random.split(key)
             state, loss, q_value = update(update_key, state)
 
-            if self.cfg.logger.track:
+            def callback(logger, step, info, loss, q_value):
+                if info["returned_episode"].any():
+                    data = {
+                        "training/episodic_returns": info["returned_episode_returns"][
+                            info["returned_episode"]
+                        ].mean(),
+                        "training/episodic_lengths": info["returned_episode_lengths"][
+                            info["returned_episode"]
+                        ].mean(),
+                        "losses/loss": loss,
+                        "losses/q_value": q_value,
+                    }
+                    logger.log(data, step=step)
 
-                def callback(step, info, loss, q_value):
-                    if step % 100 == 0:
-                        wandb.log(
-                            {
-                                "training/episodic_return": info[
-                                    "returned_episode_returns"
-                                ].mean(),
-                                "training/episodic_length": info[
-                                    "returned_episode_lengths"
-                                ].mean(),
-                                "losses/loss": loss,
-                                "losses/q_value": q_value,
-                            },
-                            step=step,
-                        )
-
-                jax.debug.callback(callback, state.step, info, loss, q_value)
+            jax.debug.callback(callback, self.logger, state.step, info, loss, q_value)
 
             return (key, state), info
 
@@ -420,7 +414,7 @@ class Transition:
     next_hidden_state: tuple
 
 
-def make_drqn(cfg, env, env_params) -> DRQN:
+def make_drqn(cfg, env, env_params, logger) -> DRQN:
 
     q_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.feature_extractor),
@@ -454,4 +448,5 @@ def make_drqn(cfg, env, env_params) -> DRQN:
         optimizer=optimizer,  # type: ignore
         buffer=buffer,  # type: ignore
         epsilon_schedule=epsilon_schedule,  # type: ignore
+        logger=logger,
     )

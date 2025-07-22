@@ -6,20 +6,18 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
-import wandb
 from flax.training import train_state
 from hydra.utils import get_class, instantiate
 from omegaconf import OmegaConf
-import tqdx
 
+import wandb
+from memory_rl.logger import Logger
 from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.utils import (
-    BraxGymnaxWrapper,
-    LogWrapper,
-    make_trajectory_buffer,
-    periodic_incremental_update,
-)
-from memory_rl.utils.base_types import OnlineAndTargetState, RNNOffPolicyLearnerState
+from memory_rl.utils import (BraxGymnaxWrapper, LogWrapper,
+                             make_trajectory_buffer,
+                             periodic_incremental_update)
+from memory_rl.utils.base_types import (OnlineAndTargetState,
+                                        RNNOffPolicyLearnerState)
 
 
 @chex.dataclass
@@ -74,6 +72,7 @@ class RSAC:
     critic_optimizer: optax.GradientTransformation
     temp_optimizer: optax.GradientTransformation
     buffer: Any
+    logger: Logger
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -380,26 +379,19 @@ class RSAC:
             state, update_info = update(update_key, state)
             info.update(update_info)
 
-            if self.cfg.logger.track:
+            def callback(logger, step, info):
+                if info["returned_episode"].any():
+                    data = {
+                        "training/episodic_return": info[
+                            "returned_episode_returns"
+                        ].mean(),
+                        "training/episodic_length": info[
+                            "returned_episode_lengths"
+                        ].mean(),
+                    }
+                    logger.log(data, step=step)
 
-                def callback(step, info):
-                    if step % 100 == 0:
-                        wandb.log(
-                            {
-                                "training/episodic_return": info[
-                                    "returned_episode_returns"
-                                ].mean(),
-                                "training/episodic_length": info[
-                                    "returned_episode_lengths"
-                                ].mean(),
-                                "losses/actor": info["actor_loss"],
-                                "losses/critic": info["critic_loss"],
-                                "losses/temp": info["temp_loss"],
-                            },
-                            step=step,
-                        )
-
-                jax.debug.callback(callback, state.step, info)
+            jax.debug.callback(callback, self.logger, state.step, info)
 
             return (key, state), info
 
@@ -512,7 +504,7 @@ class RSAC:
         return key, info
 
 
-def make_rsac(cfg, env, env_params) -> RSAC:
+def make_rsac(cfg, env, env_params, logger) -> RSAC:
 
     action_dim = env.action_space(env_params).shape[0]
 
@@ -562,4 +554,5 @@ def make_rsac(cfg, env, env_params) -> RSAC:
         critic_optimizer=critic_optimizer,
         temp_optimizer=temp_optimizer,
         buffer=buffer,
+        logger=logger,
     )

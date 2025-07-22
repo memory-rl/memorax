@@ -1,19 +1,14 @@
-import os
-import time
-from dataclasses import dataclass
-from functools import partial
-from typing import Any, Callable
+from typing import Any
 
 import chex
-import distrax
 import flax.linen as nn
 import gymnax
 import jax
 import jax.numpy as jnp
 import optax
-from flax import core, struct
+from flax import core
 from hydra.utils import instantiate
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from memory_rl.logger import Logger
 from memory_rl.networks import RecurrentNetwork, heads

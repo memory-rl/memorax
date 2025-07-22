@@ -193,13 +193,13 @@ if __name__ == "__main__":
     input_shape = (batch_size, 64)
     carry = cell.initialize_carry(key, input_shape)
 
-    print(f"Initialized carry state")
+    print("Initialized carry state")
     print(f"Memory state shape: {carry.memory_state.shape}")
 
     inputs = jax.random.normal(key, input_shape)
 
     params = cell.init(key, carry, inputs)
-    print(f"Initialized parameters")
+    print("Initialized parameters")
 
     new_carry, output = cell.apply(params, carry, inputs)
 

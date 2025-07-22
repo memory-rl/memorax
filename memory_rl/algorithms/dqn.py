@@ -1,24 +1,18 @@
-import os
-from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
 import chex
 import flashbax as fbx
-import flax.linen as nn
 import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from gymnax.wrappers import FlattenObservationWrapper
 from hydra.utils import instantiate
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
-import wandb
 from memory_rl.logger import Logger
 from memory_rl.networks import Network, heads
-from memory_rl.utils import LogWrapper
 
 
 @chex.dataclass(frozen=True)

@@ -2,7 +2,6 @@ from functools import partial
 from typing import Any
 
 import chex
-import flashbax as fbx
 import flax.linen as nn
 import gymnax
 import jax
@@ -12,7 +11,6 @@ from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-import wandb
 from memory_rl.logger import Logger
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import make_trajectory_buffer, periodic_incremental_update

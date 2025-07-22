@@ -1,4 +1,4 @@
-from typing import Callable, Optional, Sequence
+from typing import Optional
 import jax
 
 import flax.linen as nn

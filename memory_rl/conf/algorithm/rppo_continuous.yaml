@@ -16,11 +16,36 @@ ent_coef: 0.01
 vf_coef: 0.5
 max_grad_norm: 0.5
 learning_starts: 0
-hidden_dims: [128]
-actor_cell_size: 128
-critic_cell_size: 128
-# Additional parameters for continuous action spaces
+
 max_action: 1.0
 policy_log_std_min: -10
 policy_log_std_max: 2
 policy_final_fc_init_scale: 1e-3
+
+actor:
+  feature_extractor:
+    _target_: memory_rl.networks.MLP
+    features: [256]
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1.414
+  cell: 
+    _target_: flax.linen.GRUCell
+    features: 256
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1.0
+
+critic: 
+  feature_extractor:
+    _target_: memory_rl.networks.MLP
+    features: [256]
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1.414
+  cell:
+    _target_: flax.linen.GRUCell
+    features: 256
+    kernel_init:
+      _target_: flax.linen.initializers.orthogonal
+      scale: 1.0

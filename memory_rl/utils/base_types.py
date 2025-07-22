@@ -1,11 +1,9 @@
-import dataclasses
-from typing import Any, Dict, Optional
+from typing import Any
 
 import chex
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
 from flax.training import train_state
-from jumanji.types import TimeStep
 from typing_extensions import TypeAlias
 
 # Can't know the exact type of State.

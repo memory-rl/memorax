@@ -1,0 +1,2 @@
+_target_: memory_rl.logger.ConsoleLogger
+log_interval: 1

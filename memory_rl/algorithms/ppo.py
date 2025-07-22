@@ -1,72 +1,18 @@
-import os
-from dataclasses import dataclass
-from functools import partial
 from typing import Any
 
 import chex
-import distrax
 import flax.linen as nn
 import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from gymnax.wrappers import FlattenObservationWrapper
-from omegaconf import OmegaConf
+from hydra.utils import instantiate
+from omegaconf import DictConfig
 
-from memory_rl.utils import LogWrapper, compute_gae
-
-
-class Actor(nn.Module):
-    action_dim: int
-
-    @nn.compact
-    def __call__(self, x: jnp.ndarray):
-        x = nn.Dense(
-            64,
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        x = nn.relu(x)
-        x = nn.Dense(
-            64,
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        x = nn.relu(x)
-        logits = nn.Dense(
-            self.action_dim,
-            kernel_init=nn.initializers.orthogonal(scale=0.01),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        probs = distrax.Categorical(logits=logits)
-
-        return probs
-
-
-class Critic(nn.Module):
-
-    @nn.compact
-    def __call__(self, x: chex.Array):
-        x = nn.Dense(
-            64,
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        x = nn.relu(x)
-        x = nn.Dense(
-            64,
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        x = nn.relu(x)
-
-        value = nn.Dense(
-            1,
-            kernel_init=nn.initializers.orthogonal(scale=1.0),
-            bias_init=nn.initializers.constant(0.0),
-        )(x)
-        return value.squeeze(-1)
+from memory_rl.logger import Logger
+from memory_rl.networks import Network, heads
+from memory_rl.utils import compute_gae
 
 
 @chex.dataclass(frozen=True)
@@ -78,33 +24,6 @@ class Transition:
     info: chex.Array
     log_prob: chex.Array
     value: chex.Array
-
-
-@chex.dataclass(frozen=True)
-class PPOConfig:
-    name: str
-    learning_rate: float
-    num_envs: int
-    num_eval_envs: int
-    num_steps: int
-    hidden_dims: tuple[int]
-    anneal_lr: bool
-    gamma: float
-    gae_lambda: float
-    num_minibatches: int
-    update_epochs: int
-    normalize_advantage: bool
-    clip_coef: float
-    clip_vloss: bool
-    ent_coef: float
-    vf_coef: float
-    max_grad_norm: float
-    learning_starts: int
-    track: bool
-
-    @property
-    def batch_size(self):
-        return self.num_envs * self.num_steps
 
 
 @chex.dataclass(frozen=True)
@@ -120,17 +39,18 @@ class PPOState:
 
 @chex.dataclass(frozen=True)
 class PPO:
-    cfg: PPOConfig
+    cfg: DictConfig
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
-    actor: Actor
-    critic: Critic
+    actor: Network
+    critic: Network
     optimizer: optax.GradientTransformation
+    logger: Logger
 
     def init(self, key):
         key, env_key, actor_key, critic_key = jax.random.split(key, 4)
 
-        env_keys = jax.random.split(env_key, self.cfg.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
@@ -171,9 +91,9 @@ class PPO:
                 action = probs.sample(seed=action_key)
                 log_prob = probs.log_prob(action)
 
-                value = self.critic.apply(state.critic_params, state.obs)
+                value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
 
-                step_key = jax.random.split(step_key, self.cfg.num_envs)
+                step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
                 next_obs, env_state, reward, done, info = jax.vmap(
                     self.env.step, in_axes=(0, 0, 0, None)
                 )(step_key, state.env_state, action, self.env_params)
@@ -189,7 +109,7 @@ class PPO:
                 )
 
                 state = state.replace(
-                    step=state.step + self.cfg.num_envs,
+                    step=state.step + self.cfg.algorithm.num_envs,
                     obs=next_obs,
                     env_state=env_state,
                 )
@@ -202,18 +122,18 @@ class PPO:
             (key, state), transitions = jax.lax.scan(
                 step,
                 carry,
-                length=self.cfg.num_steps,
+                length=self.cfg.algorithm.num_steps,
             )
-            final_value = self.critic.apply(state.critic_params, state.obs)
+            final_value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
 
             advantages, returns = compute_gae(
-                self.cfg.gamma,
-                self.cfg.gae_lambda,
+                self.cfg.algorithm.gamma,
+                self.cfg.algorithm.gae_lambda,
                 final_value,
                 transitions,
             )
 
-            if self.cfg.normalize_advantage:
+            if self.cfg.algorithm.normalize_advantage:
                 advantages = (advantages - advantages.mean()) / (
                     advantages.std() + 1e-8
                 )
@@ -236,22 +156,24 @@ class PPO:
                             ratio * advantages,
                             jnp.clip(
                                 ratio,
-                                1.0 - self.cfg.clip_coef,
-                                1.0 + self.cfg.clip_coef,
+                                1.0 - self.cfg.algorithm.clip_coef,
+                                1.0 + self.cfg.algorithm.clip_coef,
                             )
                             * advantages,
                         ).mean()
-                        return actor_loss - self.cfg.ent_coef * entropy
+                        return actor_loss - self.cfg.algorithm.ent_coef * entropy
 
                     def critic_loss_fn(params, transitions, advantages, returns):
-                        value = self.critic.apply(params, transitions.observation)
+                        value = self.critic.apply(
+                            params, transitions.observation
+                        ).squeeze(-1)
 
-                        if self.cfg.clip_vloss:
+                        if self.cfg.algorithm.clip_vloss:
                             critic_loss = jnp.square(value - returns)
                             clipped_value = transitions.value + jnp.clip(
                                 (value - transitions.value),
-                                -self.cfg.clip_coef,
-                                self.cfg.clip_coef,
+                                -self.cfg.algorithm.clip_coef,
+                                self.cfg.algorithm.clip_coef,
                             )
                             clipped_critic_loss = jnp.square(clipped_value - returns)
                             critic_loss = (
@@ -261,7 +183,7 @@ class PPO:
                         else:
                             critic_loss = 0.5 * jnp.square(value - returns).mean()
 
-                        return self.cfg.vf_coef * critic_loss
+                        return self.cfg.algorithm.vf_coef * critic_loss
 
                     actor_loss, actor_grads = jax.value_and_grad(actor_loss_fn)(
                         state.actor_params, transitions, advantages
@@ -294,7 +216,7 @@ class PPO:
                 key, permutation_key = jax.random.split(key)
 
                 permutation = jax.random.permutation(
-                    permutation_key, self.cfg.batch_size
+                    permutation_key, self.cfg.algorithm.batch_size
                 )
                 flattened_batch = jax.tree.map(
                     lambda x: x.reshape(-1, *x.shape[2:]), batch
@@ -304,7 +226,7 @@ class PPO:
                 )
                 minibatches = jax.tree.map(
                     lambda x: jnp.reshape(
-                        x, [self.cfg.num_minibatches, -1] + list(x.shape[1:])
+                        x, [self.cfg.algorithm.num_minibatches, -1] + list(x.shape[1:])
                     ),
                     shuffled_batch,
                 )
@@ -314,6 +236,23 @@ class PPO:
                     state,
                     minibatches,
                 )
+
+                def callback(logger, step, info, loss):
+                    if info["returned_episode"].any():
+                        data = {
+                            "training/episodic_return": info[
+                                "returned_episode_returns"
+                            ].mean(),
+                            "training/episodic_length": info[
+                                "returned_episode_lengths"
+                            ].mean(),
+                        }
+                        logger.log(data, step=step)
+
+                jax.debug.callback(
+                    callback, self.logger, state.step, transitions.info, loss
+                )
+
                 return (
                     key,
                     state,
@@ -323,7 +262,7 @@ class PPO:
             (key, state, batch), (actor_loss, critic_loss) = jax.lax.scan(
                 update_epoch,
                 (key, state, batch),
-                length=self.cfg.update_epochs,
+                length=self.cfg.algorithm.update_epochs,
             )
             transitions, *_ = batch
 
@@ -332,14 +271,16 @@ class PPO:
         (key, state), info = jax.lax.scan(
             update_step,
             (key, state),
-            length=num_steps // self.cfg.num_envs // self.cfg.num_steps,
+            length=num_steps
+            // self.cfg.algorithm.num_envs
+            // self.cfg.algorithm.num_steps,
         )
 
         return key, state, info
 
     def evaluate(self, key, state, num_steps):
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
@@ -351,7 +292,7 @@ class PPO:
             action = jnp.argmax(probs.logits, axis=-1)
 
             key, step_key = jax.random.split(key)
-            step_key = jax.random.split(step_key, self.cfg.num_eval_envs)
+            step_key = jax.random.split(step_key, self.cfg.algorithm.num_eval_envs)
             obs, env_state, _, _, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, env_state, action, self.env_params)
@@ -365,10 +306,22 @@ class PPO:
         return key, info
 
 
-def make_ppo(cfg, env, env_params):
+def make_ppo(cfg, env, env_params, logger):
 
-    actor = Actor(action_dim=env.action_space(env_params).n)
-    critic = Critic()
+    actor = Network(
+        feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
+        torso=instantiate(cfg.algorithm.actor.torso),
+        head=heads.Categorical(
+            action_dim=env.action_space(env_params).n,
+            kernel_init=nn.initializers.orthogonal(scale=0.01),
+        ),
+    )
+
+    critic = Network(
+        feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
+        torso=instantiate(cfg.algorithm.critic.torso),
+        head=heads.VNetwork(kernel_init=nn.initializers.orthogonal(scale=1.0)),
+    )
 
     if cfg.algorithm.anneal_lr:
         learning_rate = optax.linear_schedule(
@@ -387,12 +340,12 @@ def make_ppo(cfg, env, env_params):
         optax.adam(learning_rate=learning_rate, eps=1e-5),
     )
 
-    algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
     return PPO(
-        cfg=PPOConfig(**algorithm_cfg, track=cfg.logger.track),
+        cfg=cfg,
         env=env,
         env_params=env_params,
         actor=actor,
         critic=critic,
         optimizer=optimizer,
+        logger=logger,
     )

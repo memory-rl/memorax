@@ -1,14 +1,21 @@
+from typing import Callable, Sequence
+
 import flax.linen as nn
 import jax.numpy as jnp
-from hydra.utils import instantiate, call
 
 
 class MLP(nn.Module):
-    layers: list
+
+    features: Sequence[int]
+    activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
+    bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
     @nn.compact
-    def __call__(self, x):
-        for layer in self.layers:
-            x = instantiate(layer.module, features=layer.module.features, use_bias=layer.module.use_bias, dtype=jnp.float32)(x)
-            x = call(layer.activation)(x)
+    def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
+        for feature in self.features:
+            x = nn.Dense(
+                feature, kernel_init=self.kernel_init, bias_init=self.bias_init
+            )(x)
+            x = self.activation(x)
         return x

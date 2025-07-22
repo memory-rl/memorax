@@ -1,67 +1,18 @@
-import os
-from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
 import chex
 import flashbax as fbx
-import flax.linen as nn
 import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from gymnax.wrappers import FlattenObservationWrapper
-from omegaconf import OmegaConf
+from hydra.utils import instantiate
+from omegaconf import DictConfig
 
-import wandb
-from memory_rl.utils import LogWrapper
-
-
-class QNetwork(nn.Module):
-    """
-    Convolutional Q-network mapping observations to action Q-values.
-    """
-
-    action_dim: int
-
-    @nn.compact
-    def __call__(
-        self,
-        x: jnp.ndarray,
-    ):
-        # x = nn.Conv(
-        #     features=16,
-        #     kernel_size=(3, 3),
-        #     strides=(1, 1),
-        # )(x)
-        x = nn.Dense(128)(x)
-        x = nn.relu(x)
-        # x = x.reshape((x.shape[0], -1))
-        x = nn.Dense(128)(x)
-        x = nn.relu(x)
-        q_values = nn.Dense(self.action_dim)(x)
-
-        return q_values
-
-
-@chex.dataclass(frozen=True)
-class DQNConfig:
-    name: str
-    learning_rate: float
-    num_envs: int
-    num_eval_envs: int
-    buffer_size: int
-    gamma: float
-    tau: float
-    target_network_frequency: int
-    batch_size: int
-    start_e: float
-    end_e: float
-    exploration_fraction: float
-    train_frequency: int
-    learning_starts: int
-    track: bool
+from memory_rl.logger import Logger
+from memory_rl.networks import Network, heads
 
 
 @chex.dataclass(frozen=True)
@@ -85,13 +36,14 @@ class DQN:
     Deep Q-Network (DQN) reinforcement learning algorithm.
     """
 
-    cfg: Any
+    cfg: DictConfig
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
-    q_network: QNetwork
+    q_network: Network
     optimizer: optax.GradientTransformation
     buffer: fbx.trajectory_buffer.TrajectoryBuffer
     epsilon_schedule: optax.Schedule
+    logger: Logger
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key) -> tuple[chex.PRNGKey, DQNState, chex.Array, gymnax.EnvState]:
@@ -108,7 +60,7 @@ class DQN:
             env_state: Initial environment state.
         """
         key, env_key, q_key = jax.random.split(key, 3)
-        env_keys = jax.random.split(env_key, self.cfg.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
 
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
@@ -149,10 +101,10 @@ class DQN:
 
             key, sample_key, step_key = jax.random.split(key, 3)
 
-            sample_key = jax.random.split(sample_key, self.cfg.num_envs)
+            sample_key = jax.random.split(sample_key, self.cfg.algorithm.num_envs)
             action = jax.vmap(self.env.action_space(self.env_params).sample)(sample_key)
 
-            step_key = jax.random.split(step_key, self.cfg.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
             next_obs, env_state, reward, done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
@@ -174,7 +126,7 @@ class DQN:
             return (key, state), info
 
         (key, state), _ = jax.lax.scan(
-            step, (key, state), length=num_steps // self.cfg.num_envs
+            step, (key, state), length=num_steps // self.cfg.algorithm.num_envs
         )
         return key, state
 
@@ -209,7 +161,7 @@ class DQN:
 
             key, step_key, action_key, sample_key = jax.random.split(key, 4)
 
-            sample_key = jax.random.split(sample_key, self.cfg.num_envs)
+            sample_key = jax.random.split(sample_key, self.cfg.algorithm.num_envs)
             random_action = jax.vmap(self.env.action_space(self.env_params).sample)(
                 sample_key
             )
@@ -224,7 +176,7 @@ class DQN:
                 greedy_action,
             )
 
-            step_key = jax.random.split(step_key, self.cfg.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
             next_obs, env_state, reward, done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
@@ -238,7 +190,7 @@ class DQN:
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
-                step=state.step + self.cfg.num_envs,
+                step=state.step + self.cfg.algorithm.num_envs,
                 obs=next_obs,  # type: ignore
                 env_state=env_state,  # type: ignore
                 buffer_state=buffer_state,
@@ -250,7 +202,8 @@ class DQN:
             key: chex.PRNGKey, state: DQNState
         ) -> tuple[DQNState, chex.Array, chex.Array]:
 
-            batch = self.buffer.sample(state.buffer_state, key).experience
+            key, sample_key = jax.random.split(key)
+            batch = self.buffer.sample(state.buffer_state, sample_key).experience
 
             q_next_target = self.q_network.apply(
                 state.target_params,
@@ -260,7 +213,7 @@ class DQN:
 
             next_q_value = (
                 batch.first.reward
-                + (1 - batch.first.done) * self.cfg.gamma * q_next_target
+                + (1 - batch.first.done) * self.cfg.algorithm.gamma * q_next_target
             )
 
             def loss_fn(params):
@@ -281,10 +234,12 @@ class DQN:
             )
             params = optax.apply_updates(state.params, updates)
             target_params = optax.periodic_update(
-                optax.incremental_update(params, state.target_params, self.cfg.tau),
+                optax.incremental_update(
+                    params, state.target_params, self.cfg.algorithm.tau
+                ),
                 state.target_params,
                 state.step,
-                self.cfg.target_network_frequency,
+                self.cfg.algorithm.target_network_frequency,
             )
 
             state = state.replace(
@@ -293,7 +248,7 @@ class DQN:
                 optimizer_state=optimizer_state,
             )
 
-            return state, loss, q_value.mean()
+            return key, state, loss, q_value.mean()
 
         def learn(
             carry: tuple[chex.PRNGKey, DQNState], _
@@ -302,38 +257,34 @@ class DQN:
             (key, state), info = jax.lax.scan(
                 step,
                 carry,
-                length=self.cfg.train_frequency // self.cfg.num_envs,
+                length=self.cfg.algorithm.train_frequency
+                // self.cfg.algorithm.num_envs,
             )
 
-            key, update_key = jax.random.split(key)
-            state, loss, q_value = update(update_key, state)
+            key, state, loss, q_value = update(key, state)
 
-            if self.cfg.track:
+            def callback(logger, step, info, loss, q_value):
+                if info["returned_episode"].any():
+                    data = {
+                        "training/episodic_returns": info["returned_episode_returns"][
+                            info["returned_episode"]
+                        ].mean(),
+                        "training/episodic_lengths": info["returned_episode_lengths"][
+                            info["returned_episode"]
+                        ].mean(),
+                        "losses/loss": loss,
+                        "losses/q_value": q_value,
+                    }
+                    logger.log(data, step=step)
 
-                def callback(step, info, loss, q_value):
-                    if step % 100 == 0:
-                        wandb.log(
-                            {
-                                "training/episodic_return": info[
-                                    "returned_episode_returns"
-                                ].mean(),
-                                "training/episodic_length": info[
-                                    "returned_episode_lengths"
-                                ].mean(),
-                                "losses/loss": loss,
-                                "losses/q_value": q_value,
-                            },
-                            step=step,
-                        )
-
-                jax.debug.callback(callback, state.step, info, loss, q_value)
+            jax.debug.callback(callback, self.logger, state.step, info, loss, q_value)
 
             return (key, state), info
 
         (key, state), info = jax.lax.scan(
             learn,
             (key, state),
-            length=(num_steps // self.cfg.train_frequency),
+            length=(num_steps // self.cfg.algorithm.train_frequency),
         )
         return key, state, info
 
@@ -354,7 +305,7 @@ class DQN:
             info: Evaluation metrics (rewards, episode lengths, etc.).
         """
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.num_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
@@ -371,7 +322,7 @@ class DQN:
             action = q_values.argmax(axis=-1)
 
             key, step_key = jax.random.split(key)
-            step_key = jax.random.split(step_key, self.cfg.num_envs)
+            step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
             obs, env_state, _, _, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
@@ -393,7 +344,7 @@ class Transition:
     done: chex.Array
 
 
-def make_dqn(cfg, env, env_params) -> DQN:
+def make_dqn(cfg, env, env_params, logger) -> DQN:
     """
     Factory function to construct a DQN agent from Args.
 
@@ -404,9 +355,12 @@ def make_dqn(cfg, env, env_params) -> DQN:
         An initialized DQN instance ready for training.
     """
 
-    q_network = QNetwork(
-        action_dim=env.action_space(env_params).n,
+    q_network = Network(
+        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
+        torso=instantiate(cfg.algorithm.torso),
+        head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
+
     buffer = fbx.make_flat_buffer(
         max_length=cfg.algorithm.buffer_size,
         min_length=cfg.algorithm.batch_size,
@@ -421,13 +375,14 @@ def make_dqn(cfg, env, env_params) -> DQN:
         int(cfg.algorithm.exploration_fraction * cfg.total_timesteps),
         cfg.algorithm.learning_starts,
     )
-    algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
+    # algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
     return DQN(
-        cfg=DQNConfig(**algorithm_cfg, track=cfg.logger.track),  # type: ignore
+        cfg=cfg,  # type: ignore
         env=env,  # type: ignore
         env_params=env_params,  # type: ignore
         q_network=q_network,  # type: ignore
         optimizer=optimizer,  # type: ignore
         buffer=buffer,  # type: ignore
         epsilon_schedule=epsilon_schedule,  # type: ignore
+        logger=logger,  # type: ignore
     )

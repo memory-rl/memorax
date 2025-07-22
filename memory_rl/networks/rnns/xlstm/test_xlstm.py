@@ -3,7 +3,6 @@ import jax.numpy as jnp
 import flax.linen as nn
 from slstm import sLSTM
 from mlstm import mLSTM
-import pytest
 import optax
 
 def test_slstm():

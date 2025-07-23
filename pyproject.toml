@@ -32,6 +32,11 @@ cuda = ["jax[cuda12]"]
 [project.scripts]
 main = "main:main"
 
+[dependency-groups]
+commit = [
+    "pre-commit>=4.2.0",
+]
+
 [tool.uv]
 package = true
 

@@ -4,7 +4,7 @@ default_language_version:
 repos:
   # Generic file‐checks (whitespace, large files, merge conflicts…)
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.7.0
+    rev: v5.0.0
     hooks:
       - id: check-merge-conflict
       - id: check-added-large-files

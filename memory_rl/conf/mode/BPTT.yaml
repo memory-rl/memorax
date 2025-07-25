@@ -1,0 +1,10 @@
+name: BPTT
+length: null
+mask: true
+
+buffer:
+  _target_: memory_rl.buffers.make_episode_buffer
+  add_batch_size: ${algorithm.num_envs}
+  sample_batch_size: ${algorithm.batch_size}
+  max_size: ${algorithm.buffer_size}
+

@@ -8,16 +8,6 @@ tau:                 1.0
 target_network_frequency: 1000
 batch_size:          128
 
-cell: 
-  _target_: flax.linen.GRUCell
-  features:           128
-  # _target_: memory_rl.networks.rnns.ffm.ffm_cell.FFMCell
-  # input_size: 128
-  # output_size: 128
-  # memory_size: 128
-  # context_size: 64
-
-sample_sequence_length: 4
 update_hidden_state: false
 
 start_e:             1.0
@@ -30,5 +20,22 @@ train_frequency:     10
 feature_extractor:
   _target_: memory_rl.networks.MLP
   features: [128]
-
-
+cell: 
+  _target_: flax.linen.GRUCell
+  features:           128
+  # _target_: memory_rl.networks.rnns.ffm.ffm_cell.FFMCell
+  # input_size: 128
+  # output_size: 128
+  # memory_size: 128
+  # context_size: 64
+  # _target_: memory_rl.networks.rnns.gpt2_jax.GPTRNNCell
+  # max_sequence_length: 4
+  # config:
+  #   _target_: memory_rl.networks.rnns.gpt2_jax.GPTConfig
+  #   # num_embeds: ${algorithm.feature_extractor.features[-1]}
+  #   num_embeds: 512
+  #   num_heads: 8
+  #   num_layers: 8
+  #   block_size: 32
+  #   vocab_size: 1
+  #

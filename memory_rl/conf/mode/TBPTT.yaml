@@ -1,0 +1,10 @@
+name: TBPTT
+length: 4
+mask: false
+
+buffer:
+  _target_: memory_rl.buffers.make_trajectory_buffer
+  add_batch_size: ${algorithm.num_envs}
+  sample_batch_size: ${algorithm.batch_size}
+  period: 1
+  max_size: ${algorithm.buffer_size}

@@ -1,19 +1,4 @@
-# Copyright 2023 InstaDeep Ltd. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-
-""""Pure functions defining the trajectory buffer. The trajectory buffer takes batches of n-step
+""" "Pure functions defining the trajectory buffer. The trajectory buffer takes batches of n-step
 experience data, where n is the number of time steps within a trajectory. The trajectory buffer
 concatenates consecutive batches of experience data along the time axis, retaining their ordering.
 This allows for random sampling of the trajectories within the buffer.
@@ -38,7 +23,7 @@ Experience = TypeVar("Experience", bound=chex.ArrayTree)
 
 
 @dataclass(frozen=True)
-class TrajectoryBufferState(Generic[Experience]):
+class EpisodeBufferState(Generic[Experience]):
     """State of the  trajectory replay buffer.
 
     Attributes:
@@ -50,12 +35,13 @@ class TrajectoryBufferState(Generic[Experience]):
     """
 
     experience: Experience
+    starting_indices: Array
     current_index: Array
     is_full: Array
 
 
 @dataclass(frozen=True)
-class TrajectoryBufferSample(Generic[Experience]):
+class EpisodeBufferSample(Generic[Experience]):
     """Container for samples from the buffer
 
     Attributes:
@@ -63,15 +49,13 @@ class TrajectoryBufferSample(Generic[Experience]):
     """
 
     experience: Experience
-    sampled_batch_indices: Array
-    traj_time_indices: Array
 
 
 def init(
     experience: Experience,
     add_batch_size: int,
     max_length_time_axis: int,
-) -> TrajectoryBufferState[Experience]:
+) -> EpisodeBufferState[Experience]:
     """
     Initialise the buffer state.
 
@@ -98,17 +82,20 @@ def init(
         experience,
     )
 
-    return TrajectoryBufferState(
+    return EpisodeBufferState(
         experience=experience,
         is_full=jnp.array(False, dtype=bool),
+        starting_indices=jnp.zeros(
+            (add_batch_size, max_length_time_axis), dtype=jnp.int32
+        ),
         current_index=jnp.array(0),
     )
 
 
 def add(
-    state: TrajectoryBufferState[Experience],
+    state: EpisodeBufferState[Experience],
     batch: Experience,
-) -> TrajectoryBufferState[Experience]:
+) -> EpisodeBufferState[Experience]:
     """
     Add a batch of experience to the buffer state. Assumes that this carries on from the episode
     where the previous added batch of experience ended. For example, if we consider a single
@@ -148,24 +135,28 @@ def add(
         batch,
     )
 
+    # Overwrite the starting indices for the new data.
+    new_starting_indices = state.starting_indices.at[:, indices].set(0)
+    # Update the current index.
+    new_starting_indices = new_starting_indices.at[:, state.current_index].set(1)
     new_current_index = state.current_index + seq_len
     new_is_full = state.is_full | (new_current_index >= max_length_time_axis)
     new_current_index = new_current_index % max_length_time_axis
 
     return state.replace(  # type: ignore
         experience=new_experience,
+        starting_indices=new_starting_indices,
         current_index=new_current_index,
         is_full=new_is_full,
     )
 
 
 def sample(
-    state: TrajectoryBufferState[Experience],
+    state: EpisodeBufferState[Experience],
     rng_key: chex.PRNGKey,
     batch_size: int,
     sequence_length: int,
-    period: int,
-) -> TrajectoryBufferSample[Experience]:
+) -> EpisodeBufferSample[Experience]:
     """
     Sample a batch of trajectories from the buffer.
 
@@ -202,27 +193,25 @@ def sample(
     max_start = max_time - sequence_length
     # If max_start is negative then we cannot sample yet.
     # Otherwise the number of valid items in the buffer are (max_start // period) + 1.
-    num_valid_items = jnp.where(max_start >= 0, (max_start // period) + 1, 0)
-    # (num_valid_items is the number of candidate subsequences—each starting at a
-    # multiple of period that lie entirely in the valid region.)
 
     # Split the RNG key for sampling items and batch indices.
     rng_key, subkey_items = jax.random.split(rng_key)
     rng_key, subkey_batch = jax.random.split(rng_key)
 
-    # Sample an item index in [0, num_valid_items). (This is the index in the candidate list.)
-    sampled_item_idx = jax.random.randint(
-        subkey_items, (batch_size,), 0, num_valid_items
-    )
-    # Compute the logical start time index: ls = (sampled_item_idx * period).
-    logical_start = sampled_item_idx * period
-    # Map logical time to physical index in the buffer given there is wrap around.
-    physical_start = (head + logical_start) % max_length_time_axis
-
     # Also sample which add_batch row to use.
     sampled_batch_indices = jax.random.randint(
         subkey_batch, (batch_size,), 0, add_batch_size
     )
+
+    # Sample an item index in [0, num_valid_items). (This is the index in the candidate list.)
+    subkeys_items = jax.random.split(subkey_items, batch_size)
+    probs = state.starting_indices / state.starting_indices.sum(axis=1, keepdims=True)
+    probs = probs[sampled_batch_indices]
+    sampled_item_idx = jax.vmap(
+        lambda key, p: jax.random.choice(key, a=max_length_time_axis, shape=(), p=p)
+    )(subkeys_items, probs)
+
+    physical_start = sampled_item_idx
     # Create indices for the full subsequence.
     traj_time_indices = (
         physical_start[:, None] + jnp.arange(sequence_length)
@@ -233,46 +222,26 @@ def sample(
         state.experience,
     )
 
-    return TrajectoryBufferSample(
+    return EpisodeBufferSample(
         experience=batch_trajectory,
-        sampled_batch_indices=sampled_batch_indices,
-        traj_time_indices=traj_time_indices,
     )
 
 
 def can_sample(
-    state: TrajectoryBufferState[Experience], min_length_time_axis: int
+    state: EpisodeBufferState[Experience], min_length_time_axis: int
 ) -> Array:
     """Indicates whether the buffer has been filled above the minimum length, such that it
     may be sampled from."""
     return state.is_full | (state.current_index >= min_length_time_axis)
 
 
-def update(
-    state: TrajectoryBufferState[Experience],
-    experience: Experience,
-    sampled_batch_indices: Array,
-    traj_time_indices: Array,
-) -> TrajectoryBufferState[Experience]:
-    """Update the buffer state at the specified indices with the given data."""
-    experience = jax.tree.map(
-        lambda state, experience: state.at[
-            sampled_batch_indices[:, None], traj_time_indices
-        ].set(experience),
-        state.experience,
-        experience,
-    )
-    state = state.replace(experience=experience)
-    return state
-
-
-BufferState = TypeVar("BufferState", bound=TrajectoryBufferState)
-BufferSample = TypeVar("BufferSample", bound=TrajectoryBufferSample)
+BufferState = TypeVar("BufferState", bound=EpisodeBufferState)
+BufferSample = TypeVar("BufferSample", bound=EpisodeBufferSample)
 
 
 @dataclass(frozen=True)
-class TrajectoryBuffer(Generic[Experience, BufferState, BufferSample]):
-    """Pure functions defining the trajectory buffer. This buffer assumes batches added to the
+class EpisodeBuffer(Generic[Experience, BufferState, BufferSample]):
+    """Pure functions defining the episode buffer. This buffer assumes batches added to the
     buffer are a pytree with a shape prefix of (batch_size, trajectory_length). Consecutive batches
     are then concatenated along the second axis (i.e. the time axis). During sampling this allows
     for trajectories to be sampled - by slicing consecutive sequences along the time axis.
@@ -302,7 +271,6 @@ class TrajectoryBuffer(Generic[Experience, BufferState, BufferSample]):
         BufferSample,
     ]
     can_sample: Callable[[BufferState], Array]
-    update: Callable[[BufferState, Experience, Array, Array], BufferState]
 
 
 def validate_size(
@@ -322,12 +290,11 @@ def validate_size(
         )
 
 
-def validate_trajectory_buffer_args(
+def validate_episode_buffer_args(
     max_length_time_axis: Optional[int],
     min_length_time_axis: int,
     add_batch_size: int,
     sample_sequence_length: int,
-    period: int,
     max_size: Optional[int],
 ) -> None:
     """Validate the arguments of the trajectory buffer."""
@@ -347,18 +314,6 @@ def validate_trajectory_buffer_args(
         )
         min_length_time_axis = sample_sequence_length
 
-    if period > sample_sequence_length:
-        warnings.warn(
-            "Setting period greater than sample_sequence_length will result in no overlap between"
-            f"trajectories, however, {period-sample_sequence_length} transitions will "
-            "never be sampled. Setting period to be equal to sample_sequence_length will "
-            "also result in no overlap between trajectories, however, all transitions will "
-            "be sampled. Setting period to be `sample_sequence_length - 1` is generally "
-            "desired to ensure that only starting and ending transitions are shared "
-            "between trajectories allowing for utilising last transitions for bootstrapping.",
-            stacklevel=1,
-        )
-
     if max_length_time_axis is not None:
         if sample_sequence_length > max_length_time_axis:
             raise ValueError(
@@ -371,15 +326,14 @@ def validate_trajectory_buffer_args(
             )
 
 
-def make_trajectory_buffer(
+def make_episode_buffer(
     add_batch_size: int,
     sample_batch_size: int,
     sample_sequence_length: int,
-    period: int,
     min_length_time_axis: int,
     max_size: Optional[int] = None,
     max_length_time_axis: Optional[int] = None,
-) -> TrajectoryBuffer:
+) -> EpisodeBuffer:
     """Makes a trajectory buffer.
 
     Args:
@@ -413,12 +367,11 @@ def make_trajectory_buffer(
     Returns:
         A trajectory buffer.
     """
-    validate_trajectory_buffer_args(
+    validate_episode_buffer_args(
         max_length_time_axis=max_length_time_axis,
         min_length_time_axis=min_length_time_axis,
         add_batch_size=add_batch_size,
         sample_sequence_length=sample_sequence_length,
-        period=period,
         max_size=max_size,
     )
 
@@ -441,16 +394,14 @@ def make_trajectory_buffer(
         sample,
         batch_size=sample_batch_size,
         sequence_length=sample_sequence_length,
-        period=period,
     )
     can_sample_fn = functools.partial(
         can_sample, min_length_time_axis=min_length_time_axis
     )
 
-    return TrajectoryBuffer(
+    return EpisodeBuffer(
         init=init_fn,
         add=add_fn,
         sample=sample_fn,
         can_sample=can_sample_fn,
-        update=update,
     )

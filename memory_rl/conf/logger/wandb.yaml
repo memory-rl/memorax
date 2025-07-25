@@ -4,3 +4,4 @@ entity: noahfarr
 name: ${algorithm.name}_${environment.env_id}_${seed}_${now:%Y%m%d_%H%M%S}
 group: ${algorithm.name}_${environment.env_id}
 mode: online
+debug: false

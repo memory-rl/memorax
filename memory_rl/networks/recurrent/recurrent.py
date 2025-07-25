@@ -99,8 +99,8 @@ class MaskedRNN(nn.RNN):
                     initial_carry,
                     carry,
                 ),
-                carry,
                 self.cell.initialize_carry(jax.random.key(0), x.shape),
+                carry,
             )
             carry, y = cell(carry, x)
             # When we have a segmentation mask we return the carry as an output

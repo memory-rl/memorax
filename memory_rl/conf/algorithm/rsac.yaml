@@ -10,9 +10,6 @@ tau:                 5e-3
 train_frequency:     10
 target_update_frequency: 1
 batch_size:          256
-actor_cell_size:           256
-critic_cell_size:           256
-sample_sequence_length:     4
 init_temperature:    1.0
 target_entropy_multiplier: 1.0
 max_action:          1.0

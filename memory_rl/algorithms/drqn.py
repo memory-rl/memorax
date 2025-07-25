@@ -13,7 +13,7 @@ from omegaconf import DictConfig
 
 from memory_rl.logger import Logger
 from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.utils import make_trajectory_buffer, periodic_incremental_update
+from memory_rl.utils import periodic_incremental_update
 
 
 @chex.dataclass(frozen=True)
@@ -71,16 +71,12 @@ class DRQN:
         transition = Transition(
             obs=obs[0],
             done=done[0],
-            hidden_state=(
-                (carry[0][0], carry[1][0]) if isinstance(carry, tuple) else carry[0]
-            ),
+            hidden_state=jax.tree.map(lambda x: x[0], carry),
             action=action[0],
             reward=reward[0],
             next_obs=obs[0],
             next_done=done[0],
-            next_hidden_state=(
-                (carry[0][0], carry[1][0]) if isinstance(carry, tuple) else carry[0]
-            ),
+            next_hidden_state=jax.tree.map(lambda x: x[0], carry),
         )  # type: ignore
         buffer_state = self.buffer.init(transition)
 
@@ -233,7 +229,7 @@ class DRQN:
                 batch.experience.next_obs,
                 mask=batch.experience.next_done,
                 initial_carry=jax.tree.map(
-                    lambda x: x[:, 0, :], batch.experience.next_hidden_state
+                    lambda x: jnp.take(x, 0, axis=1), batch.experience.next_hidden_state
                 ),
                 return_carry_history=self.cfg.algorithm.update_hidden_state,
             )
@@ -252,13 +248,18 @@ class DRQN:
                     batch.experience.obs,
                     mask=batch.experience.done,
                     initial_carry=jax.tree.map(
-                        lambda x: x[:, 0, :], batch.experience.hidden_state
+                        lambda x: jnp.take(x, 0, axis=1),
+                        batch.experience.hidden_state,
                     ),
                     return_carry_history=self.cfg.algorithm.update_hidden_state,
                 )
                 action = jnp.expand_dims(batch.experience.action, axis=-1)
                 q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
                 loss = jnp.square(q_value - next_q_value).mean()
+
+                if self.cfg.mode.mask:
+                    alive = jnp.cumsum(batch.experience.done, axis=1) == 0
+                    loss = (loss * alive).sum() / alive.sum()
                 return loss, (q_value, hidden_state)
 
             (loss, (q_value, hidden_state)), grads = jax.value_and_grad(
@@ -330,7 +331,14 @@ class DRQN:
                     }
                     logger.log(data, step=step)
 
-            jax.debug.callback(callback, self.logger, state.step, info, loss, q_value)
+            jax.debug.callback(
+                callback,
+                self.logger,
+                state.step,
+                info,
+                loss,
+                q_value,
+            )
 
             return (key, state), info
 
@@ -416,13 +424,14 @@ def make_drqn(cfg, env, env_params, logger) -> DRQN:
         cell=instantiate(cfg.algorithm.cell),
         head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
-    buffer = make_trajectory_buffer(
-        add_batch_size=cfg.algorithm.num_envs,
-        sample_batch_size=cfg.algorithm.batch_size,
-        sample_sequence_length=cfg.algorithm.sample_sequence_length,
-        period=1,
-        min_length_time_axis=cfg.algorithm.sample_sequence_length,
-        max_size=cfg.algorithm.buffer_size,
+
+    sample_sequence_length = min_length_time_axis = (
+        cfg.mode.length or env_params.max_steps_in_episode
+    )
+    buffer = instantiate(
+        cfg.mode.buffer,
+        sample_sequence_length=sample_sequence_length,
+        min_length_time_axis=min_length_time_axis,
     )
     optimizer = optax.chain(
         optax.clip_by_global_norm(10.0),

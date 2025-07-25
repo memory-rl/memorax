@@ -13,7 +13,7 @@ from omegaconf import DictConfig
 
 from memory_rl.logger import Logger
 from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.utils import make_trajectory_buffer, periodic_incremental_update
+from memory_rl.utils import periodic_incremental_update
 
 
 @chex.dataclass
@@ -223,6 +223,10 @@ class RSACD:
             actor_loss = (
                 (dist.probs * (temperature * log_probs - q)).sum(axis=-1).mean()
             )
+            if self.cfg.mode.mask:
+                alive = jnp.cumsum(batch.done, axis=1) == 0
+                actor_loss = (actor_loss * alive).sum() / alive.sum()
+
             return actor_loss, {"actor_loss": actor_loss, "entropy": -log_probs.mean()}
 
         (_, info), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
@@ -257,13 +261,13 @@ class RSACD:
             batch.reward + self.cfg.algorithm.gamma * (1 - batch.next_done) * next_q
         )
 
-        # if self.cfg.algorithm.backup_entropy:
-        #     target_q -= (
-        #         self.cfg.algorithm.gamma
-        #         * (1 - batch.done)
-        #         * temperature
-        #         * next_log_probs
-        #     )
+        if self.cfg.algorithm.backup_entropy:
+            target_q -= (
+                self.cfg.algorithm.gamma
+                * (1 - batch.done)
+                * temperature
+                * next_log_probs
+            )
 
         target_q = jax.lax.stop_gradient(target_q)
 
@@ -275,6 +279,10 @@ class RSACD:
             q1_a = jnp.take_along_axis(q1, idx, axis=-1).squeeze(-1)
             q2_a = jnp.take_along_axis(q2, idx, axis=-1).squeeze(-1)
             critic_loss = ((q1_a - target_q) ** 2 + (q2_a - target_q) ** 2).mean()
+
+            if self.cfg.mode.mask:
+                alive = jnp.cumsum(batch.done, axis=1) == 0
+                critic_loss = (critic_loss * alive).sum() / alive.sum()
             return critic_loss, {
                 "critic_loss": critic_loss,
                 "q1": q1.mean(),
@@ -387,15 +395,16 @@ class RSACD:
             def callback(logger, step, info):
                 if info["returned_episode"].any():
                     data = {
-                        "training/episodic_return": info[
+                        "training/episodic_returns": info[
                             "returned_episode_returns"
                         ].mean(),
-                        "training/episodic_length": info[
+                        "training/episodic_lengths": info[
                             "returned_episode_lengths"
                         ].mean(),
                     }
                     logger.log(data, step=step)
 
+            jax.debug.callback(callback, self.logger, state.step, info)
             return (key, state), info
 
         (key, state), info = jax.lax.scan(
@@ -497,13 +506,13 @@ def make_rsacd(cfg, env, env_params, logger) -> RSACD:
     critic_optimizer = optax.adam(learning_rate=cfg.algorithm.q_lr)
     temp_optimizer = optax.adam(learning_rate=cfg.algorithm.temp_lr)
 
-    buffer = make_trajectory_buffer(
-        add_batch_size=cfg.algorithm.num_envs,
-        sample_batch_size=cfg.algorithm.batch_size,
-        sample_sequence_length=cfg.algorithm.sample_sequence_length,
-        period=1,
-        min_length_time_axis=cfg.algorithm.sample_sequence_length,
-        max_size=cfg.algorithm.buffer_size,
+    sample_sequence_length = min_length_time_axis = (
+        cfg.mode.length or env_params.max_steps_in_episode
+    )
+    buffer = instantiate(
+        cfg.mode.buffer,
+        sample_sequence_length=sample_sequence_length,
+        min_length_time_axis=min_length_time_axis,
     )
 
     return RSACD(

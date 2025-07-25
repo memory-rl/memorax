@@ -1,11 +1,12 @@
 # Reference: https://github.com/jenkspt/gpt-jax/blob/main/model.py
 
-from typing import Any, Optional
 from dataclasses import dataclass
+from typing import Any, Optional
+
 import flax
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 
 
 @dataclass(frozen=True)
@@ -157,15 +158,14 @@ class GPTRNNCellCarry:
 class GPTRNNCell(nn.recurrent.RNNCellBase):
     """A recurrent GPT2 cell compatible with RNNCellBase."""
 
-    config: GPTConfig = GPTConfig()
     max_sequence_length: int
+    config: GPTConfig = GPTConfig()
 
     def initialize_carry(self, rng, input_shape):
         # input_shape: (..., features)
         batch_shape = input_shape[:-1]
-        features = input_shape[-1]
         seq = jnp.zeros(
-            batch_shape + (self.max_sequence_length, features),
+            batch_shape + (self.max_sequence_length, self.config.num_embeds),
             dtype=self.config.dtype or jnp.float32,
         )
         pos = jnp.zeros(batch_shape, dtype=jnp.int32)

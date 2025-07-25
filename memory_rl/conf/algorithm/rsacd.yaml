@@ -10,7 +10,7 @@ tau:                 5e-3
 train_frequency:     10
 target_update_frequency: 10
 batch_size:          256
-sample_sequence_length:     1
+backup_entropy:      False
 init_temperature:    1.0
 policy_final_fc_init_scale: 1e-3
 target_entropy_multiplier: 0.5

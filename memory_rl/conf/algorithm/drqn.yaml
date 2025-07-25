@@ -6,7 +6,7 @@ buffer_size:         10_000
 gamma:               0.99
 tau:                 1.0
 target_network_frequency: 1000
-batch_size:          128
+batch_size:          32
 
 update_hidden_state: false
 
@@ -23,19 +23,19 @@ feature_extractor:
 cell: 
   _target_: flax.linen.GRUCell
   features:           128
-  # _target_: memory_rl.networks.rnns.ffm.ffm_cell.FFMCell
+  # _target_: memory_rl.networks.recurrent.FFMCell
   # input_size: 128
   # output_size: 128
   # memory_size: 128
-  # context_size: 64
-  # _target_: memory_rl.networks.rnns.gpt2_jax.GPTRNNCell
+  # context_size: 32
+  # _target_: memory_rl.networks.recurrent.GPTRNNCell
   # max_sequence_length: 4
   # config:
-  #   _target_: memory_rl.networks.rnns.gpt2_jax.GPTConfig
+  #   _target_: memory_rl.networks.recurrent.GPTConfig
   #   # num_embeds: ${algorithm.feature_extractor.features[-1]}
-  #   num_embeds: 512
-  #   num_heads: 8
-  #   num_layers: 8
+  #   num_embeds: 128
+  #   num_heads: 4
+  #   num_layers: 4
   #   block_size: 32
   #   vocab_size: 1
   #

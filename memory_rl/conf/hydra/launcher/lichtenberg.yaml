@@ -15,5 +15,5 @@ additional_parameters:
   mem_per_cpu: 4G
     
 setup:
-    - "module load python/3.10-conda cuda cudnn"
+    - "module load cuda cudnn"
     - "conda activate memory-rl"

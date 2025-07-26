@@ -9,21 +9,21 @@ gamma:               0.99
 tau:                 5e-3
 train_frequency:     10
 target_update_frequency: 10
-batch_size:          256
+batch_size:          128
 backup_entropy:      False
 init_temperature:    1.0
 policy_final_fc_init_scale: 1e-3
 target_entropy_multiplier: 0.5
-learning_starts:     5_000
+learning_starts:     10_000
 
 actor:
   feature_extractor:
     _target_: memory_rl.networks.MLP
-    features: [256]
+    features: [128]
   torso:
     cell: 
       _target_: flax.linen.GRUCell
-      features: 256
+      features: 128
   head:
     kernel_init:
       _target_: flax.linen.initializers.orthogonal
@@ -32,8 +32,8 @@ actor:
 critic:
   feature_extractor:
     _target_: memory_rl.networks.MLP
-    features: [256]
+    features: [128]
   torso:
     cell: 
       _target_: flax.linen.GRUCell
-      features: 256
+      features: 128

@@ -46,6 +46,7 @@ class RPPOConfig:
 class RPPOState:
     step: int
     obs: Array
+    action: Array
     done: Array
     env_state: EnvState
     actor_params: core.FrozenDict[str, Any]
@@ -73,6 +74,7 @@ class RPPO:
             state.actor_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
+            action=jnp.expand_dims(state.action, (1, 2)),
             initial_carry=state.actor_carry,
         )
         action = jnp.argmax(probs.logits, axis=-1)
@@ -82,6 +84,7 @@ class RPPO:
             state.critic_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
+            action=jnp.expand_dims(state.action, (1, 2)),
             initial_carry=state.critic_carry,
         )
 
@@ -108,6 +111,7 @@ class RPPO:
             state.actor_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
+            action=jnp.expand_dims(state.action, (1, 2)),
             initial_carry=state.actor_carry,
             rngs={"memory": actor_memory_key},
         )
@@ -118,6 +122,7 @@ class RPPO:
             state.critic_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
+            action=jnp.expand_dims(state.action, (1, 2)),
             initial_carry=state.critic_carry,
             rngs={"memory": critic_memory_key},
         )
@@ -158,6 +163,7 @@ class RPPO:
         state = state.replace(
             step=state.step + self.cfg.num_envs,
             obs=next_obs,
+            action=action,
             done=done,
             env_state=env_state,
         )
@@ -173,6 +179,7 @@ class RPPO:
                 params,
                 observation=transitions.obs,
                 mask=transitions.prev_done,
+                action=jnp.expand_dims(transitions.action, -1),
                 initial_carry=initial_actor_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
@@ -224,6 +231,7 @@ class RPPO:
                 params,
                 observation=transitions.obs,
                 mask=transitions.prev_done,
+                action=jnp.expand_dims(transitions.action, -1),
                 initial_carry=initial_critic_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
@@ -339,6 +347,7 @@ class RPPO:
             state.critic_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
+            action=jnp.expand_dims(state.action, (1, 2)),
             initial_carry=state.critic_carry,
         )
 
@@ -393,18 +402,21 @@ class RPPO:
         (
             key,
             env_key,
+            action_key,
             actor_key,
             actor_memory_key,
             actor_dropout_key,
             critic_key,
             critic_memory_key,
             critic_dropout_key,
-        ) = jax.random.split(key, 8)
+        ) = jax.random.split(key, 9)
 
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
+        action_keys = jax.random.split(action_key, self.cfg.num_envs)
+        action = jax.vmap(self.env.action_space(self.env_params).sample)(action_keys)
         done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
         actor_carry = self.actor.initialize_carry(obs.shape)
         critic_carry = self.critic.initialize_carry(obs.shape)
@@ -417,6 +429,7 @@ class RPPO:
             },
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
+            action=jnp.expand_dims(action, (1, 2)),
             initial_carry=actor_carry,
         )
         critic_params = self.critic.init(
@@ -427,6 +440,7 @@ class RPPO:
             },
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
+            action=jnp.expand_dims(action, (1, 2)),
             initial_carry=critic_carry,
         )
 
@@ -438,6 +452,7 @@ class RPPO:
             RPPOState(
                 step=0,  # type: ignore
                 obs=obs,  # type: ignore
+                action=action,  # type: ignore
                 done=done,  # type: ignore
                 actor_carry=actor_carry,  # type: ignore
                 critic_carry=critic_carry,  # type: ignore
@@ -473,16 +488,19 @@ class RPPO:
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key, state, num_steps):
 
-        key, reset_key = jax.random.split(key)
+        key, reset_key, action_key = jax.random.split(key, 3)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
+        action_keys = jax.random.split(action_key, self.cfg.num_eval_envs)
+        action = jax.vmap(self.env.action_space(self.env_params).sample)(action_keys)
         done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
         initial_actor_carry = self.actor.initialize_carry(obs.shape)
         initial_critic_carry = self.critic.initialize_carry(obs.shape)
         state = state.replace(
             obs=obs,
+            action=action,
             done=done,
             actor_carry=initial_actor_carry,
             critic_carry=initial_critic_carry,

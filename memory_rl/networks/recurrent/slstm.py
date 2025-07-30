@@ -82,7 +82,12 @@ class sLSTMCell(nn.Module):
         i = (
             i
             + recurrent_block_diagonal_dense(name="i")(h)
-            + self.param("i_bias", self.bias_init, (self.features,), self.param_dtype)
+            + self.param(
+                "i_bias",
+                nn.initializers.zeros_init(),
+                (self.features,),
+                self.param_dtype,
+            )
         )
         f = (
             f
@@ -92,12 +97,22 @@ class sLSTMCell(nn.Module):
         z = (
             z
             + recurrent_block_diagonal_dense(name="z")(h)
-            + self.param("z_bias", self.bias_init, (self.features,), self.param_dtype)
+            + self.param(
+                "z_bias",
+                nn.initializers.zeros_init(),
+                (self.features,),
+                self.param_dtype,
+            )
         )
         o = (
             o
             + recurrent_block_diagonal_dense(name="o")(h)
-            + self.param("o_bias", self.bias_init, (self.features,), self.param_dtype)
+            + self.param(
+                "o_bias",
+                nn.initializers.zeros_init(),
+                (self.features,),
+                self.param_dtype,
+            )
         )
 
         o = sigmoid(o)

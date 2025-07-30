@@ -17,8 +17,6 @@ from memory_rl.networks import (
     FFM,
     GPT2,
     GTrXL,
-    sLSTMCell,
-    mLSTMCell,
     xLSTMCell,
 )
 
@@ -27,11 +25,11 @@ num_train_steps = 50_000
 num_eval_steps = 10_000
 
 # env, env_params = environment.make("gymnax::CartPole-v1")
-env, env_params = environment.make("gymnax::UmbrellaChain-bsuite")
+env, env_params = environment.make("gymnax::MemoryChain-bsuite")
 
-memory_length = 63
+memory_length = 511
 env_params = env_params.replace(
-    chain_length=memory_length, max_steps_in_episode=memory_length + 1
+    memory_length=memory_length, max_steps_in_episode=memory_length + 1
 )
 
 
@@ -40,7 +38,7 @@ cfg = RPPOConfig(
     learning_rate=3e-4,
     num_envs=32,
     num_eval_envs=16,
-    num_steps=128,
+    num_steps=512,
     anneal_lr=True,
     gamma=0.999,
     gae_lambda=0.95,
@@ -77,7 +75,7 @@ actor_network = SequenceNetwork(
     #     memory_size=32,
     #     context_size=4,
     # ),
-    torso=RNN(cell=mLSTMCell(features=128)),
+    torso=RNN(cell=xLSTMCell(features=128, pattern=("m", "s"))),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
@@ -110,7 +108,7 @@ critic_network = SequenceNetwork(
     #     memory_size=32,
     #     context_size=4,
     # ),
-    torso=RNN(cell=sLSTMCell(features=128)),
+    torso=RNN(cell=xLSTMCell(features=128, pattern=("m", "s"))),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(

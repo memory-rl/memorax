@@ -11,28 +11,28 @@ from memory_rl.networks import (
     MLP,
     SequenceNetwork,
     heads,
-    SharedFeatureExtractor,
+    SeparateFeatureExtractor,
     S5,
     SHMCell,
     FFM,
     GPT2,
     GTrXL,
+    xLSTMCell,
 )
 from memory_rl.networks.recurrent.rnn import RNN
 
 total_timesteps = 1_000_000_000
-num_train_steps = 500_000
+num_train_steps = 200_000
 num_eval_steps = 5_000
 
 env, env_params = environment.make("craftax::Craftax-Symbolic-v1", auto_reset=True)
 
-
 cfg = RPPOConfig(
     name="rppo",
-    learning_rate=3e-4,
+    learning_rate=2e-4,
     num_envs=512,
     num_eval_envs=10,
-    num_steps=128,
+    num_steps=64,
     anneal_lr=True,
     gamma=0.99,
     gae_lambda=0.8,
@@ -48,13 +48,20 @@ cfg = RPPOConfig(
 )
 
 actor_network = SequenceNetwork(
-    feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(256,))),
-    torso=GTrXL(
-        features=256, num_layers=2, num_heads=8, context_length=64, memory_length=128
+    feature_extractor=SeparateFeatureExtractor(
+        observation_extractor=MLP(
+            features=(192,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+        ),
+        action_extractor=MLP(
+            features=(64,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+        ),
     ),
+    # torso=GTrXL(
+    #     features=256, num_layers=2, num_heads=8, context_length=64, memory_length=128
+    # ),
     # torso=S5(features=128, state_size=32, num_layers=4),
     # torso=FFM(features=128, memory_size=32, context_size=16),
-    # torso=RNN(cell=nn.GRUCell(features=128)),
+    torso=RNN(cell=xLSTMCell(features=256, pattern=("m"))),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
@@ -65,15 +72,22 @@ actor_optimizer = optax.chain(
 )
 
 critic_network = SequenceNetwork(
-    feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(256,))),
-    torso=GTrXL(
-        features=256, num_layers=2, num_heads=8, context_length=64, memory_length=128
+    feature_extractor=SeparateFeatureExtractor(
+        observation_extractor=MLP(
+            features=(192,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+        ),
+        action_extractor=MLP(
+            features=(64,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+        ),
     ),
+    # torso=GTrXL(
+    #     features=256, num_layers=2, num_heads=8, context_length=64, memory_length=128
+    # ),
     # torso=GTrXL(
     #     features=128, num_layers=4, num_heads=4, context_length=64, memory_length=64
     # ),
     # torso=FFM(features=128, memory_size=32, context_size=16),
-    # torso=RNN(cell=nn.GRUCell(features=128)),
+    torso=RNN(cell=xLSTMCell(features=256, pattern=("m"))),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(
@@ -95,7 +109,7 @@ agent = RPPO(
 
 logger = Logger(
     [
-        DashboardLogger(title="RPPO bsuite Example", total_timesteps=total_timesteps),
+        DashboardLogger(title="RPPO Craftax Example", total_timesteps=total_timesteps),
     ]
 )
 logger_state = logger.init(asdict(cfg))

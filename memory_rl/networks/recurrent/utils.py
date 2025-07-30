@@ -89,7 +89,7 @@ def f_bias_init(key, shape, dtype):
 
 def small_init(dim):
     def init(key, shape, dtype):
-        std = jnp.sqrt(2.0 / (5.0 * dim))
+        std = jnp.sqrt(2.0 / 5.0 / dim)
         return jax.random.normal(key, shape, dtype) * std
 
     return init
@@ -123,7 +123,7 @@ class BlockDiagonalDense(nn.Module):
                 f"head_dim ({features}) must be divisible by block_size ({self.block_size})."
             )
 
-        kernel_init = self.kernel_init or small_init(self.features)
+        kernel_init = self.kernel_init or small_init(self.features // num_heads)
         kernel = self.param(
             "kernel",
             kernel_init,
@@ -169,14 +169,13 @@ class CausalConv1d(nn.Module):
     features: int
     kernel_size: int = 4
     use_bias: bool = True
-    use_channel_mixing: bool = False
     param_dtype: jnp.dtype = jnp.float32
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, state: jnp.ndarray) -> tuple:
         kernel = self.param(
             "kernel",
-            variance_scaling(1.0, "fan_in", "truncated_normal"),
+            kaiming_uniform(),
             (self.kernel_size, self.features),
             self.param_dtype,
         )

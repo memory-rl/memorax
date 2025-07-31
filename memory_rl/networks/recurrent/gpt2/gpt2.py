@@ -1,5 +1,3 @@
-# Reference: https://github.com/jenkspt/gpt-jax/blob/main/model.py
-
 from dataclasses import dataclass
 from typing import Any, Optional
 

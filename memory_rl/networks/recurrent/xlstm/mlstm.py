@@ -13,6 +13,7 @@ class mLSTMCarry:
     C: jnp.ndarray
     n: jnp.ndarray
     x_prev: jnp.ndarray  # for 1D conv we need to store that past ker_size - 1 values
+    m: jnp.ndarray
 
 
 class mLSTM(nn.RNNCellBase):
@@ -46,7 +47,8 @@ class mLSTM(nn.RNNCellBase):
             n=jnp.ones((batch_size, num_heads, head_dim)),  # (B, num_heads, head_dim)
             x_prev=jnp.zeros(
                 (batch_size, ker_size - 1, embedding_dim * p_factor)
-            ),  # for 1D conv
+            ),  # for 1D conv,
+            m=jnp.zeros((batch_size, num_heads))
         )
 
     def initialize_carry(
@@ -126,11 +128,20 @@ class mLSTM(nn.RNNCellBase):
         k = k.reshape(B, self.num_heads, self.head_dim)  # (B, num_heads, head_dim)
         v = v.reshape(B, self.num_heads, self.head_dim)  # (B, num_heads, head_dim)
 
-        i = jnp.exp(W_i(x_c))  # (B, num_heads)
+        log_i = W_i(x_c) # (B, num_heads)
+        i = jnp.exp(log_i)  # (B, num_heads)
+        pre_f = W_f(x_c)  # (B, num_heads)
         f = (
-            jnp.exp(W_f(x_c)) if self.use_exp_f_gate else nn.sigmoid(W_f(x_c))
+            jnp.exp(pre_f) if self.use_exp_f_gate else nn.sigmoid(pre_f)
         )  # (B, num_heads)
+        log_f = pre_f if self.use_exp_f_gate else jnp.log(f) # (B, num_heads)
+
         o = jnp.exp(W_o(x_l))  # (B, hid_dim)
+
+        # stabilize i and f
+        m = jnp.maximum(log_f + carry.m, log_i) # (B, num_heads) eq. 15
+        i = jnp.exp(log_i - m)  # (B, num_heads) eq. 16
+        f = jnp.exp(log_f + carry.m - m) # (B, num_heads) eq. 17
 
         i = jnp.expand_dims(i, axis=2)  # (B, num_heads, 1)
         f = jnp.expand_dims(f, axis=2)  # (B, num_heads, 1)
@@ -160,7 +171,7 @@ class mLSTM(nn.RNNCellBase):
 
         out = out + inputs
 
-        return mLSTMCarry(C=C, n=n, x_prev=x_prev), out
+        return mLSTMCarry(C=C, n=n, x_prev=x_prev, m=m), out
 
 
 if __name__ == "__main__":

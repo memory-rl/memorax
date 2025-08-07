@@ -1,0 +1,2 @@
+_target_: flax.linen.OptimizedLSTMCell
+features: 128

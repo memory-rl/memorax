@@ -2,16 +2,11 @@ total_timesteps: 5_000_000
 num_train_steps: 100_000
 num_evaluation_steps: 10_000
 seed: 0
-num_seeds: 1
 
 defaults:
   - _self_
-  - algorithm: default
-  - mode: TBPTT
-  - environment: default
-  - network/feature_extractor: mlp
-  - network/torso: mlp
-  - network/head: q_network
+  - algorithm: dqn
+  - environment: cartpole
   - logger: default
   - optional hyperparameter: ${algorithm}/${environment}
 

@@ -63,12 +63,12 @@ class RPPO:
         )
         done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
 
-        # Initialize hidden states using the cell from the networks
+        # Initialize hidden states using the torso from the networks
         actor_hidden_state = self.actor_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.cell.features),
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.torso.features),
         )
         critic_hidden_state = self.critic_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.critic.cell.features),
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.critic.torso.features),
         )
 
         dummy_obs_for_init = jnp.expand_dims(obs, 1)  # (num_envs, 1, obs_dim)
@@ -437,7 +437,7 @@ class RPPO:
         )
         done = jnp.zeros(self.cfg.algorithm.num_eval_envs, dtype=bool)
         initial_actor_hidden_state = self.actor_network.initialize_carry(
-            (self.cfg.algorithm.num_eval_envs, self.cfg.algorithm.actor.cell.features),
+            (self.cfg.algorithm.num_eval_envs, self.cfg.algorithm.actor.torso.features),
         )
 
         def step(carry, _):
@@ -475,7 +475,7 @@ def make_rppo_continuous(cfg, env, env_params, logger):
     # Use networks from networks.py
     actor_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        cell=instantiate(cfg.algorithm.actor.cell),
+        torso=instantiate(cfg.algorithm.actor.cell),
         head=heads.Gaussian(
             action_dim=action_dim,
             kernel_init=nn.initializers.orthogonal(scale=0.01),
@@ -483,7 +483,7 @@ def make_rppo_continuous(cfg, env, env_params, logger):
     )
     critic_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        cell=instantiate(cfg.algorithm.critic.cell),
+        torso=instantiate(cfg.algorithm.critic.cell),
         head=heads.VNetwork(kernel_init=nn.initializers.orthogonal(scale=1.0)),
     )
 

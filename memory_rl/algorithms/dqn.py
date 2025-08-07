@@ -375,7 +375,6 @@ def make_dqn(cfg, env, env_params, logger) -> DQN:
         int(cfg.algorithm.exploration_fraction * cfg.total_timesteps),
         cfg.algorithm.learning_starts,
     )
-    # algorithm_cfg = OmegaConf.to_container(cfg.algorithm, resolve=True)
     return DQN(
         cfg=cfg,  # type: ignore
         env=env,  # type: ignore

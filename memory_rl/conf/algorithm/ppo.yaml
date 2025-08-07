@@ -1,4 +1,10 @@
-# Algorithm specific arguments
+defaults:
+  - /network/feature_extractor@actor.feature_extractor: mlp
+  - /network/torso@actor.torso: mlp
+    
+  - /network/feature_extractor@critic.feature_extractor: mlp
+  - /network/torso@critic.torso: mlp
+
 name: ppo
 learning_rate: 5e-3
 num_envs: 64
@@ -20,28 +26,20 @@ learning_starts: 0
 
 actor:
   feature_extractor:
-    _target_: memory_rl.networks.MLP
-    features: [64]
     kernel_init: 
       _target_: flax.linen.initializers.orthogonal
       scale: 1.414
   torso:
-    _target_: memory_rl.networks.MLP
-    features: [64]
     kernel_init: 
       _target_: flax.linen.initializers.orthogonal
       scale: 1.414
 
 critic:
   feature_extractor:
-    _target_: memory_rl.networks.MLP
-    features: [64]
     kernel_init: 
       _target_: flax.linen.initializers.orthogonal
       scale: 1.414
   torso:
-    _target_: memory_rl.networks.MLP
-    features: [64]
     kernel_init:
       _target_: flax.linen.initializers.orthogonal
       scale: 1.414

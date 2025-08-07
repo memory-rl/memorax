@@ -59,10 +59,10 @@ class RPPO:
         )
         done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
         actor_hidden_state = self.actor_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.cell.features),
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.torso.features),
         )
         critic_hidden_state = self.critic_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.critic.cell.features),
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.critic.torso.features),
         )
 
         dummy_obs_for_init = jnp.expand_dims(obs, 1)  # (num_envs, 1, obs_dim)
@@ -402,7 +402,7 @@ class RPPO:
         )
         done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
         initial_actor_hidden_state = self.actor_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.cell.features),
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.torso.features),
         )
 
         def step(carry, _):
@@ -438,12 +438,10 @@ def make_rppo(cfg, env, env_params, logger):
     key, reset_key = jax.random.split(key, 2)
 
     reset_key = jax.random.split(reset_key, cfg.algorithm.num_envs)
-    obs, state = jax.vmap(env.reset, in_axes=(0, None))(reset_key, env_params)
-    done = jnp.zeros(cfg.algorithm.num_envs, dtype=bool)
 
     actor = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        cell=instantiate(cfg.algorithm.actor.cell),
+        torso=instantiate(cfg.algorithm.actor.torso),
         head=heads.Categorical(
             action_dim=env.action_space(env_params).n,
             kernel_init=nn.initializers.orthogonal(scale=0.01),
@@ -452,7 +450,7 @@ def make_rppo(cfg, env, env_params, logger):
 
     critic = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        cell=instantiate(cfg.algorithm.critic.cell),
+        torso=instantiate(cfg.algorithm.critic.torso),
         head=heads.VNetwork(kernel_init=nn.initializers.orthogonal(scale=1.0)),
     )
 

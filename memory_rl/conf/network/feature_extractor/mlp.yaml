@@ -1,11 +1,2 @@
 _target_: memory_rl.networks.MLP
-layers:
-  module:
-    _target_: flax.linen.Dense
-    _convert_: object
-    features: 128
-    use_bias: true
-  activation:
-    _target_: flax.linen.relu
-    _partial_: true
-
+features: [128]

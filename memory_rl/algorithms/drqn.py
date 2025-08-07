@@ -421,7 +421,7 @@ def make_drqn(cfg, env, env_params, logger) -> DRQN:
 
     q_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        cell=instantiate(cfg.algorithm.cell),
+        torso=instantiate(cfg.algorithm.torso),
         head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
 

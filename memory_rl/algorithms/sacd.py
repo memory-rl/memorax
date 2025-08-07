@@ -400,7 +400,6 @@ def make_sacd(cfg, env, env_params, logger) -> SACD:
         torso=instantiate(cfg.algorithm.actor.torso),
         head=heads.Categorical(
             action_dim=action_dim,
-            kernel_init=instantiate(cfg.algorithm.actor.head.kernel_init),
         ),
     )
 

@@ -1,6 +1,6 @@
 _target_: memory_rl.logger.WandbLogger
 project: memory-rl
-entity: noahfarr
+entity: MemoryStuff
 name: ${algorithm.name}_${environment.env_id}_${seed}_${now:%Y%m%d_%H%M%S}
 group: ${algorithm.name}_${environment.env_id}
 mode: online

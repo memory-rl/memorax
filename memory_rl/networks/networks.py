@@ -31,7 +31,7 @@ class Network(nn.Module):
 
 class RecurrentNetwork(nn.Module):
     feature_extractor: nn.Module
-    cell: nn.RNNCellBase
+    torso: nn.RNNCellBase
     head: nn.Module
 
     @nn.compact
@@ -50,7 +50,7 @@ class RecurrentNetwork(nn.Module):
             else observation
         )
         x = self.feature_extractor(x)
-        hidden_state, x = MaskedRNN(self.cell, return_carry=True)(
+        hidden_state, x = MaskedRNN(self.torso, return_carry=True)(
             x,
             mask,
             initial_carry=initial_carry,
@@ -60,4 +60,4 @@ class RecurrentNetwork(nn.Module):
 
     def initialize_carry(self, input_shape):
         key = jax.random.key(0)
-        return self.cell.initialize_carry(key, input_shape)
+        return self.torso.initialize_carry(key, input_shape)

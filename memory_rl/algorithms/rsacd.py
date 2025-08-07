@@ -99,7 +99,7 @@ class RSACD:
         )
         actor_optimizer_state = self.actor_optimizer.init(actor_params)
         actor_hidden_state = self.actor_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.torso.cell.features)
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.torso.features)
         )
 
         # Initialize critic
@@ -111,7 +111,7 @@ class RSACD:
         )
         critic_optimizer_state = self.critic_optimizer.init(critic_params)
         critic_hidden_state = self.critic_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.critic.torso.cell.features)
+            (self.cfg.algorithm.num_envs, self.cfg.algorithm.critic.torso.features)
         )
 
         # Initialize temperature
@@ -223,7 +223,7 @@ class RSACD:
             actor_loss = (
                 (dist.probs * (temperature * log_probs - q)).sum(axis=-1).mean()
             )
-            if self.cfg.mode.mask:
+            if self.cfg.algorithm.mode.mask:
                 alive = jnp.cumsum(batch.done, axis=1) == 0
                 actor_loss = (actor_loss * alive).sum() / alive.sum()
 
@@ -280,7 +280,7 @@ class RSACD:
             q2_a = jnp.take_along_axis(q2, idx, axis=-1).squeeze(-1)
             critic_loss = ((q1_a - target_q) ** 2 + (q2_a - target_q) ** 2).mean()
 
-            if self.cfg.mode.mask:
+            if self.cfg.algorithm.mode.mask:
                 alive = jnp.cumsum(batch.done, axis=1) == 0
                 critic_loss = (critic_loss * alive).sum() / alive.sum()
             return critic_loss, {
@@ -427,7 +427,7 @@ class RSACD:
         actor_hidden_state = self.actor_network.initialize_carry(
             (
                 self.cfg.algorithm.num_eval_envs,
-                self.cfg.algorithm.actor.torso.cell.features,
+                self.cfg.algorithm.actor.torso.features,
             )
         )
         state = state.replace(
@@ -479,10 +479,9 @@ def make_rsacd(cfg, env, env_params, logger) -> RSACD:
     # Define networks
     actor_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        cell=instantiate(cfg.algorithm.actor.torso.cell),
+        torso=instantiate(cfg.algorithm.actor.torso),
         head=heads.Categorical(
             action_dim=action_dim,
-            kernel_init=instantiate(cfg.algorithm.actor.head.kernel_init),
         ),
     )
 
@@ -495,7 +494,7 @@ def make_rsacd(cfg, env, env_params, logger) -> RSACD:
         axis_size=2,
     )(
         feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        cell=instantiate(cfg.algorithm.critic.torso.cell),
+        torso=instantiate(cfg.algorithm.critic.torso),
         head=heads.DiscreteQNetwork(env.action_space(env_params).n),
     )
 
@@ -507,10 +506,10 @@ def make_rsacd(cfg, env, env_params, logger) -> RSACD:
     temp_optimizer = optax.adam(learning_rate=cfg.algorithm.temp_lr)
 
     sample_sequence_length = min_length_time_axis = (
-        cfg.mode.length or env_params.max_steps_in_episode
+        cfg.algorithm.mode.length or env_params.max_steps_in_episode
     )
     buffer = instantiate(
-        cfg.mode.buffer,
+        cfg.algorithm.mode.buffer,
         sample_sequence_length=sample_sequence_length,
         min_length_time_axis=min_length_time_axis,
     )

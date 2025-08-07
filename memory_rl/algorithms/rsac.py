@@ -227,7 +227,7 @@ class RSAC:
             q = jnp.minimum(q1, q2)
             actor_loss = (log_probs * temperature - q.squeeze(-1)).mean()
 
-            if self.cfg.mode.mask:
+            if self.cfg.algorithm.mode.mask:
                 alive = jnp.cumsum(batch.done, axis=1) == 0
                 actor_loss = (actor_loss * alive).sum() / alive.sum()
             return actor_loss, {"actor_loss": actor_loss, "entropy": -log_probs.mean()}
@@ -283,7 +283,7 @@ class RSAC:
                 (q1.squeeze(-1) - target_q) ** 2 + (q2.squeeze(-1) - target_q) ** 2
             ).mean()
 
-            if self.cfg.mode.mask:
+            if self.cfg.algorithm.mode.mask:
                 alive = jnp.cumsum(batch.done, axis=1) == 0
                 critic_loss = (critic_loss * alive).sum() / alive.sum()
             return critic_loss, {
@@ -433,7 +433,7 @@ class RSAC:
         eval_done = jnp.zeros((self.cfg.algorithm.num_eval_envs,), dtype=bool)
 
         # Initialize evaluation hidden state with correct size
-        eval_hidden_state = self.actor_network.cell.initialize_carry(
+        eval_hidden_state = self.actor_network.torso.initialize_carry(
             jax.random.key(0), eval_obs.shape
         )
 
@@ -491,7 +491,7 @@ def make_rsac(cfg, env, env_params, logger) -> RSAC:
     # Define networks
     actor_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        cell=instantiate(cfg.algorithm.actor.torso.cell),
+        torso=instantiate(cfg.algorithm.actor.torso),
         head=heads.SquashedGaussian(action_dim=action_dim),
     )
 
@@ -504,7 +504,7 @@ def make_rsac(cfg, env, env_params, logger) -> RSAC:
         axis_size=2,
     )(
         feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        cell=instantiate(cfg.algorithm.critic.torso.cell),
+        torso=instantiate(cfg.algorithm.critic.torso),
         head=heads.VNetwork(),
     )
     temp_network = heads.Temperature(initial_temperature=cfg.algorithm.init_temperature)
@@ -515,9 +515,9 @@ def make_rsac(cfg, env, env_params, logger) -> RSAC:
     temp_optimizer = optax.adam(learning_rate=cfg.algorithm.temp_lr)
 
     sample_sequence_length = min_length_time_axis = (
-        cfg.mode.length or env_params.max_steps_in_episode
+        cfg.algorithm.mode.length or env_params.max_steps_in_episode
     )
-    buffer = instantiate(cfg.mode.buffer, sample_sequence_length=sample_sequence_length, min_length_time_axis=min_length_time_axis)
+    buffer = instantiate(cfg.algorithm.mode.buffer, sample_sequence_length=sample_sequence_length, min_length_time_axis=min_length_time_axis)
 
     return RSAC(
         cfg=cfg,

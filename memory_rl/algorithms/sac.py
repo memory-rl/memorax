@@ -401,7 +401,6 @@ def make_sac(cfg, env, env_params, logger) -> SAC:
         torso=instantiate(cfg.algorithm.actor.torso),
         head=heads.SquashedGaussian(
             action_dim=action_dim,
-            kernel_init=instantiate(cfg.algorithm.actor.head.kernel_init),
         ),
     )
 

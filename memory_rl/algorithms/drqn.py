@@ -257,7 +257,7 @@ class DRQN:
                 q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
                 loss = jnp.square(q_value - next_q_value).mean()
 
-                if self.cfg.mode.mask:
+                if self.cfg.algorithm.mode.mask:
                     alive = jnp.cumsum(batch.experience.done, axis=1) == 0
                     loss = (loss * alive).sum() / alive.sum()
                 return loss, (q_value, hidden_state)
@@ -426,10 +426,10 @@ def make_drqn(cfg, env, env_params, logger) -> DRQN:
     )
 
     sample_sequence_length = min_length_time_axis = (
-        cfg.mode.length or env_params.max_steps_in_episode
+        cfg.algorithm.mode.length or env_params.max_steps_in_episode
     )
     buffer = instantiate(
-        cfg.mode.buffer,
+        cfg.algorithm.mode.buffer,
         sample_sequence_length=sample_sequence_length,
         min_length_time_axis=min_length_time_axis,
     )

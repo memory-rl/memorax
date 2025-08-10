@@ -112,8 +112,11 @@ class BraxGymnaxWrapper:
 
 
 class NavixGymnaxWrapper:
-    def __init__(self, env_name):
-        self._env = nx.make(env_name)
+    def __init__(self, env_name: str | None = None, env=None):
+        if env is None:
+            self._env = nx.make(env_name)
+        else:
+            self._env = env
 
     def reset(self, key, params=None):
         timestep = self._env.reset(key)
@@ -135,3 +138,10 @@ class NavixGymnaxWrapper:
         return spaces.Discrete(
             num_categories=self._env.action_space.maximum.item() + 1,
         )
+
+
+class VecEnv(GymnaxWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        self.reset = jax.vmap(self._env.reset, in_axes=(0, None))
+        self.step = jax.vmap(self._env.step, in_axes=(0, 0, 0, None))

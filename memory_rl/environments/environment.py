@@ -1,9 +1,10 @@
-
+import jax
 import gymnax
 import hydra
 
-from memory_rl.utils import BraxGymnaxWrapper, LogWrapper, NavixGymnaxWrapper
+from memory_rl.utils import BraxGymnaxWrapper, LogWrapper, NavixGymnaxWrapper, VecEnv
 from popjaxrl.envs import make as make_popjaxrl
+from memory_rl.environments.tmaze_env import make_tmaze_env
 
 
 def make_brax(env_id):
@@ -49,6 +50,7 @@ register = {
     "Navix-Go-To-Door-5x5-v0": make_navix,
     "Navix-Key-Corridor-S3R1-v0": make_navix,
     "Navix-Lava-Gap-S5-v0": make_navix,
+    "tmaze": make_tmaze_env,
 }
 
 

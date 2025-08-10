@@ -8,4 +8,3 @@ from memory_rl.algorithms import (
     make_rsac,
     make_sac,
 )
-from memory_rl.environments import TMazeClassicActive, TMazeClassicPassive

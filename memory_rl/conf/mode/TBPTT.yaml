@@ -1,5 +1,5 @@
 name: TBPTT
-length: 32
+length: 8
 mask: false
 
 buffer:

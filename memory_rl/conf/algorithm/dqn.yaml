@@ -1,6 +1,6 @@
 defaults:
-  - /network/feature_extractor: mlp
-  - /network/torso: mlp
+  - /network/feature_extractor@feature_extractor: mlp
+  - /network/torso@torso: mlp
 name: dqn
 learning_rate:       3e-4
 num_envs:            10

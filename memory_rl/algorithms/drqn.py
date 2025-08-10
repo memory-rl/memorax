@@ -255,11 +255,15 @@ class DRQN:
                 )
                 action = jnp.expand_dims(batch.experience.action, axis=-1)
                 q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
-                loss = jnp.square(q_value - next_q_value).mean()
+                td_error = q_value - next_q_value
 
+                mask = jnp.ones_like(td_error)
                 if self.cfg.algorithm.mode.mask:
-                    alive = jnp.cumsum(batch.experience.done, axis=1) == 0
-                    loss = (loss * alive).sum() / alive.sum()
+                    episode_idx = jnp.cumsum(batch.experience.done, axis=1)
+                    terminal = (episode_idx == 1) & batch.experience.done
+                    mask *= (episode_idx == 0) | terminal
+
+                loss = jnp.square(td_error).mean(where=mask)
                 return loss, (q_value, hidden_state)
 
             (loss, (q_value, hidden_state)), grads = jax.value_and_grad(

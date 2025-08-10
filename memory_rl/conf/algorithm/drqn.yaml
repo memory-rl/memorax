@@ -1,6 +1,6 @@
 defaults:
   - /network/feature_extractor@feature_extractor: mlp
-  - /network/torso@torso: lstm
+  - /network/torso@torso: gru
   - /mode: TBPTT
 
 name: drqn

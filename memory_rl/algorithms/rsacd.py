@@ -167,7 +167,6 @@ class RSACD:
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
-                step=state.step + self.cfg.algorithm.num_envs,
                 obs=next_obs,
                 env_state=env_state,
                 buffer_state=buffer_state,
@@ -183,17 +182,15 @@ class RSACD:
     @partial(jax.jit, static_argnames=["self"])
     def update_temperature(self, state: RSACDState, batch: Batch):
         action_dim = self.env.action_space(self.env_params).n
-        target_entropy = -self.cfg.algorithm.target_entropy_multiplier * action_dim
+        target_entropy = self.cfg.algorithm.target_entropy_scale * jnp.log(action_dim)
 
         def temperature_loss_fn(temp_params):
-            temperature = self.temp_network.apply(temp_params)
-
-            _, dist = self.actor_network.apply(
-                state.actor_params, batch.obs, batch.done
-            )
+            alpha = self.temp_network.apply(temp_params)
+            log_alpha = jnp.log(alpha + 1e-8)
+            _, dist = self.actor_network.apply(state.actor_params, batch.obs, batch.done)
             entropy = dist.entropy().mean()
-            temp_loss = temperature * (entropy - target_entropy).mean()
-            return temp_loss, {"temperature": temperature, "temp_loss": temp_loss}
+            temp_loss = -log_alpha * (entropy - target_entropy)
+            return temp_loss, {"alpha": alpha, "temp_loss": temp_loss}
 
         (_, info), grads = jax.value_and_grad(temperature_loss_fn, has_aux=True)(
             state.temp_params

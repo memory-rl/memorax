@@ -142,7 +142,6 @@ class SACD:
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
             state = state.replace(
-                step=state.step + self.cfg.algorithm.num_envs,
                 obs=next_obs,
                 env_state=env_state,
                 buffer_state=buffer_state,
@@ -158,15 +157,15 @@ class SACD:
     @partial(jax.jit, static_argnames=["self"])
     def update_temperature(self, state: SACDState, batch: Batch):
         action_dim = self.env.action_space(self.env_params).n
-        target_entropy = -self.cfg.algorithm.target_entropy_multiplier * action_dim
+        target_entropy = self.cfg.algorithm.target_entropy_scale * jnp.log(action_dim)
 
         def temperature_loss_fn(temp_params):
-            temperature = self.temp_network.apply(temp_params)
-
+            alpha = self.temp_network.apply(temp_params)
+            log_alpha = jnp.log(alpha + 1e-8)
             dist = self.actor_network.apply(state.actor_params, batch.first.obs)
             entropy = dist.entropy().mean()
-            temp_loss = temperature * (entropy - target_entropy).mean()
-            return temp_loss, {"temperature": temperature, "temp_loss": temp_loss}
+            temp_loss = -log_alpha * (entropy - target_entropy)
+            return temp_loss, {"alpha": alpha, "temp_loss": temp_loss}
 
         (_, info), grads = jax.value_and_grad(temperature_loss_fn, has_aux=True)(
             state.temp_params
@@ -194,7 +193,7 @@ class SACD:
             actor_loss = (
                 (dist.probs * ((temperature * log_probs) - q)).sum(axis=-1).mean()
             )
-            return actor_loss, {"actor_loss": actor_loss, "entropy": -log_probs.mean()}
+            return actor_loss, {"actor_loss": actor_loss, "entropy": dist.entropy().mean()}
 
         (_, info), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
             state.actor_params
@@ -346,6 +345,10 @@ class SACD:
                         "training/episodic_length": info[
                             "returned_episode_lengths"
                         ].mean(),
+                        "training/actor_loss": info["actor_loss"].mean(),
+                        "training/entropy": info["entropy"].mean(),
+                        "training/critic_loss": info["critic_loss"].mean(),
+                        "training/temp_loss": info["temp_loss"].mean(),
                     }
                     logger.log(data, step=step)
 

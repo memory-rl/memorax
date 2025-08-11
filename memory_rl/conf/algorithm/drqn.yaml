@@ -1,7 +1,7 @@
 defaults:
-  - /network/feature_extractor@feature_extractor: mlp
-  - /network/torso@torso: gru
-  - /mode: TBPTT
+  - feature_extractor: shared
+  - torso: gru
+  - mode: BPTT
 
 name: drqn
 learning_rate:       3e-4

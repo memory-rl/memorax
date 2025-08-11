@@ -68,6 +68,7 @@ class RPPO:
         dummy_obs_for_init = jnp.expand_dims(obs, 1)  # (num_envs, 1, obs_dim)
         dummy_mask_for_init = jnp.expand_dims(done, 1)  # (num_envs, 1)
 
+
         actor_params = self.actor_network.init(
             actor_key,
             observation=dummy_obs_for_init,

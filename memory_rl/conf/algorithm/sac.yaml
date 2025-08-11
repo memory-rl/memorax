@@ -1,9 +1,9 @@
 defaults:
-  - /network/feature_extractor@actor.feature_extractor: mlp
-  - /network/torso@actor.torso: mlp
+  - feature_extractor@actor.feature_extractor: shared
+  - torso@actor.torso: mlp
 
-  - /network/feature_extractor@critic.feature_extractor: mlp
-  - /network/torso@critic.torso: mlp
+  - feature_extractor@critic.feature_extractor: shared
+  - torso@critic.torso: mlp
 
 name: sac
 policy_lr:            3e-4

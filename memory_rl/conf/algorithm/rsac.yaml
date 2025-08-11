@@ -1,10 +1,10 @@
 defaults:
-  - /network/feature_extractor@actor.feature_extractor: mlp
-  - /network/torso@actor.torso: gru
+  - feature_extractor@actor.feature_extractor: shared
+  - torso@actor.torso: gru
 
-  - /network/feature_extractor@critic.feature_extractor: mlp
-  - /network/torso@critic.torso: gru
-  - /mode: TBPTT
+  - feature_extractor@critic.feature_extractor: shared
+  - torso@critic.torso: gru
+  - mode: BPTT
 
 name: rsac
 policy_lr:            3e-4

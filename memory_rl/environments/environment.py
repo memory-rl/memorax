@@ -4,7 +4,9 @@ import hydra
 
 from memory_rl.utils import BraxGymnaxWrapper, LogWrapper, NavixGymnaxWrapper, VecEnv
 from popjaxrl.envs import make as make_popjaxrl
+from pobax.envs import get_env
 from memory_rl.environments.tmaze_env import make_tmaze_env
+
 
 
 def make_brax(env_id):
@@ -15,6 +17,12 @@ def make_brax(env_id):
 def make_navix(env_id):
     env = NavixGymnaxWrapper(env_id)
     return env, None
+
+def make_pobax(env_id, seed=0):
+    key = jax.random.key(seed)
+    env, env_params = get_env(env_id, key, apply_wrappers=False)
+    jax.debug.breakpoint()
+    return env, env_params
 
 
 register = {
@@ -51,6 +59,8 @@ register = {
     "Navix-Key-Corridor-S3R1-v0": make_navix,
     "Navix-Lava-Gap-S5-v0": make_navix,
     "tmaze": make_tmaze_env,
+    "tmaze_10": make_pobax,
+    "battleship_10": make_pobax,
 }
 
 
@@ -63,4 +73,5 @@ def make(cfg):
     env = LogWrapper(env)
     for wrapper in cfg.get("wrappers", []):
         env = hydra.utils.instantiate(wrapper, env=env)
+
     return env, env_params

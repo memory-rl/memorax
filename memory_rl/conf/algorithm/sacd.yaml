@@ -24,3 +24,15 @@ policy_final_fc_init_scale: 1e-3
 target_entropy_multiplier: 1
 backup_entropy:      true
 learning_starts:     5_000
+
+actor:
+  feature_extractor:
+    features: [256]
+  torso:
+    features: [256]
+
+critic:
+  feature_extractor:
+    features: [256]
+  torso:
+    features: [256]

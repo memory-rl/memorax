@@ -1,4 +1,3 @@
-
 import chex
 import flax.linen as nn
 import gymnax
@@ -17,9 +16,10 @@ from memory_rl.utils import compute_recurrent_gae as compute_gae
 @chex.dataclass(frozen=True)
 class Transition:
     observation: chex.Array
+    done: chex.Array
     action: chex.Array
     reward: chex.Array
-    done: chex.Array
+    next_done: chex.Array
     info: chex.Array
     log_prob: chex.Array
     value: chex.Array
@@ -133,14 +133,15 @@ class RPPO:
                 log_prob = log_prob.squeeze(1)
 
                 step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
-                next_obs, env_state, reward, done, info = jax.vmap(
+                next_obs, env_state, reward, next_done, info = jax.vmap(
                     self.env.step, in_axes=(0, 0, 0, None)
                 )(step_key, state.env_state, action, self.env_params)
                 transition = Transition(
                     observation=state.obs,  # type: ignore
+                    done=state.done,  # type: ignore
                     action=action,  # type: ignore
                     reward=reward,  # type: ignore
-                    done=done,  # type: ignore
+                    next_done=next_done,  # type: ignore
                     info=info,  # type: ignore
                     log_prob=log_prob,  # type: ignore
                     value=value,  # type: ignore
@@ -150,7 +151,7 @@ class RPPO:
                     step=state.step + self.cfg.algorithm.num_envs,
                     obs=next_obs,
                     env_state=env_state,
-                    done=done,
+                    done=next_done,
                     actor_hidden_state=actor_h_next,
                     critic_hidden_state=critic_h_next,
                 )
@@ -454,16 +455,23 @@ def make_rppo(cfg, env, env_params, logger):
         head=heads.VNetwork(kernel_init=nn.initializers.orthogonal(scale=1.0)),
     )
 
-    # if cfg.anneal_lr:
-    #     learning_rate = linear_schedule(
-    #         init_value=cfg.learning_rate,
-    #         end_value=0.0,
-    #         transition_steps=(
-    #             cfg.num_iterations * cfg.update_epochs * cfg.num_minibatches
-    #         ),
-    #     )
-    # else:
-    learning_rate = cfg.algorithm.learning_rate
+    if cfg.algorithm.anneal_lr:
+        num_updates_per_epoch = cfg.total_timesteps // (
+            cfg.algorithm.num_envs * cfg.algorithm.num_steps
+        )
+        num_updates = (
+            num_updates_per_epoch
+            * cfg.algorithm.update_epochs
+            * cfg.algorithm.num_minibatches
+        )
+        learning_rate = optax.linear_schedule(
+            init_value=cfg.algorithm.learning_rate,
+            end_value=0.0,
+            transition_steps=num_updates,
+        )
+    else:
+        learning_rate = cfg.algorithm.learning_rate
+
     actor_optimizer = optax.chain(
         optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
         optax.adam(learning_rate=learning_rate, eps=1e-5),

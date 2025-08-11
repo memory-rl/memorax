@@ -40,7 +40,7 @@ def compute_recurrent_gae(
             transition.reward + gamma * next_value * (1 - next_done) - transition.value
         )
         advantage = delta + gamma * gae_lambda * (1 - next_done) * advantage
-        return (advantage, transition.value, transition.done), advantage
+        return (advantage, transition.value, transition.next_done), advantage
 
     _, advantages = jax.lax.scan(
         f,

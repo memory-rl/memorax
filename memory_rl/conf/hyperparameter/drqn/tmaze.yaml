@@ -12,7 +12,3 @@ algorithm:
   start_e: 1.0
   end_e: 0.1428
   exploration_fraction: 0.1
-
-  feature_extractor:
-    features: [256, 256]
-

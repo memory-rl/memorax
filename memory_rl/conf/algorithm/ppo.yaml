@@ -1,9 +1,9 @@
 defaults:
-  - /network/feature_extractor@actor.feature_extractor: mlp
-  - /network/torso@actor.torso: mlp
+  - feature_extractor@actor.feature_extractor: shared
+  - torso@actor.torso: mlp
     
-  - /network/feature_extractor@critic.feature_extractor: mlp
-  - /network/torso@critic.torso: mlp
+  - feature_extractor@critic.feature_extractor: shared
+  - torso@critic.torso: mlp
 
 name: ppo
 learning_rate: 2.5e-4
@@ -26,9 +26,10 @@ learning_starts: 0
 
 actor:
   feature_extractor:
-    kernel_init: 
-      _target_: flax.linen.initializers.orthogonal
-      scale: 1.414
+    extractor:
+      kernel_init: 
+        _target_: flax.linen.initializers.orthogonal
+        scale: 1.414
   torso:
     kernel_init: 
       _target_: flax.linen.initializers.orthogonal
@@ -36,9 +37,10 @@ actor:
 
 critic:
   feature_extractor:
-    kernel_init: 
-      _target_: flax.linen.initializers.orthogonal
-      scale: 1.414
+    extractor:
+      kernel_init: 
+        _target_: flax.linen.initializers.orthogonal
+        scale: 1.414
   torso:
     kernel_init:
       _target_: flax.linen.initializers.orthogonal

@@ -1,11 +1,10 @@
 defaults:
-  - /network/feature_extractor@actor.feature_extractor: mlp
-  - /network/torso@actor.torso: gru
+  - feature_extractor@actor.feature_extractor: shared
+  - torso@actor.torso: gru
 
-  - /network/feature_extractor@critic.feature_extractor: mlp
-  - /network/torso@critic.torso: gru
-
-  - /mode: TBPTT
+  - feature_extractor@critic.feature_extractor: shared
+  - torso@critic.torso: gru
+  - mode: BPTT
 
 name: rsacd
 policy_lr:            3e-4
@@ -22,5 +21,5 @@ batch_size:          128
 backup_entropy:      False
 init_temperature:    1.0
 policy_final_fc_init_scale: 1e-3
-target_entropy_multiplier: 0.5
+target_entropy_scale: 0.5
 learning_starts:     10_000

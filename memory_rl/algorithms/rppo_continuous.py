@@ -475,7 +475,7 @@ def make_rppo_continuous(cfg, env, env_params, logger):
     # Use networks from networks.py
     actor_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        torso=instantiate(cfg.algorithm.actor.cell),
+        torso=instantiate(cfg.algorithm.actor.torso),
         head=heads.Gaussian(
             action_dim=action_dim,
             kernel_init=nn.initializers.orthogonal(scale=0.01),
@@ -483,7 +483,7 @@ def make_rppo_continuous(cfg, env, env_params, logger):
     )
     critic_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        torso=instantiate(cfg.algorithm.critic.cell),
+        torso=instantiate(cfg.algorithm.critic.torso),
         head=heads.VNetwork(kernel_init=nn.initializers.orthogonal(scale=1.0)),
     )
 

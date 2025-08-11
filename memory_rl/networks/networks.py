@@ -17,14 +17,11 @@ class Network(nn.Module):
         self,
         observation: jnp.ndarray,
         action: Optional[jnp.ndarray] = None,
+        reward: Optional[jnp.ndarray] = None,
+        done: Optional[jnp.ndarray] = None,
         temperature: float = 1.0,
     ):
-        x = (
-            jnp.concatenate([observation, action], axis=-1)
-            if action is not None
-            else observation
-        )
-        x = self.feature_extractor(x)
+        x = self.feature_extractor(observation, action=action, reward=reward, done=done)
         x = self.torso(x)
         return self.head(x, temperature=temperature)
 
@@ -40,16 +37,13 @@ class RecurrentNetwork(nn.Module):
         observation: jnp.ndarray,
         mask: jnp.ndarray,
         action: Optional[jnp.ndarray] = None,
+        reward: Optional[jnp.ndarray] = None,
+        done: Optional[jnp.ndarray] = None,
         initial_carry: Optional[jnp.ndarray] = None,
         return_carry_history: bool = False,
         temperature: float = 1.0,
     ):
-        x = (
-            jnp.concatenate([observation, action], axis=-1)
-            if action is not None
-            else observation
-        )
-        x = self.feature_extractor(x)
+        x = self.feature_extractor(observation, action=action, reward=reward, done=done)
         hidden_state, x = MaskedRNN(self.torso, return_carry=True)(
             x,
             mask,

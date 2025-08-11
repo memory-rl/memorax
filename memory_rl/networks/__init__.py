@@ -10,3 +10,4 @@ from memory_rl.networks.recurrent import (
     mLSTM,
     sLSTM,
 )
+from memory_rl.networks.feature_extractors import SeperateFeatureExtractor, SharedFeatureExtractor

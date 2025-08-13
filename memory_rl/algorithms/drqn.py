@@ -242,6 +242,12 @@ class DRQN:
                 * q_next_target
             )
 
+            mask = jnp.ones_like(next_q_value)
+            if self.cfg.algorithm.mode.mask:
+                episode_idx = jnp.cumsum(batch.experience.done, axis=1)
+                terminal = (episode_idx == 1) & batch.experience.done
+                mask = (episode_idx == 0) | terminal
+
             def loss_fn(params):
                 hidden_state, q_value = self.q_network.apply(
                     params,
@@ -256,12 +262,6 @@ class DRQN:
                 action = jnp.expand_dims(batch.experience.action, axis=-1)
                 q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
                 td_error = q_value - next_q_value
-
-                mask = jnp.ones_like(td_error)
-                if self.cfg.algorithm.mode.mask:
-                    episode_idx = jnp.cumsum(batch.experience.done, axis=1)
-                    terminal = (episode_idx == 1) & batch.experience.done
-                    mask *= (episode_idx == 0) | terminal
 
                 loss = jnp.square(td_error).mean(where=mask)
                 return loss, (q_value, hidden_state)

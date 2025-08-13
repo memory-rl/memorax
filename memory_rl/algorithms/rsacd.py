@@ -187,7 +187,9 @@ class RSACD:
         def temperature_loss_fn(temp_params):
             alpha = self.temp_network.apply(temp_params)
             log_alpha = jnp.log(alpha + 1e-8)
-            _, dist = self.actor_network.apply(state.actor_params, batch.obs, batch.done)
+            _, dist = self.actor_network.apply(
+                state.actor_params, batch.obs, batch.done
+            )
             entropy = dist.entropy().mean()
             temp_loss = -log_alpha * (entropy - target_entropy)
             return temp_loss, {"alpha": alpha, "temp_loss": temp_loss}
@@ -210,6 +212,12 @@ class RSACD:
     def update_actor(self, key, state: RSACDState, batch: Batch):
         temperature = self.temp_network.apply(state.temp_params)
 
+        mask = jnp.ones_like(batch.reward)
+        if self.cfg.algorithm.mode.mask:
+            episode_idx = jnp.cumsum(batch.done, axis=1)
+            terminal = (episode_idx == 1) & batch.done
+            mask = (episode_idx == 0) | terminal
+
         def actor_loss_fn(actor_params):
             _, dist = self.actor_network.apply(actor_params, batch.obs, batch.done)
             log_probs = jax.nn.log_softmax(dist.logits)
@@ -218,11 +226,10 @@ class RSACD:
             )
             q = jnp.minimum(q1, q2)
             actor_loss = (
-                (dist.probs * (temperature * log_probs - q)).sum(axis=-1).mean()
+                (dist.probs * (temperature * log_probs - q))
+                .sum(axis=-1)
+                .mean(where=mask)
             )
-            if self.cfg.algorithm.mode.mask:
-                alive = jnp.cumsum(batch.done, axis=1) == 0
-                actor_loss = (actor_loss * alive).sum() / alive.sum()
 
             return actor_loss, {"actor_loss": actor_loss, "entropy": -log_probs.mean()}
 
@@ -268,6 +275,12 @@ class RSACD:
 
         target_q = jax.lax.stop_gradient(target_q)
 
+        mask = jnp.ones_like(batch.reward)
+        if self.cfg.algorithm.mode.mask:
+            episode_idx = jnp.cumsum(batch.done, axis=1)
+            terminal = (episode_idx == 1) & batch.done
+            mask = (episode_idx == 0) | terminal
+
         def critic_loss_fn(critic_params):
             _, (q1, q2) = self.critic_network.apply(
                 critic_params, batch.obs, batch.done
@@ -275,11 +288,10 @@ class RSACD:
             idx = batch.action[..., None]  # [B, T, 1]
             q1_a = jnp.take_along_axis(q1, idx, axis=-1).squeeze(-1)
             q2_a = jnp.take_along_axis(q2, idx, axis=-1).squeeze(-1)
-            critic_loss = ((q1_a - target_q) ** 2 + (q2_a - target_q) ** 2).mean()
+            critic_loss = ((q1_a - target_q) ** 2 + (q2_a - target_q) ** 2).mean(
+                where=mask
+            )
 
-            if self.cfg.algorithm.mode.mask:
-                alive = jnp.cumsum(batch.done, axis=1) == 0
-                critic_loss = (critic_loss * alive).sum() / alive.sum()
             return critic_loss, {
                 "critic_loss": critic_loss,
                 "q1": q1.mean(),

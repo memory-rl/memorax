@@ -218,6 +218,12 @@ class RSAC:
     def update_actor(self, key, state: RSACState, batch: Batch):
         temperature = self.temp_network.apply(state.temp_params)
 
+        mask = jnp.ones_like(batch.reward)
+        if self.cfg.algorithm.mode.mask:
+            episode_idx = jnp.cumsum(batch.done, axis=1)
+            terminal = (episode_idx == 1) & batch.done
+            mask = (episode_idx == 0) | terminal
+
         def actor_loss_fn(actor_params):
             _, dist = self.actor_network.apply(actor_params, batch.obs, batch.done)
             actions, log_probs = dist.sample_and_log_prob(seed=key)
@@ -225,11 +231,8 @@ class RSAC:
                 state.critic_params, batch.obs, batch.done, actions
             )
             q = jnp.minimum(q1, q2)
-            actor_loss = (log_probs * temperature - q.squeeze(-1)).mean()
+            actor_loss = (log_probs * temperature - q.squeeze(-1)).mean(where=mask)
 
-            if self.cfg.algorithm.mode.mask:
-                alive = jnp.cumsum(batch.done, axis=1) == 0
-                actor_loss = (actor_loss * alive).sum() / alive.sum()
             return actor_loss, {"actor_loss": actor_loss, "entropy": -log_probs.mean()}
 
         (_, info), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
@@ -275,17 +278,20 @@ class RSAC:
 
         target_q = jax.lax.stop_gradient(target_q)
 
+        mask = jnp.ones_like(target_q)
+        if self.cfg.algorithm.mode.mask:
+            episode_idx = jnp.cumsum(batch.done, axis=1)
+            terminal = (episode_idx == 1) & batch.done
+            mask = (episode_idx == 0) | terminal
+
         def critic_loss_fn(critic_params):
             _, (q1, q2) = self.critic_network.apply(
                 critic_params, batch.obs, batch.done, batch.action
             )
             critic_loss = (
                 (q1.squeeze(-1) - target_q) ** 2 + (q2.squeeze(-1) - target_q) ** 2
-            ).mean()
+            ).mean(where=mask)
 
-            if self.cfg.algorithm.mode.mask:
-                alive = jnp.cumsum(batch.done, axis=1) == 0
-                critic_loss = (critic_loss * alive).sum() / alive.sum()
             return critic_loss, {
                 "critic_loss": critic_loss,
                 "q1": q1.mean(),
@@ -517,7 +523,11 @@ def make_rsac(cfg, env, env_params, logger) -> RSAC:
     sample_sequence_length = min_length_time_axis = (
         cfg.algorithm.mode.length or env_params.max_steps_in_episode
     )
-    buffer = instantiate(cfg.algorithm.mode.buffer, sample_sequence_length=sample_sequence_length, min_length_time_axis=min_length_time_axis)
+    buffer = instantiate(
+        cfg.algorithm.mode.buffer,
+        sample_sequence_length=sample_sequence_length,
+        min_length_time_axis=min_length_time_axis,
+    )
 
     return RSAC(
         cfg=cfg,

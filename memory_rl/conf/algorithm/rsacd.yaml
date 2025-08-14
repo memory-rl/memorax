@@ -19,7 +19,7 @@ train_frequency:     10
 target_update_frequency: 10
 batch_size:          128
 backup_entropy:      False
-init_temperature:    1.0
+init_temperature:    0.1
 policy_final_fc_init_scale: 1e-3
-target_entropy_scale: 0.5
+target_entropy_scale: 0.98
 learning_starts:     10_000

@@ -78,198 +78,207 @@ class PPO:
         """No warmup needed for PPO"""
         return key, state
 
+    def _actor_loss_fn(self, params, transitions, advantages):
+        probs = self.actor.apply(params, transitions.observation)
+        log_prob = probs.log_prob(transitions.action)
+        entropy = probs.entropy().mean()
+
+        ratio = jnp.exp(log_prob - transitions.log_prob)
+        actor_loss = -jnp.minimum(
+            ratio * advantages,
+            jnp.clip(
+                ratio,
+                1.0 - self.cfg.algorithm.clip_coef,
+                1.0 + self.cfg.algorithm.clip_coef,
+            )
+            * advantages,
+        ).mean()
+        return actor_loss - self.cfg.algorithm.ent_coef * entropy, entropy
+
+    def _critic_loss_fn(self, params, transitions, advantages, returns):
+        value = self.critic.apply(
+            params, transitions.observation
+        ).squeeze(-1)
+
+        if self.cfg.algorithm.clip_vloss:
+            critic_loss = jnp.square(value - returns)
+            clipped_value = transitions.value + jnp.clip(
+                (value - transitions.value),
+                -self.cfg.algorithm.clip_coef,
+                self.cfg.algorithm.clip_coef,
+            )
+            clipped_critic_loss = jnp.square(clipped_value - returns)
+            critic_loss = (
+                0.5
+                * jnp.maximum(critic_loss, clipped_critic_loss).mean()
+            )
+        else:
+            critic_loss = 0.5 * jnp.square(value - returns).mean()
+
+        return self.cfg.algorithm.vf_coef * critic_loss
+
+    def _update_minibatch(self, state, minibatch: tuple):
+        transitions, advantages, returns = minibatch
+
+
+        (actor_loss, entropy), actor_grads = jax.value_and_grad(self._actor_loss_fn, has_aux=True)(
+            state.actor_params, transitions, advantages
+        )
+        actor_updates, actor_optimizer_state = self.optimizer.update(
+            actor_grads, state.actor_optimizer_state, state.actor_params
+        )
+        actor_params = optax.apply_updates(
+            state.actor_params, actor_updates
+        )
+
+        critic_loss, critic_grads = jax.value_and_grad(self._critic_loss_fn)(
+            state.critic_params, transitions, advantages, returns
+        )
+        critic_updates, critic_optimizer_state = self.optimizer.update(
+            critic_grads, state.critic_optimizer_state, state.critic_params
+        )
+        critic_params = optax.apply_updates(
+            state.critic_params, critic_updates
+        )
+
+        state = state.replace(
+            actor_params=actor_params,
+            actor_optimizer_state=actor_optimizer_state,
+            critic_params=critic_params,
+            critic_optimizer_state=critic_optimizer_state,
+        )
+        return state, (actor_loss, critic_loss, entropy)
+
+    def _update_epoch(self, carry: tuple, _):
+        key, state, batch = carry
+
+
+        key, permutation_key = jax.random.split(key)
+
+        permutation = jax.random.permutation(
+            permutation_key, self.cfg.algorithm.batch_size
+        )
+        flattened_batch = jax.tree.map(
+            lambda x: x.reshape(-1, *x.shape[2:]), batch
+        )
+        shuffled_batch = jax.tree.map(
+            lambda x: jnp.take(x, permutation, axis=0), flattened_batch
+        )
+        minibatches = jax.tree.map(
+            lambda x: jnp.reshape(
+                x, [self.cfg.algorithm.num_minibatches, -1] + list(x.shape[1:])
+            ),
+            shuffled_batch,
+        )
+
+        state, (actor_loss, critic_loss, entropy) = jax.lax.scan(
+            self._update_minibatch,
+            state,
+            minibatches,
+        )
+
+
+        return (
+            key,
+            state,
+            batch,
+        ), (actor_loss, critic_loss, entropy)
+
+    def _step(self, carry: tuple, _):
+        key, state = carry
+
+        key, action_key, step_key = jax.random.split(key, 3)
+
+        probs = self.actor.apply(state.actor_params, state.obs)
+        action = probs.sample(seed=action_key)
+        log_prob = probs.log_prob(action)
+
+        value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
+
+        step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
+        next_obs, env_state, reward, done, info = jax.vmap(
+            self.env.step, in_axes=(0, 0, 0, None)
+        )(step_key, state.env_state, action, self.env_params)
+
+        transition = Transition(
+            observation=state.obs,  # type: ignore
+            action=action,  # type: ignore
+            reward=reward,  # type: ignore
+            done=done,  # type: ignore
+            info=info,  # type: ignore
+            log_prob=log_prob,  # type: ignore
+            value=value,  # type: ignore
+        )
+
+        state = state.replace(
+            step=state.step + self.cfg.algorithm.num_envs,
+            obs=next_obs,
+            env_state=env_state,
+        )
+        carry = (
+            key,
+            state,
+        )
+        return carry, transition
+
+    def _update_step(self, carry: tuple, _):
+
+
+        (key, state), transitions = jax.lax.scan(
+            self._step,
+            carry,
+            length=self.cfg.algorithm.num_steps,
+        )
+        final_value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
+
+        advantages, returns = compute_gae(
+            self.cfg.algorithm.gamma,
+            self.cfg.algorithm.gae_lambda,
+            final_value,
+            transitions,
+        )
+
+        if self.cfg.algorithm.normalize_advantage:
+            advantages = (advantages - advantages.mean()) / (
+                advantages.std() + 1e-8
+            )
+
+        batch = (transitions, advantages, returns)
+
+        (key, state, batch), (actor_loss, critic_loss, entropy) = jax.lax.scan(
+            self._update_epoch,
+            (key, state, batch),
+            length=self.cfg.algorithm.update_epochs,
+        )
+        transitions, *_ = batch
+
+        def callback(logger, step, info, actor_loss, critic_loss, entropy):
+            if info["returned_episode"].any():
+                data = {
+                    "training/episodic_returns": info[
+                        "returned_episode_returns"
+                    ].mean(),
+                    "training/episodic_lengths": info[
+                        "returned_episode_lengths"
+                    ].mean(),
+                    "losses/actor_loss": actor_loss.mean(),
+                    "losses/critic_loss": critic_loss.mean(),
+                    "losses/entropy": entropy.mean(),
+                }
+                logger.log(data, step=step)
+
+
+        jax.debug.callback(
+            callback, self.logger, state.step, transitions.info, actor_loss, critic_loss, entropy
+        )
+
+        return (key, state), transitions.info
+
     def train(self, key, state, num_steps):
 
-        def update_step(carry: tuple, _):
-
-            def step(carry: tuple, _):
-                key, state = carry
-
-                key, action_key, step_key = jax.random.split(key, 3)
-
-                probs = self.actor.apply(state.actor_params, state.obs)
-                action = probs.sample(seed=action_key)
-                log_prob = probs.log_prob(action)
-
-                value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
-
-                step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
-                next_obs, env_state, reward, done, info = jax.vmap(
-                    self.env.step, in_axes=(0, 0, 0, None)
-                )(step_key, state.env_state, action, self.env_params)
-
-                transition = Transition(
-                    observation=state.obs,  # type: ignore
-                    action=action,  # type: ignore
-                    reward=reward,  # type: ignore
-                    done=done,  # type: ignore
-                    info=info,  # type: ignore
-                    log_prob=log_prob,  # type: ignore
-                    value=value,  # type: ignore
-                )
-
-                state = state.replace(
-                    step=state.step + self.cfg.algorithm.num_envs,
-                    obs=next_obs,
-                    env_state=env_state,
-                )
-                carry = (
-                    key,
-                    state,
-                )
-                return carry, transition
-
-            (key, state), transitions = jax.lax.scan(
-                step,
-                carry,
-                length=self.cfg.algorithm.num_steps,
-            )
-            final_value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
-
-            advantages, returns = compute_gae(
-                self.cfg.algorithm.gamma,
-                self.cfg.algorithm.gae_lambda,
-                final_value,
-                transitions,
-            )
-
-            if self.cfg.algorithm.normalize_advantage:
-                advantages = (advantages - advantages.mean()) / (
-                    advantages.std() + 1e-8
-                )
-
-            batch = (transitions, advantages, returns)
-
-            def update_epoch(carry: tuple, _):
-                key, state, batch = carry
-
-                def update_minibatch(state, minibatch: tuple):
-                    transitions, advantages, returns = minibatch
-
-                    def actor_loss_fn(params, transitions, advantages):
-                        probs = self.actor.apply(params, transitions.observation)
-                        log_prob = probs.log_prob(transitions.action)
-                        entropy = probs.entropy().mean()
-
-                        ratio = jnp.exp(log_prob - transitions.log_prob)
-                        actor_loss = -jnp.minimum(
-                            ratio * advantages,
-                            jnp.clip(
-                                ratio,
-                                1.0 - self.cfg.algorithm.clip_coef,
-                                1.0 + self.cfg.algorithm.clip_coef,
-                            )
-                            * advantages,
-                        ).mean()
-                        return actor_loss - self.cfg.algorithm.ent_coef * entropy
-
-                    def critic_loss_fn(params, transitions, advantages, returns):
-                        value = self.critic.apply(
-                            params, transitions.observation
-                        ).squeeze(-1)
-
-                        if self.cfg.algorithm.clip_vloss:
-                            critic_loss = jnp.square(value - returns)
-                            clipped_value = transitions.value + jnp.clip(
-                                (value - transitions.value),
-                                -self.cfg.algorithm.clip_coef,
-                                self.cfg.algorithm.clip_coef,
-                            )
-                            clipped_critic_loss = jnp.square(clipped_value - returns)
-                            critic_loss = (
-                                0.5
-                                * jnp.maximum(critic_loss, clipped_critic_loss).mean()
-                            )
-                        else:
-                            critic_loss = 0.5 * jnp.square(value - returns).mean()
-
-                        return self.cfg.algorithm.vf_coef * critic_loss
-
-                    actor_loss, actor_grads = jax.value_and_grad(actor_loss_fn)(
-                        state.actor_params, transitions, advantages
-                    )
-                    actor_updates, actor_optimizer_state = self.optimizer.update(
-                        actor_grads, state.actor_optimizer_state, state.actor_params
-                    )
-                    acotr_params = optax.apply_updates(
-                        state.actor_params, actor_updates
-                    )
-
-                    critic_loss, critic_grads = jax.value_and_grad(critic_loss_fn)(
-                        state.critic_params, transitions, advantages, returns
-                    )
-                    critic_updates, critic_optimizer_state = self.optimizer.update(
-                        critic_grads, state.critic_optimizer_state, state.critic_params
-                    )
-                    critic_params = optax.apply_updates(
-                        state.critic_params, critic_updates
-                    )
-
-                    state = state.replace(
-                        actor_params=acotr_params,
-                        actor_optimizer_state=actor_optimizer_state,
-                        critic_params=critic_params,
-                        critic_optimizer_state=critic_optimizer_state,
-                    )
-                    return state, (actor_loss, critic_loss)
-
-                key, permutation_key = jax.random.split(key)
-
-                permutation = jax.random.permutation(
-                    permutation_key, self.cfg.algorithm.batch_size
-                )
-                flattened_batch = jax.tree.map(
-                    lambda x: x.reshape(-1, *x.shape[2:]), batch
-                )
-                shuffled_batch = jax.tree.map(
-                    lambda x: jnp.take(x, permutation, axis=0), flattened_batch
-                )
-                minibatches = jax.tree.map(
-                    lambda x: jnp.reshape(
-                        x, [self.cfg.algorithm.num_minibatches, -1] + list(x.shape[1:])
-                    ),
-                    shuffled_batch,
-                )
-
-                state, loss = jax.lax.scan(
-                    update_minibatch,
-                    state,
-                    minibatches,
-                )
-
-                def callback(logger, step, info, loss):
-                    if info["returned_episode"].any():
-                        data = {
-                            "training/episodic_return": info[
-                                "returned_episode_returns"
-                            ].mean(),
-                            "training/episodic_length": info[
-                                "returned_episode_lengths"
-                            ].mean(),
-                        }
-                        logger.log(data, step=step)
-
-                jax.debug.callback(
-                    callback, self.logger, state.step, transitions.info, loss
-                )
-
-                return (
-                    key,
-                    state,
-                    batch,
-                ), loss
-
-            (key, state, batch), (actor_loss, critic_loss) = jax.lax.scan(
-                update_epoch,
-                (key, state, batch),
-                length=self.cfg.algorithm.update_epochs,
-            )
-            transitions, *_ = batch
-
-            return (key, state), transitions.info
 
         (key, state), info = jax.lax.scan(
-            update_step,
+            self._update_step,
             (key, state),
             length=num_steps
             // self.cfg.algorithm.num_envs

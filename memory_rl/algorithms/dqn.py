@@ -365,7 +365,6 @@ def make_dqn(cfg, env, env_params, logger) -> DQN:
         max_length=cfg.algorithm.buffer_size,
         min_length=cfg.algorithm.batch_size,
         sample_batch_size=cfg.algorithm.batch_size,
-        add_sequences=False,
         add_batch_size=cfg.algorithm.num_envs,
     )
     optimizer = optax.adam(learning_rate=cfg.algorithm.learning_rate)

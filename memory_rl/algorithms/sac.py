@@ -339,12 +339,16 @@ class SAC:
             def callback(logger, step, info):
                 if info["returned_episode"].any():
                     data = {
-                        "training/episodic_return": info[
+                        "training/episodic_returns": info[
                             "returned_episode_returns"
                         ].mean(),
-                        "training/episodic_length": info[
+                        "training/episodic_lengths": info[
                             "returned_episode_lengths"
                         ].mean(),
+                        "losses/actor_loss": info["actor_loss"].mean(),
+                        "losses/entropy": info["entropy"].mean(),
+                        "losses/critic_loss": info["critic_loss"].mean(),
+                        "losses/temp_loss": info["temp_loss"].mean(),
                     }
                     logger.log(data, step=step)
 

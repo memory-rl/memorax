@@ -5,6 +5,8 @@ defaults:
   - feature_extractor@critic.feature_extractor: shared
   - torso@critic.torso: mlp
 
+  - buffer: flat_buffer
+
 name: sac
 policy_lr:            3e-4
 q_lr:           3e-4

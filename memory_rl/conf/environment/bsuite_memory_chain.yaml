@@ -2,4 +2,5 @@ env_id: MemoryChain-bsuite
 
 parameters:
   memory_length: 5
+  max_steps_in_episode: ${eval:${.memory_length}+1}
 

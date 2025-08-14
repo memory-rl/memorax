@@ -2,6 +2,7 @@ defaults:
   - feature_extractor: shared
   - torso: gru
   - mode: BPTT
+  - buffer: episode_buffer
 
 name: drqn
 learning_rate:       3e-4
@@ -16,8 +17,8 @@ batch_size:          128
 update_hidden_state: false
 
 start_e:             1.0
-end_e:               0.05
-exploration_fraction: 0.5
+end_e:               0.01
+exploration_fraction: 0.2
 
 learning_starts:     10000
 train_frequency:     10

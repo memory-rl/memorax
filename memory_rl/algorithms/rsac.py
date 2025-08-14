@@ -405,10 +405,10 @@ class RSAC:
             def callback(logger, step, info):
                 if info["returned_episode"].any():
                     data = {
-                        "training/episodic_return": info[
+                        "training/episodic_returns": info[
                             "returned_episode_returns"
                         ].mean(),
-                        "training/episodic_length": info[
+                        "training/episodic_lengths": info[
                             "returned_episode_lengths"
                         ].mean(),
                     }

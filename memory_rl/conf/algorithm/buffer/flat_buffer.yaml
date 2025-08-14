@@ -1,0 +1,6 @@
+_target_: flashbax.make_flat_buffer
+max_length: ${algorithm.buffer_size}
+min_length: ${algorithm.batch_size}
+sample_batch_size: ${algorithm.batch_size}
+add_sequences: False
+add_batch_size: ${algorithm.num_envs}

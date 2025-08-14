@@ -224,6 +224,16 @@ class DRQN:
 
             batch = self.buffer.sample(state.buffer_state, key)
 
+            # # Burn-in
+            # burn_in_length = self.cfg.algorithm.mode.burn_in_length or 0
+            # burn_in_length = min(burn_in_length, batch.experience.obs.shape[1])
+            # initial_carry=jax.tree.map(
+            #     lambda x: jnp.take(x, 0, axis=1), batch.experience.hidden_state
+            # )
+            # next_initial_carry=jax.tree.map(
+            #     lambda x: jnp.take(x, 0, axis=1), batch.experience.next_hidden_state
+            # )
+
             next_hidden_state, q_next_target = self.q_network.apply(
                 state.target_params,
                 batch.experience.next_obs,
@@ -246,7 +256,10 @@ class DRQN:
             if self.cfg.algorithm.mode.mask:
                 episode_idx = jnp.cumsum(batch.experience.done, axis=1)
                 terminal = (episode_idx == 1) & batch.experience.done
-                mask = (episode_idx == 0) | terminal
+                mask *= (episode_idx == 0) | terminal
+
+            # if self.cfg.algorithm.burn_in:
+            #     pass
 
             def loss_fn(params):
                 hidden_state, q_value = self.q_network.apply(
@@ -262,7 +275,6 @@ class DRQN:
                 action = jnp.expand_dims(batch.experience.action, axis=-1)
                 q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
                 td_error = q_value - next_q_value
-
                 loss = jnp.square(td_error).mean(where=mask)
                 return loss, (q_value, hidden_state)
 
@@ -429,13 +441,12 @@ def make_drqn(cfg, env, env_params, logger) -> DRQN:
         head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
 
-    sample_sequence_length = min_length_time_axis = (
+    sample_sequence_length = (
         cfg.algorithm.mode.length or env_params.max_steps_in_episode
     )
     buffer = instantiate(
-        cfg.algorithm.mode.buffer,
+        cfg.algorithm.buffer,
         sample_sequence_length=sample_sequence_length,
-        min_length_time_axis=min_length_time_axis,
     )
     optimizer = optax.chain(
         optax.clip_by_global_norm(10.0),

@@ -5,21 +5,23 @@ defaults:
   - feature_extractor@critic.feature_extractor: shared
   - torso@critic.torso: gru
 
+  - mode: TBPTT
+
 
 name: rppo
 learning_rate: 2.5e-4
-num_envs: 4
-num_eval_envs: 4
-num_steps: 128
+num_envs: 32
+num_eval_envs: 32
+# num_steps: 128 controlled via mode.length instead
 anneal_lr: True
 gamma: 0.99
 gae_lambda: 0.95
-num_minibatches: 4
-update_epochs: 4
+num_minibatches: 8
+update_epochs: 8
 normalize_advantage: True
 clip_coef: 0.2
 clip_vloss: False
-ent_coef: 0.001
+ent_coef: 0.01
 vf_coef: 0.5
 max_grad_norm: 0.5
 learning_starts: 0

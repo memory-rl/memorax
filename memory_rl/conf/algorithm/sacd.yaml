@@ -5,20 +5,22 @@ defaults:
   - feature_extractor@critic.feature_extractor: shared
   - torso@critic.torso: mlp
 
+  - buffer: flat_buffer
+
 name: sacd
 policy_lr:           3e-4
 q_lr:                3e-4
 temp_lr:             3e-4
-num_envs:            4
-num_eval_envs:       4
-buffer_size:         1_000_000
+num_envs:            10
+num_eval_envs:       10
+buffer_size:         10_000
 gamma:               0.99
 tau:                 0.005
-train_frequency:     4
-target_update_frequency: 1
-batch_size:          64
+train_frequency:     10
+target_update_frequency: 10
+batch_size:          128
 init_temperature:    0.1
 target_entropy_scale: 0.98
 backup_entropy:      false
-learning_starts:     5_000
+learning_starts:     10_000
 

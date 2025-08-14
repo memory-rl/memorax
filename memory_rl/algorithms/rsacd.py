@@ -410,6 +410,11 @@ class RSACD:
                         "training/episodic_lengths": info[
                             "returned_episode_lengths"
                         ].mean(),
+                        "losses/actor_loss": info["actor_loss"].mean(),
+                        "losses/entropy": info["entropy"].mean(),
+                        "losses/critic_loss": info["critic_loss"].mean(),
+                        "losses/temp_loss": info["temp_loss"].mean(),
+
                     }
                     logger.log(data, step=step)
 

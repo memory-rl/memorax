@@ -13,6 +13,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = "==3.10.*"
 dependencies = [
+    "jax==0.6.0",
     "brax>=0.12.4",
     "distrax>=0.1.5",
     "flashbax>=0.1.3",
@@ -24,6 +25,8 @@ dependencies = [
     "navix>=0.7.0",
     "omegaconf>=2.3.0",
     "wandb>=0.21.0",
+    "pobax",
+    "hydra-joblib-launcher>=1.2.0",
 ]
 
 [project.optional-dependencies]
@@ -39,4 +42,7 @@ commit = [
 
 [tool.uv]
 package = true
+
+[tool.uv.sources]
+pobax = { path = "../pobax" }
 

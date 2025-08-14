@@ -520,13 +520,12 @@ def make_rsac(cfg, env, env_params, logger) -> RSAC:
     critic_optimizer = optax.adam(learning_rate=cfg.algorithm.q_lr)
     temp_optimizer = optax.adam(learning_rate=cfg.algorithm.temp_lr)
 
-    sample_sequence_length = min_length_time_axis = (
+    sample_sequence_length = (
         cfg.algorithm.mode.length or env_params.max_steps_in_episode
     )
     buffer = instantiate(
         cfg.algorithm.mode.buffer,
         sample_sequence_length=sample_sequence_length,
-        min_length_time_axis=min_length_time_axis,
     )
 
     return RSAC(

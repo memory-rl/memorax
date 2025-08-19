@@ -10,11 +10,11 @@ import jax.lax as lax
 
 @dataclass(frozen=True)
 class GPTConfig:
-    block_size: int = 1024
-    vocab_size: int = 50304
-    num_layers: int = 12
-    num_heads: int = 12
-    num_embeds: int = 768
+    block_size: int
+    vocab_size: int
+    num_layers: int
+    num_heads: int
+    num_embeds: int
     dropout_rate: float = 0.1
     use_bias: bool = True
     dtype: Optional[str] = None
@@ -33,7 +33,8 @@ class SelfAttention(nn.Module):
         # x: (B, C) single step input
         # prev_k, prev_v: (B, max_seq, num_heads, head_dim)
         C = x.shape[-1]
-        assert C % self.num_heads == 0
+
+        assert C % self.num_heads == 0, f"Input dimension {C} is not divisible by num_heads {self.num_heads}"
         head_dim = C // self.num_heads
 
         qkv = nn.Dense(3 * C, use_bias=self.use_proj_bias, dtype=self.dtype, name="c_attn")(x)  # (B, 3*C)
@@ -103,61 +104,61 @@ class Block(nn.Module):
         return x, k, v
 
 
-class GPT(nn.Module):
-    config: GPTConfig
+# class GPT(nn.Module):
+#     config: GPTConfig
 
-    @nn.compact
-    def __call__(self, idx, deterministic=None):
-        B, T = idx.shape
-        assert (
-            T <= self.config.block_size
-        ), f"Cannot forward sequence of length {T}, block size is only {self.block_size}"
+#     @nn.compact
+#     def __call__(self, idx, deterministic=None):
+#         B, T = idx.shape
+#         assert (
+#             T <= self.config.block_size
+#         ), f"Cannot forward sequence of length {T}, block size is only {self.block_size}"
 
-        pos = jnp.arange(0, T)[None]
-        attn_mask = nn.make_causal_mask(idx, dtype=bool)
+#         pos = jnp.arange(0, T)[None]
+#         attn_mask = nn.make_causal_mask(idx, dtype=bool)
 
-        wte = nn.Embed(
-            self.config.vocab_size,
-            self.config.num_embeds,
-            dtype=self.config.dtype,
-            name="wte",
-        )
-        wpe = nn.Embed(
-            self.config.block_size,
-            self.config.num_embeds,
-            dtype=self.config.dtype,
-            name="wpe",
-        )
+#         wte = nn.Embed(
+#             self.config.vocab_size,
+#             self.config.num_embeds,
+#             dtype=self.config.dtype,
+#             name="wte",
+#         )
+#         wpe = nn.Embed(
+#             self.config.block_size,
+#             self.config.num_embeds,
+#             dtype=self.config.dtype,
+#             name="wpe",
+#         )
 
-        token_embed = wte(idx)  # [B, T, num_embeds]
-        pos_embed = wpe(pos)  # [1, T, num_embeds]
-        x = nn.Dropout(self.config.dropout_rate)(token_embed + pos_embed, deterministic)
+#         token_embed = wte(idx)  # [B, T, num_embeds]
+#         pos_embed = wpe(pos)  # [1, T, num_embeds]
+#         x = nn.Dropout(self.config.dropout_rate)(token_embed + pos_embed, deterministic)
 
-        for i in range(self.config.num_layers):
-            x = Block(self.config, name=str(i))(
-                x, attn_mask, deterministic=deterministic
-            )
+#         for i in range(self.config.num_layers):
+#             x = Block(self.config, name=str(i))(
+#                 x, attn_mask, deterministic=deterministic
+#             )
 
-        x = nn.LayerNorm(
-            1e-5, dtype=self.config.dtype, use_bias=self.config.use_bias, name="ln_f"
-        )(x)
-        logits = wte.attend(x)
-        return logits
+#         x = nn.LayerNorm(
+#             1e-5, dtype=self.config.dtype, use_bias=self.config.use_bias, name="ln_f"
+#         )(x)
+#         logits = wte.attend(x)
+#         return logits
 
-    def init(self, rng):
-        """
-        by jitting init, traced values instead of concrete values are used
-        which saves memory (since un-jitted model may not fit in memory)
-        """
-        tokens = jnp.zeros((2, self.config.block_size), dtype=jnp.uint16)
-        params = jax.jit(super().init, static_argnums=(2,))(rng, tokens, True)
-        return params
+#     def init(self, rng):
+#         """
+#         by jitting init, traced values instead of concrete values are used
+#         which saves memory (since un-jitted model may not fit in memory)
+#         """
+#         tokens = jnp.zeros((2, self.config.block_size), dtype=jnp.uint16)
+#         params = jax.jit(super().init, static_argnums=(2,))(rng, tokens, True)
+#         return params
 
 
 @flax.struct.dataclass
 class GPTRNNCellCarry:
-    kv_cache_k: jnp.ndarray  # (num_blocks, batch, max_seq, num_heads, head_dim)
-    kv_cache_v: jnp.ndarray  # (num_blocks, batch, max_seq, num_heads, head_dim)
+    kv_cache_k: jnp.ndarray  # (batch, num_blocks, max_seq, num_heads, head_dim)
+    kv_cache_v: jnp.ndarray  # (batch, num_blocks, max_seq, num_heads, head_dim)
     pos: jnp.ndarray  # (batch,) or () if not batched
 
 
@@ -165,7 +166,7 @@ class GPTRNNCell(nn.recurrent.RNNCellBase):
     """A recurrent GPT2 cell compatible with RNNCellBase."""
 
     max_sequence_length: int
-    config: GPTConfig = GPTConfig()
+    config: GPTConfig
 
     def initialize_carry(self, rng, input_shape):
         # input_shape: (..., features)
@@ -175,21 +176,19 @@ class GPTRNNCell(nn.recurrent.RNNCellBase):
         head_dim = self.config.num_embeds // self.config.num_heads
         max_seq = self.max_sequence_length
         # Preallocate full cache for all blocks: (num_blocks, batch, max_seq, num_heads, head_dim)
-        kv_cache_k = jnp.zeros((num_blocks,) + batch_shape + (max_seq, num_heads, head_dim), dtype=self.config.dtype or jnp.float32)
-        kv_cache_v = jnp.zeros((num_blocks,) + batch_shape + (max_seq, num_heads, head_dim), dtype=self.config.dtype or jnp.float32)
+        kv_cache_k = jnp.zeros(batch_shape + (num_blocks, max_seq, num_heads, head_dim), dtype=self.config.dtype or jnp.float32)
+        kv_cache_v = jnp.zeros(batch_shape + (num_blocks, max_seq, num_heads, head_dim), dtype=self.config.dtype or jnp.float32)
         pos = jnp.zeros(batch_shape, dtype=jnp.int32)
         return GPTRNNCellCarry(kv_cache_k=kv_cache_k, kv_cache_v=kv_cache_v, pos=pos)
 
     @nn.compact
-    def __call__(self, carry, inputs, deterministic=None):
-        if deterministic is None:
-            deterministic = True
+    def __call__(self, carry, inputs, deterministic=True):
 
         kv_cache_k, kv_cache_v, pos = carry.kv_cache_k, carry.kv_cache_v, carry.pos
         # inputs: (batch, features)
         # Add positional embedding for current position
         pos_emb = nn.Embed(
-            self.config.block_size,
+            self.max_sequence_length,
             self.config.num_embeds,
             dtype=self.config.dtype,
             name="wpe",
@@ -201,8 +200,8 @@ class GPTRNNCell(nn.recurrent.RNNCellBase):
         new_kv_cache_v = kv_cache_v
         num_blocks = self.config.num_layers
         for i in range(num_blocks):
-            prev_k_i = kv_cache_k[i]
-            prev_v_i = kv_cache_v[i]
+            prev_k_i = kv_cache_k[:, i]
+            prev_v_i = kv_cache_v[:, i]
             # cur_pos: (batch,) or scalar
             cur_pos = pos if pos.shape == () else pos[0]
 
@@ -211,8 +210,8 @@ class GPTRNNCell(nn.recurrent.RNNCellBase):
             v_new_last = v_new[..., -1:, :, :]
             k_update = lax.dynamic_update_slice(prev_k_i, k_new_last, (0, cur_pos, 0, 0))
             v_update = lax.dynamic_update_slice(prev_v_i, v_new_last, (0, cur_pos, 0, 0))
-            new_kv_cache_k = new_kv_cache_k.at[i].set(k_update)
-            new_kv_cache_v = new_kv_cache_v.at[i].set(v_update)
+            new_kv_cache_k = new_kv_cache_k.at[:, i].set(k_update)
+            new_kv_cache_v = new_kv_cache_v.at[:, i].set(v_update)
             x = x_out
         x = nn.LayerNorm(
             epsilon=1e-5,
@@ -237,18 +236,19 @@ class GPTRNNCell(nn.recurrent.RNNCellBase):
 if __name__ == "__main__":
     print("Testing GPT...")
 
-    batch_size = 10
-    seq_length = 2
-    features = 768  # num_embeds
+    batch_size = 64
+    seq_length = 50
+    features = 256  # num_embeds
     cell = flax.linen.RNN(
         GPTRNNCell(
             config=GPTConfig(
-                block_size=1024,
-                vocab_size=50304,
-                num_layers=12,
-                num_heads=12,
-                num_embeds=768,
+                block_size=1,
+                vocab_size=1,
+                num_layers=4,
+                num_heads=4,
+                num_embeds=features,
                 dropout_rate=0.1,
+                use_bias=True
             ),
             max_sequence_length=seq_length,
         )
@@ -257,4 +257,4 @@ if __name__ == "__main__":
 
     y, variables = cell.init_with_output(jax.random.PRNGKey(0), x)
     print("Output shape:", y.shape)
-    print("Output:", y)
+    # print("Output:", y)

@@ -515,9 +515,18 @@ def make_rsacd(cfg, env, env_params, logger) -> RSACD:
     temp_network = heads.Temperature(initial_temperature=cfg.algorithm.init_temperature)
 
     # Define optimizers
-    actor_optimizer = optax.adam(learning_rate=cfg.algorithm.policy_lr)
-    critic_optimizer = optax.adam(learning_rate=cfg.algorithm.q_lr)
-    temp_optimizer = optax.adam(learning_rate=cfg.algorithm.temp_lr)
+    actor_optimizer = optax.chain(
+        optax.clip_by_global_norm(10.0),
+        optax.adam(learning_rate=cfg.algorithm.policy_lr),
+    )
+    critic_optimizer = optax.chain(
+        optax.clip_by_global_norm(10.0),
+        optax.adam(learning_rate=cfg.algorithm.q_lr),
+    )
+    temp_optimizer = optax.chain(
+        optax.clip_by_global_norm(10.0),
+        optax.adam(learning_rate=cfg.algorithm.temp_lr),
+    )
 
     sample_sequence_length = (
         cfg.algorithm.mode.length or env_params.max_steps_in_episode

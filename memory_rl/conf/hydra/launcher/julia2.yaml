@@ -1,0 +1,21 @@
+defaults:
+  - submitit_slurm   # brings in _target_
+  - _self_
+
+timeout_min: 480           # 8 hours in minutes
+nodes: 1
+cpus_per_task: 8
+tasks_per_node: 1
+
+gpus_per_node: 1
+mem_gb: 8
+partition: standard
+
+additional_parameters:
+  gres: gpu:1
+  tmp: 5G
+  export: NONE
+    
+setup:
+    - "unset SLURM_EXPORT_ENV"
+    - "export WANDB_API_KEY=28996bd59f1ba2c5a8c3f2cc23d8673c327ae230"

@@ -25,8 +25,8 @@ dependencies = [
     "navix>=0.7.0",
     "omegaconf>=2.3.0",
     "wandb>=0.21.0",
-    "pobax",
     "hydra-joblib-launcher>=1.2.0",
+    "pobax>=0.0.1",
 ]
 
 [project.optional-dependencies]
@@ -42,7 +42,4 @@ commit = [
 
 [tool.uv]
 package = true
-
-[tool.uv.sources]
-pobax = { path = "../pobax" }
 

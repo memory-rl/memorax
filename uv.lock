@@ -1002,7 +1002,7 @@ requires-dist = [
     { name = "jumanji", specifier = ">=1.1.1" },
     { name = "navix", specifier = ">=0.7.0" },
     { name = "omegaconf", specifier = ">=2.3.0" },
-    { name = "pobax", directory = "../pobax" },
+    { name = "pobax", specifier = ">=0.0.1" },
     { name = "wandb", specifier = ">=0.21.0" },
 ]
 provides-extras = ["cuda"]
@@ -1426,7 +1426,7 @@ wheels = [
 [[package]]
 name = "pobax"
 version = "0.0.1"
-source = { directory = "../pobax" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "brax" },
     { name = "distrax" },
@@ -1443,30 +1443,10 @@ dependencies = [
     { name = "tqdm" },
     { name = "typed-argument-parser" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "brax" },
-    { name = "brax", marker = "extra == 'test'" },
-    { name = "chex", marker = "extra == 'test'" },
-    { name = "distrax" },
-    { name = "flax" },
-    { name = "flax", marker = "extra == 'test'" },
-    { name = "gymnax" },
-    { name = "jax" },
-    { name = "jumanji" },
-    { name = "matplotlib" },
-    { name = "minatar", marker = "extra == 'test'" },
-    { name = "navix" },
-    { name = "numpy" },
-    { name = "optax" },
-    { name = "pandas" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "seaborn" },
-    { name = "tqdm" },
-    { name = "typed-argument-parser" },
+sdist = { url = "https://files.pythonhosted.org/packages/de/54/6a4ba0c9e0975597ae9f7df1de1751b387f2182a379d5cbadd292690f87b/pobax-0.0.1.tar.gz", hash = "sha256:c00b1982509b99fd8040ca1e78786079a5bd28fb78db7ccd740c67755b2fa2b5", size = 687177, upload-time = "2025-07-11T16:20:37.326Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b0/1a/fbb1d25afbf8d3aaa5b492f9e5820e780daa22f2956716027dd9cfb42b67/pobax-0.0.1-py3-none-any.whl", hash = "sha256:a50f8a3cf6121cbf9ae47ae3e8e83ba39604c3cdb0fa54a2fb84cdda0a84bf02", size = 112602, upload-time = "2025-07-11T16:16:30.448Z" },
 ]
-provides-extras = ["dev", "test"]
 
 [[package]]
 name = "pre-commit"

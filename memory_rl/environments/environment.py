@@ -4,7 +4,7 @@ import hydra
 
 from memory_rl.utils import BraxGymnaxWrapper, LogWrapper, NavixGymnaxWrapper, VecEnv
 from popjaxrl.envs import make as make_popjaxrl
-from pobax.envs import get_env
+#from pobax.envs import get_env
 from memory_rl.environments.tmaze_env import make_tmaze_env
 
 

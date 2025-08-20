@@ -25,6 +25,8 @@ class mLSTM(nn.RNNCellBase):
     use_exp_f_gate = True
     ker_size: int = 4  # Default kernel size for 1D convolution
     use_conv: bool = True
+    kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
+    bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
     @property
     def num_feature_axes(self) -> int:
@@ -48,7 +50,7 @@ class mLSTM(nn.RNNCellBase):
             x_prev=jnp.zeros(
                 (batch_size, ker_size - 1, embedding_dim * p_factor)
             ),  # for 1D conv,
-            m=jnp.zeros((batch_size, num_heads))
+            m=jnp.zeros((batch_size, num_heads)),
         )
 
     def initialize_carry(
@@ -128,20 +130,20 @@ class mLSTM(nn.RNNCellBase):
         k = k.reshape(B, self.num_heads, self.head_dim)  # (B, num_heads, head_dim)
         v = v.reshape(B, self.num_heads, self.head_dim)  # (B, num_heads, head_dim)
 
-        log_i = W_i(x_c) # (B, num_heads)
+        log_i = W_i(x_c)  # (B, num_heads)
         i = jnp.exp(log_i)  # (B, num_heads)
         pre_f = W_f(x_c)  # (B, num_heads)
         f = (
             jnp.exp(pre_f) if self.use_exp_f_gate else nn.sigmoid(pre_f)
         )  # (B, num_heads)
-        log_f = pre_f if self.use_exp_f_gate else jnp.log(f) # (B, num_heads)
+        log_f = pre_f if self.use_exp_f_gate else jnp.log(f)  # (B, num_heads)
 
         o = jnp.exp(W_o(x_l))  # (B, hid_dim)
 
         # stabilize i and f
-        m = jnp.maximum(log_f + carry.m, log_i) # (B, num_heads) eq. 15
+        m = jnp.maximum(log_f + carry.m, log_i)  # (B, num_heads) eq. 15
         i = jnp.exp(log_i - m)  # (B, num_heads) eq. 16
-        f = jnp.exp(log_f + carry.m - m) # (B, num_heads) eq. 17
+        f = jnp.exp(log_f + carry.m - m)  # (B, num_heads) eq. 17
 
         i = jnp.expand_dims(i, axis=2)  # (B, num_heads, 1)
         f = jnp.expand_dims(f, axis=2)  # (B, num_heads, 1)
@@ -195,4 +197,3 @@ if __name__ == "__main__":
         seq_length,
         embedding_dim,
     ), f"Unexpected output shape: {y.shape}"
-

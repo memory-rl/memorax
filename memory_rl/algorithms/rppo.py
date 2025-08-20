@@ -58,16 +58,11 @@ class RPPO:
             env_keys, self.env_params
         )
         done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
-        actor_hidden_state = self.actor_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.torso.features),
-        )
-        critic_hidden_state = self.critic_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.critic.torso.features),
-        )
+        actor_hidden_state = self.actor_network.initialize_carry(obs.shape)
+        critic_hidden_state = self.critic_network.initialize_carry(obs.shape)
 
         dummy_obs_for_init = jnp.expand_dims(obs, 1)  # (num_envs, 1, obs_dim)
         dummy_mask_for_init = jnp.expand_dims(done, 1)  # (num_envs, 1)
-
 
         actor_params = self.actor_network.init(
             actor_key,
@@ -192,10 +187,7 @@ class RPPO:
                 self.cfg.algorithm.clip_coef,
             )
             clipped_critic_loss = jnp.square(clipped_value - returns)
-            critic_loss = (
-                0.5
-                * jnp.maximum(critic_loss, clipped_critic_loss).mean()
-            )
+            critic_loss = 0.5 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
         else:
             critic_loss = 0.5 * jnp.square(values - returns).mean()
 
@@ -210,17 +202,13 @@ class RPPO:
             returns,
         ) = minibatch
 
-
-
-        (actor_loss, entropy), actor_grads = jax.value_and_grad(self._actor_loss_fn, has_aux=True)(
-            state.actor_params, initial_actor_h_mb, transitions, advantages
-        )
+        (actor_loss, entropy), actor_grads = jax.value_and_grad(
+            self._actor_loss_fn, has_aux=True
+        )(state.actor_params, initial_actor_h_mb, transitions, advantages)
         actor_updates, actor_optimizer_state = self.actor_optimizer.update(
             actor_grads, state.actor_optimizer_state, state.actor_params
         )
-        actor_params = optax.apply_updates(
-            state.actor_params, actor_updates
-        )
+        actor_params = optax.apply_updates(state.actor_params, actor_updates)
 
         critic_loss, critic_grads = jax.value_and_grad(self._critic_loss_fn)(
             state.critic_params, initial_critic_h_mb, transitions, returns
@@ -228,9 +216,7 @@ class RPPO:
         critic_updates, critic_optimizer_state = self.critic_optimizer.update(
             critic_grads, state.critic_optimizer_state, state.critic_params
         )
-        critic_params = optax.apply_updates(
-            state.critic_params, critic_updates
-        )
+        critic_params = optax.apply_updates(state.critic_params, critic_updates)
 
         state = state.replace(
             actor_params=actor_params,
@@ -266,9 +252,7 @@ class RPPO:
             returns,
         )
 
-        shuffled_batch = jax.tree.map(
-            lambda x: jnp.take(x, permutation, axis=0), batch
-        )
+        shuffled_batch = jax.tree.map(lambda x: jnp.take(x, permutation, axis=0), batch)
         minibatches = jax.tree.map(
             lambda x: jnp.reshape(
                 x,
@@ -330,10 +314,7 @@ class RPPO:
         returns = jnp.swapaxes(returns, 0, 1)
 
         if self.cfg.algorithm.normalize_advantage:
-            advantages = (advantages - advantages.mean()) / (
-                advantages.std() + 1e-8
-            )
-
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         (key, state, *_), (actor_loss, critic_loss, entropy) = jax.lax.scan(
             self._update_epoch,
@@ -364,7 +345,15 @@ class RPPO:
                 }
                 logger.log(data, step=step)
 
-        jax.debug.callback(callback, self.logger, state.step, transitions.info, actor_loss, critic_loss, entropy)
+        jax.debug.callback(
+            callback,
+            self.logger,
+            state.step,
+            transitions.info,
+            actor_loss,
+            critic_loss,
+            entropy,
+        )
 
         return (
             key,
@@ -372,7 +361,6 @@ class RPPO:
         ), transitions.info
 
     def train(self, key, state, num_steps):
-
 
         (key, state), info = jax.lax.scan(
             self._update_step,
@@ -391,9 +379,7 @@ class RPPO:
             reset_key, self.env_params
         )
         done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
-        initial_actor_hidden_state = self.actor_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.torso.features),
-        )
+        initial_actor_hidden_state = self.actor_network.initialize_carry(obs.shape)
 
         def step(carry, _):
             key, obs, done, env_state, actor_h_state = carry

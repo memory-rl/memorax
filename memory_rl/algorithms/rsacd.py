@@ -98,9 +98,7 @@ class RSACD:
             actor_key, jnp.expand_dims(obs, 1), jnp.expand_dims(done, 1)
         )
         actor_optimizer_state = self.actor_optimizer.init(actor_params)
-        actor_hidden_state = self.actor_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.actor.torso.features)
-        )
+        actor_hidden_state = self.actor_network.initialize_carry(obs.shape)
 
         # Initialize critic
         critic_params = self.critic_network.init(
@@ -110,9 +108,7 @@ class RSACD:
             critic_key, jnp.expand_dims(obs, 1), jnp.expand_dims(done, 1)
         )
         critic_optimizer_state = self.critic_optimizer.init(critic_params)
-        critic_hidden_state = self.critic_network.initialize_carry(
-            (self.cfg.algorithm.num_envs, self.cfg.algorithm.critic.torso.features)
-        )
+        critic_hidden_state = self.critic_network.initialize_carry(obs.shape)
 
         # Initialize temperature
         temp_params = self.temp_network.init(temp_key)
@@ -414,7 +410,6 @@ class RSACD:
                         "losses/entropy": info["entropy"].mean(),
                         "losses/critic_loss": info["critic_loss"].mean(),
                         "losses/temp_loss": info["temp_loss"].mean(),
-
                     }
                     logger.log(data, step=step)
 
@@ -438,12 +433,7 @@ class RSACD:
             reset_key, self.env_params
         )
         done = jnp.zeros(self.cfg.algorithm.num_eval_envs, dtype=jnp.bool)
-        actor_hidden_state = self.actor_network.initialize_carry(
-            (
-                self.cfg.algorithm.num_eval_envs,
-                self.cfg.algorithm.actor.torso.features,
-            )
-        )
+        actor_hidden_state = self.actor_network.initialize_carry(obs.shape)
         state = state.replace(
             obs=obs,
             done=done,

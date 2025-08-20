@@ -34,11 +34,19 @@ class SelfAttention(nn.Module):
         # prev_k, prev_v: (B, max_seq, num_heads, head_dim)
         C = x.shape[-1]
 
-        assert C % self.num_heads == 0, f"Input dimension {C} is not divisible by num_heads {self.num_heads}"
+        assert (
+            C % self.num_heads == 0
+        ), f"Input dimension {C} is not divisible by num_heads {self.num_heads}"
         head_dim = C // self.num_heads
 
-        qkv = nn.Dense(3 * C, use_bias=self.use_proj_bias, dtype=self.dtype, name="c_attn")(x)  # (B, 3*C)
-        qkv = qkv.reshape(x.shape[0], 3, self.num_heads, head_dim)  # (B, 3, num_heads, head_dim)
+        qkv = nn.Dense(
+            3 * C, use_bias=self.use_proj_bias, dtype=self.dtype, name="c_attn"
+        )(
+            x
+        )  # (B, 3*C)
+        qkv = qkv.reshape(
+            x.shape[0], 3, self.num_heads, head_dim
+        )  # (B, 3, num_heads, head_dim)
         q, k, v = qkv[:, 0], qkv[:, 1], qkv[:, 2]  # each (B, num_heads, head_dim)
         # Expand to (B, 1, num_heads, head_dim) for time axis
         k = k[:, None, :, :]
@@ -55,7 +63,9 @@ class SelfAttention(nn.Module):
         attn = nn.Dropout(self.dropout_rate)(attn, deterministic=deterministic)
         out = jnp.einsum("bht,bthd->bhd", attn, prev_v)
         out = out.reshape(x.shape[0], C)
-        out = nn.Dense(C, use_bias=self.use_proj_bias, dtype=self.dtype, name="c_proj")(out)
+        out = nn.Dense(C, use_bias=self.use_proj_bias, dtype=self.dtype, name="c_proj")(
+            out
+        )
         out = nn.Dropout(rate=self.dropout_rate)(out, deterministic=deterministic)
         return out, k, v
 
@@ -167,6 +177,8 @@ class GPTRNNCell(nn.recurrent.RNNCellBase):
 
     max_sequence_length: int
     config: GPTConfig
+    kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
+    bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
     def initialize_carry(self, rng, input_shape):
         # input_shape: (..., features)
@@ -176,8 +188,14 @@ class GPTRNNCell(nn.recurrent.RNNCellBase):
         head_dim = self.config.num_embeds // self.config.num_heads
         max_seq = self.max_sequence_length
         # Preallocate full cache for all blocks: (num_blocks, batch, max_seq, num_heads, head_dim)
-        kv_cache_k = jnp.zeros(batch_shape + (num_blocks, max_seq, num_heads, head_dim), dtype=self.config.dtype or jnp.float32)
-        kv_cache_v = jnp.zeros(batch_shape + (num_blocks, max_seq, num_heads, head_dim), dtype=self.config.dtype or jnp.float32)
+        kv_cache_k = jnp.zeros(
+            batch_shape + (num_blocks, max_seq, num_heads, head_dim),
+            dtype=self.config.dtype or jnp.float32,
+        )
+        kv_cache_v = jnp.zeros(
+            batch_shape + (num_blocks, max_seq, num_heads, head_dim),
+            dtype=self.config.dtype or jnp.float32,
+        )
         pos = jnp.zeros(batch_shape, dtype=jnp.int32)
         return GPTRNNCellCarry(kv_cache_k=kv_cache_k, kv_cache_v=kv_cache_v, pos=pos)
 
@@ -192,7 +210,9 @@ class GPTRNNCell(nn.recurrent.RNNCellBase):
             self.config.num_embeds,
             dtype=self.config.dtype,
             name="wpe",
-        )(pos[..., None])  # (batch, 1, num_embeds)
+        )(
+            pos[..., None]
+        )  # (batch, 1, num_embeds)
         x = inputs + pos_emb.squeeze(axis=-2)  # (batch, num_embeds)
         x = nn.Dropout(self.config.dropout_rate)(x, deterministic=deterministic)
 
@@ -205,11 +225,17 @@ class GPTRNNCell(nn.recurrent.RNNCellBase):
             # cur_pos: (batch,) or scalar
             cur_pos = pos if pos.shape == () else pos[0]
 
-            x_out, k_new, v_new = Block(self.config, name=f"block_{i}")(x, deterministic, prev_k_i, prev_v_i, cur_pos)
+            x_out, k_new, v_new = Block(self.config, name=f"block_{i}")(
+                x, deterministic, prev_k_i, prev_v_i, cur_pos
+            )
             k_new_last = k_new[..., -1:, :, :]
             v_new_last = v_new[..., -1:, :, :]
-            k_update = lax.dynamic_update_slice(prev_k_i, k_new_last, (0, cur_pos, 0, 0))
-            v_update = lax.dynamic_update_slice(prev_v_i, v_new_last, (0, cur_pos, 0, 0))
+            k_update = lax.dynamic_update_slice(
+                prev_k_i, k_new_last, (0, cur_pos, 0, 0)
+            )
+            v_update = lax.dynamic_update_slice(
+                prev_v_i, v_new_last, (0, cur_pos, 0, 0)
+            )
             new_kv_cache_k = new_kv_cache_k.at[:, i].set(k_update)
             new_kv_cache_v = new_kv_cache_v.at[:, i].set(v_update)
             x = x_out
@@ -248,7 +274,7 @@ if __name__ == "__main__":
                 num_heads=4,
                 num_embeds=features,
                 dropout_rate=0.1,
-                use_bias=True
+                use_bias=True,
             ),
             max_sequence_length=seq_length,
         )
@@ -258,3 +284,4 @@ if __name__ == "__main__":
     y, variables = cell.init_with_output(jax.random.PRNGKey(0), x)
     print("Output shape:", y.shape)
     # print("Output:", y)
+

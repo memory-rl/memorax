@@ -85,7 +85,8 @@ class mLSTM(nn.RNNCellBase):
         W_i = nn.Dense(self.num_heads, use_bias=self.use_bias, name="W_i")
         W_f = nn.Dense(self.num_heads, use_bias=self.use_bias, name="W_f")
         W_o = nn.Dense(hid_dim, use_bias=self.use_bias, name="W_o")
-        skip = nn.Conv(hid_dim, kernel_size=1, use_bias=False)
+        # skip = nn.Conv(hid_dim, kernel_size=1, use_bias=False)
+        skip = nn.Dense(hid_dim, use_bias=False)
 
         group_norm = nn.GroupNorm(num_groups=self.num_heads)
 
@@ -120,7 +121,7 @@ class mLSTM(nn.RNNCellBase):
         # update x_prev for the next step
         x_prev = x_window[:, 1:, :]  # shape (batch_size, ker_size - 1, feature_dims)
 
-        x_c = nn.silu(x_c)  # (B, embedding_dim * p_factor)
+        # x_c = nn.silu(x_c)  # (B, embedding_dim * p_factor)
 
         q = W_q(x_c)
         k = W_k(x_c) / jnp.sqrt(self.head_dim)
@@ -138,7 +139,8 @@ class mLSTM(nn.RNNCellBase):
         )  # (B, num_heads)
         log_f = pre_f if self.use_exp_f_gate else jnp.log(f)  # (B, num_heads)
 
-        o = jnp.exp(W_o(x_l))  # (B, hid_dim)
+        # o = jnp.exp(W_o(x_l))  # (B, hid_dim)
+        o = nn.sigmoid(W_o(x_l)).reshape(B, self.num_heads, self.head_dim)
 
         # stabilize i and f
         m = jnp.maximum(log_f + carry.m, log_i)  # (B, num_heads) eq. 15
@@ -156,8 +158,11 @@ class mLSTM(nn.RNNCellBase):
             "bhv,bhk->bhvk", v, k
         )  # (B, num_heads, head_dim, head_dim)
 
-        h_denom = jnp.maximum(1, jnp.einsum("bhd,bhd->bh", n, q))  # (B, num_heads)
-        h_denom = jnp.expand_dims(h_denom, axis=2)  # (B, num_heads, 1)
+        # h_denom = jnp.maximum(1, jnp.einsum("bhd,bhd->bh", n, q))  # (B, num_heads)
+        # h_denom = jnp.expand_dims(h_denom, axis=2)  # (B, num_heads, 1)
+        denom = jnp.einsum("bhd,bhd->bh", n, q)
+        h_denom = jnp.maximum(1, abs(denom))
+        h_denom = jnp.expand_dims(h_denom, axis=2)
         q_expanded = jnp.expand_dims(q, axis=3)  # (B, num_heads, head_dim, 1)
         assert q_expanded.shape == (B, self.num_heads, self.head_dim, 1)
         assert C.shape == (B, self.num_heads, self.head_dim, self.head_dim)
@@ -165,7 +170,8 @@ class mLSTM(nn.RNNCellBase):
         h = jnp.squeeze(h, axis=3)  # (B, num_heads, head_dim)
         h = h / h_denom  # (B, num_heads, head_dim)
 
-        h_out = o * h.reshape(B, hid_dim)  # (B, hid_dim)
+        # h_out = o * h.reshape(B, hid_dim)  # (B, hid_dim)
+        h_out = (o * h).reshape(B, hid_dim)
 
         out = group_norm(h_out) + skip(x_c)  # (B, hid_dim)
         out = out * nn.silu(x_r)  # (B, hid_dim)

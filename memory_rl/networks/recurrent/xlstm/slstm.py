@@ -25,6 +25,8 @@ class sLSTM(nn.RNNCellBase):
     p_factor: float = 4 / 3
     eps: float = 1e-8  # for numerical stability
     use_conv: bool = (False,)
+    kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
+    bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
     @property
     def num_feature_axes(self) -> int:

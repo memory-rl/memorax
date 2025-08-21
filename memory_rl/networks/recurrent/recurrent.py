@@ -91,7 +91,6 @@ class MaskedRNN(nn.RNN):
 
         slice_carry = seq_lengths is not None and return_carry
 
-        
         def scan_fn(cell, carry, x, mask):
             carry = jax.tree.map(
                 lambda initial_carry, carry: jnp.where(

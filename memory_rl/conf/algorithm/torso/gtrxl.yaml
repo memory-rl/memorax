@@ -1,10 +1,4 @@
-_target_: memory_rl.networks.recurrent.GTrXLRNNCell
-config:
-  _target_: memory_rl.networks.recurrent.GTrXLConfig
-  mem_len: 128
-  num_layers: 4
-  num_heads: 4
-  num_embeds: 128
-  dropout_rate: 0.1
-  use_bias: true
-
+_target_: memory_rl.networks.recurrent.GTrXLCell
+features: 128
+n_layers: 2
+n_heads: 2

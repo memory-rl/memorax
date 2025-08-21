@@ -1,260 +1,418 @@
-from dataclasses import dataclass
-from typing import Any, Optional
+from functools import partial  # pylint: disable=g-importing-member
+from typing import (
+    Any,
+    TypeVar,
+)
 
-import flax
-import flax.linen as nn
 import jax
-import jax.numpy as jnp
-import jax.lax as lax
+from jax import numpy as jnp
+from jax import random
+
+from flax.linen import initializers, LayerNorm, Dropout
+from flax.linen.activation import sigmoid, tanh, softmax
+from flax.linen.linear import Dense, default_kernel_init
+from flax.linen.module import Module, compact, nowrap
+from flax.linen.recurrent import RNNCellBase
+from flax.typing import (
+    Array,
+    PRNGKey,
+    Dtype,
+    Initializer,
+)
+
+A = TypeVar("A")
+Carry = Any
+CarryHistory = Any
+Output = Any
 
 
-# ---------------------------
-# Config
-# ---------------------------
-@dataclass(frozen=True)
-class GTrXLConfig:
-    mem_len: int
-    num_layers: int
-    num_heads: int
-    num_embeds: int
-    dropout_rate: float = 0.1
-    use_bias: bool = True
-    dtype: Any = jnp.float32
+def _split_heads(x: Array, n_heads: int) -> Array:
+    b, t, d = x.shape
+    d_head = d // n_heads
+    x = x.reshape(b, t, n_heads, d_head)
+    return jnp.transpose(x, (0, 2, 1, 3))  # (b, h, t, d_head)
 
 
-# ---------------------------
-# Utilities
-# ---------------------------
-def _sinusoidal_positions(n_pos: int, d: int, dtype=jnp.float32):
-    """Return (n_pos, d) sinusoidal embeddings for relative positions 0..n_pos-1."""
-    # Standard Transformer sinusoidal table
-    half = d // 2
-    freqs = 1.0 / (10000 ** (jnp.arange(0, half, dtype=dtype) / float(half)))
-    pos = jnp.arange(n_pos, dtype=dtype)[:, None]  # (n_pos, 1)
-    angles = pos * freqs[None, :]                   # (n_pos, half)
-    emb = jnp.concatenate([jnp.sin(angles), jnp.cos(angles)], axis=-1)  # (n_pos, 2*half)
-    if d % 2 == 1:
-        # pad one dim if odd
-        emb = jnp.pad(emb, ((0, 0), (0, 1)))
-    return emb.astype(dtype)  # (n_pos, d)
+def _merge_heads(x: Array) -> Array:
+    b, h, t, d_head = x.shape
+    return jnp.transpose(x, (0, 2, 1, 3)).reshape(b, t, h * d_head)
 
 
-# ---------------------------
-# Modules
-# ---------------------------
-class GRUGating(nn.Module):
-    """GRU-style gating used in GTrXL to replace vanilla residuals."""
-    dtype: Any = jnp.float32
-    use_bias: bool = True
+def _rel_shift(x: Array) -> Array:
+    # x: (b, h, q_len, k_len) where k_len == r_len
+    b, h, q_len, k_len = x.shape
+    x = jnp.pad(x, ((0, 0), (0, 0), (0, 0), (1, 0)))  # (b, h, q, k+1)
+    x = x.reshape(b, h, k_len + 1, q_len)
+    x = x[:, :, 1:, :]
+    x = x.reshape(b, h, q_len, k_len)
+    return x
 
-    @nn.compact
-    def __call__(self, x, y):
-        # x, y: (B, C)
-        C = x.shape[-1]
-        # Update gate z
-        z = nn.sigmoid(
-            nn.Dense(C, dtype=self.dtype, use_bias=self.use_bias, name="z_x")(x) +
-            nn.Dense(C, dtype=self.dtype, use_bias=self.use_bias, name="z_y")(y)
+
+def sinusoidal_pos_emb(pos_seq: Array, dim: int) -> Array:
+    # pos_seq: (L,) non-negative positions (e.g., distances), largest first.
+    inv_freq = 1.0 / (10000 ** (jnp.arange(0, dim, 2, dtype=jnp.float32) / dim))
+    sinusoid = jnp.einsum(
+        "l,d->ld", pos_seq.astype(jnp.float32), inv_freq
+    )  # (L, dim/2)
+    pos_emb = jnp.concatenate(
+        [jnp.sin(sinusoid), jnp.cos(sinusoid)], axis=-1
+    )  # (L, dim)
+    return pos_emb
+
+
+class GRUGating(Module):
+    """GRU-style gating used in GTrXL to replace residual connections."""
+
+    features: int
+    kernel_init: Initializer = default_kernel_init
+    recurrent_kernel_init: Initializer = initializers.orthogonal()
+    bias_init: Initializer = initializers.zeros_init()
+    dtype: Dtype | None = None
+    param_dtype: Dtype = jnp.float32
+
+    @compact
+    def __call__(self, x: Array, y: Array) -> Array:
+        # x: residual stream (b, d); y: sublayer output (b, d)
+        dense_y = partial(
+            Dense,
+            features=self.features,
+            use_bias=True,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
         )
-        # Reset gate r
-        r = nn.sigmoid(
-            nn.Dense(C, dtype=self.dtype, use_bias=self.use_bias, name="r_x")(x) +
-            nn.Dense(C, dtype=self.dtype, use_bias=self.use_bias, name="r_y")(y)
+        dense_x = partial(
+            Dense,
+            features=self.features,
+            use_bias=False,
+            kernel_init=self.recurrent_kernel_init,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
         )
-        # Candidate h~
-        h_tilde = jnp.tanh(
-            nn.Dense(C, dtype=self.dtype, use_bias=self.use_bias, name="h_x")(x * r) +
-            nn.Dense(C, dtype=self.dtype, use_bias=self.use_bias, name="h_y")(y)
-        )
+        z = sigmoid(dense_y(name="z_y")(y) + dense_x(name="z_x")(x))
+        r = sigmoid(dense_y(name="r_y")(y) + dense_x(name="r_x")(x))
+        h_tilde = tanh(dense_y(name="h_y")(y) + dense_x(name="h_x")(r * x))
         return (1.0 - z) * x + z * h_tilde
 
 
-class RelPosSelfAttention(nn.Module):
-    """Single-step relative-position (TXL) self-attention."""
-    num_heads: int
-    dtype: Any = jnp.float32
-    dropout_rate: float = 0.1
-    use_proj_bias: bool = True
+class RelativeMultiHeadAttention(Module):
+    """Transformer-XL relative MHA (single-step query with memory)."""
 
-    @nn.compact
-    def __call__(self, x, mem, deterministic: Optional[bool]):
-        """
-        x:   (B, C) current step input (after pre-LN)
-        mem: (B, M, C) layer memory of hidden states
-        Returns: (B, C)
-        """
-        B, C = x.shape
-        H = self.num_heads
-        assert C % H == 0, f"hidden size {C} must be divisible by num_heads {H}"
-        D = C // H
+    d_model: int
+    n_heads: int
+    d_head: int | None = None
+    attn_dropout_rate: float = 0.0
+    dtype: Dtype | None = None
+    param_dtype: Dtype = jnp.float32
+    kernel_init: Initializer = default_kernel_init
+    bias_init: Initializer = initializers.zeros_init()
 
-        # Concatenate memory with current step along time axis.
-        # Keys/values are computed from [mem; x_now].
-        if mem is None:
-            L = 1
-            cat = x[:, None, :]  # (B, 1, C)
-        else:
-            L = mem.shape[1] + 1
-            cat = jnp.concatenate([mem, x[:, None, :]], axis=1)  # (B, L, C)
+    @compact
+    def __call__(self, h: Array, mem: Array, r: Array, *, deterministic: bool) -> Array:
+        # h: (b, 1, d_model) query
+        # mem: (b, mem_len, d_model) keys/values memory
+        # r: (k_len, d_model) relative positional enc (k_len = mem_len + 1)
+        d_model = self.d_model
+        n_heads = self.n_heads
+        d_head = self.d_head or (d_model // n_heads)
 
-        # Linear projections
-        q = nn.Dense(C, use_bias=self.use_proj_bias, dtype=self.dtype, name="q_proj")(x)          # (B, C)
-        k = nn.Dense(C, use_bias=self.use_proj_bias, dtype=self.dtype, name="k_proj")(cat)        # (B, L, C)
-        v = nn.Dense(C, use_bias=self.use_proj_bias, dtype=self.dtype, name="v_proj")(cat)        # (B, L, C)
+        assert d_model == n_heads * d_head, "d_model must equal n_heads * d_head"
 
-        # Reshape to heads
-        q = q.reshape(B, H, D)                     # (B, H, D)
-        k = k.reshape(B, L, H, D)                  # (B, L, H, D)
-        v = v.reshape(B, L, H, D)                  # (B, L, H, D)
+        k_len = mem.shape[1] + h.shape[1]  # mem_len + 1
+        assert r.shape[0] == k_len, "relative pos length must equal key length"
 
-        # TXL per-head global biases
-        u_bias = self.param("u_bias", nn.initializers.zeros, (H, D), self.dtype)  # content
-        v_bias = self.param("v_bias", nn.initializers.zeros, (H, D), self.dtype)  # positional
+        proj_q = Dense(
+            n_heads * d_head,
+            use_bias=False,
+            kernel_init=self.kernel_init,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="q",
+        )
+        proj_k = Dense(
+            n_heads * d_head,
+            use_bias=False,
+            kernel_init=self.kernel_init,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="k",
+        )
+        proj_v = Dense(
+            n_heads * d_head,
+            use_bias=False,
+            kernel_init=self.kernel_init,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="v",
+        )
+        proj_r = Dense(
+            n_heads * d_head,
+            use_bias=False,
+            kernel_init=self.kernel_init,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="r",
+        )
+        proj_o = Dense(
+            d_model,
+            use_bias=False,
+            kernel_init=self.kernel_init,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="o",
+        )
 
-        # Relative pos encs for distances 0..L-1 (0=current, L-1=farthest)
-        # We arrange them reversed so index j (0..L-1; mem->current) maps to r_{delta=L-1-j}.
-        r = _sinusoidal_positions(L, D, dtype=self.dtype)            # (L, D)
-        r = r[::-1, :]                                               # reverse to align keys oldest->current
+        # Content and position biases (u, v) per head.
+        r_w_bias = self.param(
+            "r_w_bias", self.bias_init, (n_heads, d_head), self.param_dtype
+        )
+        r_r_bias = self.param(
+            "r_r_bias", self.bias_init, (n_heads, d_head), self.param_dtype
+        )
 
-        # Attention logits: A = (q+u)·k^T  +  (q+v)·r^T
-        scale = 1.0 / jnp.sqrt(D).astype(self.dtype)
+        # Build key/value from [mem, h]
+        cat = jnp.concatenate([mem, h], axis=1)  # (b, k_len, d)
 
-        # (B,H,D) x (B,L,H,D) -> (B,H,L)
-        ac = jnp.einsum("bhd,blhd->bhl", q + u_bias[None, :, :], k)
+        q = _split_heads(proj_q(h), n_heads)  # (b, h, 1, d_head)
+        k = _split_heads(proj_k(cat), n_heads)  # (b, h, k_len, d_head)
+        v = _split_heads(proj_v(cat), n_heads)  # (b, h, k_len, d_head)
+        r_head = proj_r(r).reshape(k_len, n_heads, d_head)  # (k_len, h, d_head)
+        r_head = jnp.transpose(r_head, (1, 0, 2))  # (h, k_len, d_head)
 
-        # (B,H,D) x (L,D) -> (B,H,L)
-        bd = jnp.einsum("bhd,ld->bhl", q + v_bias[None, :, :], r)
+        # Content-based term: (q + u) @ k^T
+        qw = q + r_w_bias[None, :, None, :]  # (b, h, 1, d_head)
+        ac = jnp.einsum("bhqd,bhkd->bhqk", qw, k)  # (b, h, 1, k_len)
 
-        attn_logits = (ac + bd) * scale
-        attn = jax.nn.softmax(attn_logits, axis=-1).astype(self.dtype)
-        attn = nn.Dropout(self.dropout_rate)(attn, deterministic=deterministic)
+        # Position-based term: (q + v) @ r^T then relative shift
+        qr = q + r_r_bias[None, :, None, :]
+        bd = jnp.einsum("bhqd,hkd->bhqk", qr, r_head)  # (b, h, 1, k_len)
+        bd = _rel_shift(bd)
 
-        # Weighted sum of values: (B,H,L) x (B,L,H,D) -> (B,H,D)
-        out = jnp.einsum("bhl,blhd->bhd", attn, v)
-        out = out.reshape(B, C)
+        attn_score = (ac + bd) / jnp.sqrt(
+            jnp.array(d_head, dtype=self.dtype or jnp.float32)
+        )
+        attn_prob = softmax(attn_score, axis=-1)
+        if self.attn_dropout_rate > 0:
+            attn_prob = Dropout(
+                rate=self.attn_dropout_rate,
+                deterministic=deterministic,
+                name="attn_dropout",
+            )(attn_prob)
 
-        out = nn.Dense(C, use_bias=self.use_proj_bias, dtype=self.dtype, name="o_proj")(out)
-        out = nn.Dropout(rate=self.dropout_rate)(out, deterministic=deterministic)
+        attn_vec = jnp.einsum("bhqk,bhkd->bhqd", attn_prob, v)  # (b, h, 1, d_head)
+        attn_vec = _merge_heads(attn_vec)  # (b, 1, d_model)
+        out = proj_o(attn_vec)  # (b, 1, d_model)
         return out
 
 
-class GTrXLMLP(nn.Module):
-    config: GTrXLConfig
+class PositionwiseFF(Module):
+    d_model: int
+    d_inner: int
+    dropout_rate: float = 0.0
+    dtype: Dtype | None = None
+    param_dtype: Dtype = jnp.float32
+    kernel_init: Initializer = default_kernel_init
+    bias_init: Initializer = initializers.zeros_init()
 
-    @nn.compact
-    def __call__(self, x, deterministic=None):
-        C = x.shape[-1]
-        x = nn.Dense(4 * C, dtype=self.config.dtype, use_bias=self.config.use_bias, name="c_fc")(x)
-        x = nn.gelu(x, approximate=True)
-        x = nn.Dense(C, dtype=self.config.dtype, use_bias=self.config.use_bias, name="c_proj")(x)
-        x = nn.Dropout(self.config.dropout_rate)(x, deterministic)
-        return x
-
-
-class GTrXLBlock(nn.Module):
-    config: GTrXLConfig
-
-    def setup(self):
-        self.ln_1 = nn.LayerNorm(
-            epsilon=1e-5, dtype=self.config.dtype, use_bias=self.config.use_bias, name="ln_1"
-        )
-        self.attn = RelPosSelfAttention(
-            self.config.num_heads,
-            self.config.dtype,
-            dropout_rate=self.config.dropout_rate,
-        )
-        self.gate_attn = GRUGating(self.config.dtype, self.config.use_bias)
-
-        self.ln_2 = nn.LayerNorm(
-            epsilon=1e-5, dtype=self.config.dtype, use_bias=self.config.use_bias, name="ln_2"
-        )
-        self.mlp = GTrXLMLP(self.config)
-        self.gate_mlp = GRUGating(self.config.dtype, self.config.use_bias)
-
-    def __call__(self, x, mem, deterministic):
-        """
-        x:   (B, C) single-step input
-        mem: (B, M, C) layer memory (can be None or M=0)
-        """
-        h = self.ln_1(x)
-        a = self.attn(h, mem, deterministic)
-        x = self.gate_attn(x, a)
-
-        h2 = self.ln_2(x)
-        m = self.mlp(h2, deterministic)
-        x = self.gate_mlp(x, m)
-        return x
-
-
-# ---------------------------
-# RNN Cell
-# ---------------------------
-@flax.struct.dataclass
-class GTrXLRNNCellCarry:
-    mems: jnp.ndarray  # (batch, num_layers, mem_len, num_embeds)
-    step: jnp.ndarray  # (batch,) or scalar if unbatched
-
-
-class GTrXLRNNCell(nn.recurrent.RNNCellBase):
-    """A recurrent Gated Transformer-XL cell compatible with RNNCellBase."""
-
-    config: GTrXLConfig
-    kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
-    bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
-
-    def initialize_carry(self, rng, input_shape):
-        # input_shape: (..., features)
-        batch_shape = input_shape[:-1]
-        L = self.config.num_layers
-        M = self.config.mem_len
-        C = self.config.num_embeds
-
-        if M > 0:
-            mems = jnp.zeros(batch_shape + (L, M, C), dtype=self.config.dtype or jnp.float32)
-        else:
-            # Represent "no memory" with a zero-length mem axis for shape consistency
-            mems = jnp.zeros(batch_shape + (L, 0, C), dtype=self.config.dtype or jnp.float32)
-
-        step = jnp.zeros(batch_shape, dtype=jnp.int32)
-        return GTrXLRNNCellCarry(mems=mems, step=step)
-
-    @nn.compact
-    def __call__(self, carry, inputs, deterministic: bool = True):
-        """
-        carry.mems: (B, L, M, C)
-        inputs:     (B, C)
-        """
-        mems, step = carry.mems, carry.step
-        B, C = inputs.shape
-        L = self.config.num_layers
-        M = self.config.mem_len
-
-        x = inputs
-        new_mems = mems
-
-        for i in range(L):
-            mem_i = mems[:, i] if M > 0 else None  # (B, M, C) or None
-            x = GTrXLBlock(self.config, name=f"block_{i}")(x, mem_i, deterministic)
-
-            # Update memory of layer i: append x, keep last M
-            if M > 0:
-                if mem_i is None or mem_i.shape[1] == 0:
-                    updated = x[:, None, :]                                  # (B,1,C)
-                else:
-                    updated = jnp.concatenate([mem_i, x[:, None, :]], axis=1)  # (B,M+1,C)
-                if updated.shape[1] > M:
-                    updated = updated[:, -M:, :]  # keep the most recent M
-                new_mems = new_mems.at[:, i].set(updated)
-
-        # Optional final LN (mirrors your GPT cell’s ln_f)
-        x = nn.LayerNorm(
-            epsilon=1e-5, dtype=self.config.dtype, use_bias=self.config.use_bias, name="ln_f"
+    @compact
+    def __call__(self, x: Array, *, deterministic: bool) -> Array:
+        x = Dense(
+            self.d_inner,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="ff1",
         )(x)
+        x = jax.nn.relu(x)
+        if self.dropout_rate > 0:
+            x = Dropout(
+                rate=self.dropout_rate, deterministic=deterministic, name="ff_dropout"
+            )(x)
+        x = Dense(
+            self.d_model,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="ff2",
+        )(x)
+        return x
 
-        new_carry = GTrXLRNNCellCarry(mems=new_mems, step=step + 1)
-        return new_carry, x  # output: (B, C)
+
+class GTrXLBlock(Module):
+    d_model: int
+    n_heads: int
+    d_head: int | None
+    d_inner: int
+    attn_dropout_rate: float
+    dropout_rate: float
+    dtype: Dtype | None
+    param_dtype: Dtype
+    kernel_init: Initializer
+    bias_init: Initializer
+
+    @compact
+    def __call__(
+        self, x: Array, mem: Array, r: Array, *, deterministic: bool
+    ) -> tuple[Array, Array]:
+        # Pre-LN -> Rel-MHA -> GRU-gated residual
+        y = LayerNorm(dtype=self.dtype, name="ln_attn")(x)
+        y = RelativeMultiHeadAttention(
+            d_model=self.d_model,
+            n_heads=self.n_heads,
+            d_head=self.d_head,
+            attn_dropout_rate=self.attn_dropout_rate,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            name="attn",
+        )(y, mem, r, deterministic=deterministic)
+        if self.dropout_rate > 0:
+            y = Dropout(
+                rate=self.dropout_rate,
+                deterministic=deterministic,
+                name="attn_out_drop",
+            )(y)
+        x = GRUGating(
+            self.d_model,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            name="attn_gate",
+        )(x.squeeze(axis=1), y.squeeze(axis=1))
+        x = x[:, None, :]
+
+        # Pre-LN -> FF -> GRU-gated residual
+        y2 = LayerNorm(dtype=self.dtype, name="ln_ff")(x)
+        y2 = PositionwiseFF(
+            self.d_model,
+            self.d_inner,
+            self.dropout_rate,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            name="ff",
+        )(y2, deterministic=deterministic)
+        if self.dropout_rate > 0:
+            y2 = Dropout(
+                rate=self.dropout_rate, deterministic=deterministic, name="ff_out_drop"
+            )(y2)
+        x = GRUGating(
+            self.d_model,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            name="ff_gate",
+        )(x.squeeze(axis=1), y2.squeeze(axis=1))
+        x = x[:, None, :]
+        return x, mem  # mem returned unmodified; updated outside with new state
+
+
+class GTrXLCell(RNNCellBase):
+    """Gated Transformer-XL cell (single-token step with segment-level recurrence).
+
+    Carry:
+      A tuple of per-layer memories: ((b, mem_len, d_model), ... ) of length n_layers.
+
+    Inputs:
+      (b, d_model)
+
+    Output:
+      (b, d_model)
+    """
+
+    features: int  # == d_model
+    n_layers: int
+    n_heads: int
+    d_head: int | None = None
+    d_inner: int | None = None
+    mem_len: int = 128
+    dropout_rate: float = 0.0
+    attn_dropout_rate: float = 0.0
+    dtype: Dtype | None = None
+    param_dtype: Dtype = jnp.float32
+    kernel_init: Initializer = default_kernel_init
+    bias_init: Initializer = initializers.zeros_init()
+    carry_init: Initializer = initializers.zeros_init()
 
     @property
-    def num_feature_axes(self):
+    def num_feature_axes(self) -> int:
         return 1
 
+    def _build_pos_emb(self, mem_len: int, q_len: int, dim: int) -> Array:
+        k_len = mem_len + q_len
+        pos_seq = jnp.arange(k_len - 1, -1, -1)  # distances: [k_len-1 ... 0]
+        return sinusoidal_pos_emb(pos_seq, dim)  # (k_len, dim)
+
+    @compact
+    def __call__(
+        self, carry: tuple[Array, ...], inputs: Array
+    ) -> tuple[tuple[Array, ...], Array]:
+        # inputs: (b, d_model)
+        assert inputs.shape[-1] == self.features, "inputs last dim must equal d_model"
+
+        b = inputs.shape[0]
+        d_model = self.features
+        d_inner = self.d_inner or (4 * d_model)
+        d_head = self.d_head or (d_model // self.n_heads)
+        assert d_model == self.n_heads * d_head, "d_model must equal n_heads * d_head"
+
+        mems = list(carry)  # per-layer: (b, mem_len, d_model)
+        h = inputs[:, None, :]  # (b, 1, d_model)
+        r = self._build_pos_emb(self.mem_len, 1, d_model)  # (mem_len+1, d_model)
+
+        deterministic = True  # Dropout disabled by default inside a scan unless user opts in via attributes + RNG.
+
+        new_mems = []
+
+        for layer_idx in range(self.n_layers):
+            block = GTrXLBlock(
+                d_model=d_model,
+                n_heads=self.n_heads,
+                d_head=d_head,
+                d_inner=d_inner,
+                attn_dropout_rate=self.attn_dropout_rate,
+                dropout_rate=self.dropout_rate,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                kernel_init=self.kernel_init,
+                bias_init=self.bias_init,
+                name=f"layer_{layer_idx}",
+            )
+            h, _ = block(
+                h, mems[layer_idx], r, deterministic=deterministic
+            )  # h: (b, 1, d_model)
+
+            # Update memory with the *post-block* hidden state (Transformer-XL stores layer outputs).
+            if self.mem_len > 0:
+                cur = h  # (b, 1, d_model)
+                mem_cat = jnp.concatenate(
+                    [mems[layer_idx], cur], axis=1
+                )  # (b, mem_len+1, d_model)
+                new_mem = mem_cat[:, -self.mem_len :, :]  # keep most recent mem_len
+            else:
+                # Keep an empty memory of correct shape.
+                new_mem = jnp.zeros((b, 0, d_model), dtype=self.param_dtype)
+            new_mems.append(new_mem)
+
+        y = h.squeeze(axis=1)  # (b, d_model)
+        return tuple(new_mems), y
+
+    @nowrap
+    def initialize_carry(
+        self, rng: PRNGKey, input_shape: tuple[int, ...]
+    ) -> tuple[Array, ...]:
+        # input_shape: (*batch, d_model)
+        batch_dims = input_shape[:-1]
+        mem_shape = batch_dims + (self.mem_len, self.features)
+        mems = tuple(
+            self.carry_init(random.fold_in(rng, i), mem_shape, self.param_dtype)
+            for i in range(self.n_layers)
+        )
+        return mems

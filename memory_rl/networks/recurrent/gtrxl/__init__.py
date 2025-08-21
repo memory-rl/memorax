@@ -1,1 +1,1 @@
-from .gtrxl import GTrXLRNNCell, GTrXLConfig
+from .gtrxl import GTrXLCell

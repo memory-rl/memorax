@@ -102,7 +102,7 @@ class mLSTM(nn.RNNCellBase):
         x_n = nn.LayerNorm()(inputs)
 
         x_l = up_l_proj(x_n)  # (B, embedding_dim * p_factor)
-        x_r = up_r_proj(x_n)  # (B, hid_dim)
+        x_r = nn.silu(up_r_proj(x_n))  # (B, hid_dim)
 
         # x_prev is used to store the last ker_size - 1 values for causal convolution and has shape (batch_size, ker_size - 1, feature_dims)
         x_window = jnp.expand_dims(x_l, axis=1)  # shape (batch_size, 1, feature_dims)
@@ -140,7 +140,7 @@ class mLSTM(nn.RNNCellBase):
         log_f = pre_f if self.use_exp_f_gate else jnp.log(f)  # (B, num_heads)
 
         # o = jnp.exp(W_o(x_l))  # (B, hid_dim)
-        o = nn.sigmoid(W_o(x_l)).reshape(B, self.num_heads, self.head_dim)
+        o = nn.sigmoid(W_o(x_r)).reshape(B, self.num_heads, self.head_dim)
 
         # stabilize i and f
         m = jnp.maximum(log_f + carry.m, log_i)  # (B, num_heads) eq. 15
@@ -161,7 +161,7 @@ class mLSTM(nn.RNNCellBase):
         # h_denom = jnp.maximum(1, jnp.einsum("bhd,bhd->bh", n, q))  # (B, num_heads)
         # h_denom = jnp.expand_dims(h_denom, axis=2)  # (B, num_heads, 1)
         denom = jnp.einsum("bhd,bhd->bh", n, q)
-        h_denom = jnp.maximum(1, abs(denom))
+        h_denom = jnp.maximum(1, jnp.abs(denom))
         h_denom = jnp.expand_dims(h_denom, axis=2)
         q_expanded = jnp.expand_dims(q, axis=3)  # (B, num_heads, head_dim, 1)
         assert q_expanded.shape == (B, self.num_heads, self.head_dim, 1)

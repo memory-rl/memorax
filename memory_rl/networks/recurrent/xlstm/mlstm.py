@@ -46,7 +46,7 @@ class mLSTM(nn.RNNCellBase):
             C=jnp.zeros(
                 (batch_size, num_heads, head_dim, head_dim)
             ),  # (B, num_heads, head_dim, head_dim)
-            n=jnp.ones((batch_size, num_heads, head_dim)),  # (B, num_heads, head_dim)
+            n=jnp.zeros((batch_size, num_heads, head_dim)),  # (B, num_heads, head_dim)
             x_prev=jnp.zeros(
                 (batch_size, ker_size - 1, embedding_dim * p_factor)
             ),  # for 1D conv,
@@ -171,10 +171,10 @@ class mLSTM(nn.RNNCellBase):
         h = h / h_denom  # (B, num_heads, head_dim)
 
         # h_out = o * h.reshape(B, hid_dim)  # (B, hid_dim)
-        h_out = (o * h).reshape(B, hid_dim)
+        h_out = h.reshape(B, hid_dim)
 
         out = group_norm(h_out) + skip(x_c)  # (B, hid_dim)
-        out = out * nn.silu(x_r)  # (B, hid_dim)
+        out = (out.reshape(B, self.num_heads, self.head_dim) * o).reshape(B, hid_dim)
         out = out_proj(out)  # (B, embedding_dim)
 
         out = out + inputs

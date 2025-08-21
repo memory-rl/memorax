@@ -44,7 +44,7 @@ class RecurrentNetwork(nn.Module):
         temperature: float = 1.0,
     ):
         x = self.feature_extractor(observation, action=action, reward=reward, done=done)
-        hidden_state, x = MaskedRNN(self.torso, return_carry=True)(
+        hidden_state, x = MaskedRNN(self.torso, return_carry=True, split_rngs={"params": False, "memory": True})(
             x,
             mask,
             initial_carry=initial_carry,

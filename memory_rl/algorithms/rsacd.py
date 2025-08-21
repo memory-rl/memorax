@@ -78,7 +78,7 @@ class RSACD:
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
-        key, env_key, actor_key, critic_key, temp_key = jax.random.split(key, 5)
+        key, env_key, actor_key, actor_memory_key, critic_key, critic_memory_key, temp_key = jax.random.split(key, 7)
         env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
 
         # Initialize environment
@@ -95,14 +95,18 @@ class RSACD:
 
         # Initialize actor
         actor_params = self.actor_network.init(
-            actor_key, jnp.expand_dims(obs, 1), jnp.expand_dims(done, 1)
+            {"params": actor_key, "memory": actor_memory_key},
+            jnp.expand_dims(obs, 1), 
+            jnp.expand_dims(done, 1)
         )
         actor_optimizer_state = self.actor_optimizer.init(actor_params)
         actor_hidden_state = self.actor_network.initialize_carry(obs.shape)
 
         # Initialize critic
         critic_params = self.critic_network.init(
-            critic_key, jnp.expand_dims(obs, 1), jnp.expand_dims(done, 1)
+            {"params": critic_key, "memory": actor_memory_key},
+            jnp.expand_dims(obs, 1), 
+            jnp.expand_dims(done, 1)
         )
         critic_target_params = self.critic_network.init(
             critic_key, jnp.expand_dims(obs, 1), jnp.expand_dims(done, 1)
@@ -176,7 +180,7 @@ class RSACD:
         return key, state
 
     @partial(jax.jit, static_argnames=["self"])
-    def update_temperature(self, state: RSACDState, batch: Batch):
+    def update_temperature(self, actor_key, state: RSACDState, batch: Batch):
         action_dim = self.env.action_space(self.env_params).n
         target_entropy = self.cfg.algorithm.target_entropy_scale * jnp.log(action_dim)
 
@@ -184,7 +188,7 @@ class RSACD:
             alpha = self.temp_network.apply(temp_params)
             log_alpha = jnp.log(alpha + 1e-8)
             _, dist = self.actor_network.apply(
-                state.actor_params, batch.obs, batch.done
+                state.actor_params, batch.obs, batch.done, rngs={"memory": actor_key}
             )
             entropy = dist.entropy().mean()
             temp_loss = -log_alpha * (entropy - target_entropy)
@@ -205,7 +209,7 @@ class RSACD:
         return state, info
 
     @partial(jax.jit, static_argnames=["self"])
-    def update_actor(self, key, state: RSACDState, batch: Batch):
+    def update_actor(self, actor_key, critic_key, state: RSACDState, batch: Batch):
         temperature = self.temp_network.apply(state.temp_params)
 
         mask = jnp.ones_like(batch.reward)
@@ -215,10 +219,10 @@ class RSACD:
             mask = (episode_idx == 0) | terminal
 
         def actor_loss_fn(actor_params):
-            _, dist = self.actor_network.apply(actor_params, batch.obs, batch.done)
+            _, dist = self.actor_network.apply(actor_params, batch.obs, batch.done, rngs={"memory": actor_key})
             log_probs = jax.nn.log_softmax(dist.logits)
             _, (q1, q2) = self.critic_network.apply(
-                state.critic_params, batch.obs, batch.done
+                state.critic_params, batch.obs, batch.done, rngs={"memory": critic_key}
             )
             q = jnp.minimum(q1, q2)
             actor_loss = (
@@ -243,15 +247,16 @@ class RSACD:
         return state, info
 
     @partial(jax.jit, static_argnames=["self"])
-    def update_critic(self, key, state: RSACDState, batch: Batch):
+    def update_critic(self, critic_key, actor_key, state: RSACDState, batch: Batch):
         temperature = self.temp_network.apply(state.temp_params)
         _, dist = self.actor_network.apply(
-            state.actor_params, batch.next_obs, batch.next_done
+            state.actor_params, batch.next_obs, batch.next_done, rngs={"memory": actor_key}
         )
         log_probs = jax.nn.log_softmax(dist.logits)
 
+        critic_key, target_key = jax.random.split(critic_key)
         _, (next_q1, next_q2) = self.critic_network.apply(
-            state.critic_target_params, batch.next_obs, batch.next_done
+            state.critic_target_params, batch.next_obs, batch.next_done, rngs={"memory": target_key}
         )
         next_q = (
             dist.probs * (jnp.minimum(next_q1, next_q2) - temperature * log_probs)
@@ -279,7 +284,7 @@ class RSACD:
 
         def critic_loss_fn(critic_params):
             _, (q1, q2) = self.critic_network.apply(
-                critic_params, batch.obs, batch.done
+                critic_params, batch.obs, batch.done, rngs={"memory": critic_key}
             )
             idx = batch.action[..., None]  # [B, T, 1]
             q1_a = jnp.take_along_axis(q1, idx, axis=-1).squeeze(-1)
@@ -322,7 +327,7 @@ class RSACD:
     def train(self, key: chex.PRNGKey, state: RSACDState, num_steps: int):
         def step(carry, _):
             key, state = carry
-            key, sample_key, step_key = jax.random.split(key, 3)
+            key, sample_key, step_key, actor_memory_key = jax.random.split(key, 4)
 
             # Sample action
             actor_hidden_state, dist = self.actor_network.apply(
@@ -330,6 +335,7 @@ class RSACD:
                 jnp.expand_dims(state.obs, 1),
                 mask=jnp.expand_dims(state.done, 1),
                 initial_carry=state.actor_hidden_state,
+                rngs={"memory": actor_memory_key},
             )
             action = dist.sample(seed=sample_key).squeeze(1)
 
@@ -368,19 +374,20 @@ class RSACD:
             batch = self.buffer.sample(state.buffer_state, batch_key)
 
             # Update critic
-            key, critic_key = jax.random.split(key)
+            key, critic_key, actor_key = jax.random.split(key, 3)
             state, critic_info = self.update_critic(
-                critic_key, state, batch.experience
+                critic_key, actor_key, state, batch.experience
             )  ### Because fbx has weird way of storing transitions
 
             # Update actor using updated critic
-            key, actor_key = jax.random.split(key)
+            key, actor_key, critic_key = jax.random.split(key, 3)
             state, actor_info = self.update_actor(
-                actor_key, state, batch.experience
+                actor_key, critic_key, state, batch.experience
             )  ### Because fbx has weird way of storing transitions
 
             # Update temperature using updated actor and critic
-            state, temp_info = self.update_temperature(state, batch.experience)
+            key, actor_key = jax.random.split(key)
+            state, temp_info = self.update_temperature(actor_key, state, batch.experience)
 
             info = {**critic_info, **actor_info, **temp_info}
             return state, info

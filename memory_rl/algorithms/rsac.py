@@ -80,7 +80,7 @@ class RSAC:
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
-        key, env_key, actor_key, critic_key, temp_key = jax.random.split(key, 5)
+        key, env_key, actor_key, actor_memory_key, critic_key, critic_memory_key, temp_key = jax.random.split(key, 7)
         env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
 
         # Initialize environment
@@ -100,7 +100,7 @@ class RSAC:
 
         # Initialize actor
         actor_params = self.actor_network.init(
-            actor_key,
+            {"params": actor_key, "memory": actor_memory_key},
             jnp.expand_dims(obs, 1),
             jnp.expand_dims(done, 1),
         )
@@ -111,13 +111,13 @@ class RSAC:
 
         # Initialize critic
         critic_params = self.critic_network.init(
-            critic_key,
+            {"params": critic_key, "memory": critic_memory_key},
             jnp.expand_dims(obs, 1),
             jnp.expand_dims(done, 1),
             jnp.expand_dims(action, 1),
         )
         critic_target_params = self.critic_network.init(
-            critic_key,
+            {"params": critic_key, "memory": critic_memory_key},
             jnp.expand_dims(obs, 1),
             jnp.expand_dims(done, 1),
             jnp.expand_dims(action, 1),
@@ -216,6 +216,8 @@ class RSAC:
 
     @partial(jax.jit, static_argnames=["self"])
     def update_actor(self, key, state: RSACState, batch: Batch):
+
+        key, sample_key, actor_key, critic_key = jax.random.split(key, 4)
         temperature = self.temp_network.apply(state.temp_params)
 
         mask = jnp.ones_like(batch.reward)
@@ -225,10 +227,10 @@ class RSAC:
             mask = (episode_idx == 0) | terminal
 
         def actor_loss_fn(actor_params):
-            _, dist = self.actor_network.apply(actor_params, batch.obs, batch.done)
-            actions, log_probs = dist.sample_and_log_prob(seed=key)
+            _, dist = self.actor_network.apply(actor_params, batch.obs, batch.done, rngs={"memory": actor_key})
+            actions, log_probs = dist.sample_and_log_prob(seed=sample_key)
             _, (q1, q2) = self.critic_network.apply(
-                state.critic_params, batch.obs, batch.done, actions
+                state.critic_params, batch.obs, batch.done, actions, rngs={"memory": critic_key}
             )
             q = jnp.minimum(q1, q2)
             actor_loss = (log_probs * temperature - q.squeeze(-1)).mean(where=mask)
@@ -252,14 +254,16 @@ class RSAC:
     @partial(jax.jit, static_argnames=["self"])
     def update_critic(self, key, state: RSACState, batch: Batch):
 
+        key, sample_key, critic_key, actor_key = jax.random.split(key, 4)
         # jax.debug.print('batch', batch)
         _, dist = self.actor_network.apply(
-            state.actor_params, batch.next_obs, batch.next_done
+            state.actor_params, batch.next_obs, batch.next_done, rngs={"memory": actor_key}
         )
-        next_actions, next_log_probs = dist.sample_and_log_prob(seed=key)
+        next_actions, next_log_probs = dist.sample_and_log_prob(seed=sample_key)
 
+        critic_key, target_key = jax.random.split(critic_key)
         _, (next_q1, next_q2) = self.critic_network.apply(
-            state.critic_target_params, batch.next_obs, batch.next_done, next_actions
+            state.critic_target_params, batch.next_obs, batch.next_done, next_actions, rngs={"memory": target_key}
         )
         next_q = jnp.minimum(next_q1, next_q2)
 
@@ -286,7 +290,7 @@ class RSAC:
 
         def critic_loss_fn(critic_params):
             _, (q1, q2) = self.critic_network.apply(
-                critic_params, batch.obs, batch.done, batch.action
+                critic_params, batch.obs, batch.done, batch.action, rngs={"memory": critic_key}
             )
             critic_loss = (
                 (q1.squeeze(-1) - target_q) ** 2 + (q2.squeeze(-1) - target_q) ** 2
@@ -326,7 +330,7 @@ class RSAC:
     def train(self, key: chex.PRNGKey, state: RSACState, num_steps: int):
         def step(carry, _):
             key, state = carry
-            key, sample_key, action_key = jax.random.split(key, 3)
+            key, sample_key, action_key, actor_memory_key = jax.random.split(key, 4)
 
             # Sample action
             next_hidden_state, dist = self.actor_network.apply(
@@ -334,6 +338,7 @@ class RSAC:
                 jnp.expand_dims(state.obs, 1),
                 jnp.expand_dims(state.done, 1),
                 initial_carry=state.hidden_state,
+                rngs={"memory": actor_memory_key},
             )
             action = dist.sample(seed=sample_key).squeeze(1)
 
@@ -533,7 +538,7 @@ def make_rsac(cfg, env, env_params, logger) -> RSAC:
         cfg.algorithm.mode.length or env_params.max_steps_in_episode
     )
     buffer = instantiate(
-        cfg.algorithm.mode.buffer,
+        cfg.algorithm.buffer,
         sample_sequence_length=sample_sequence_length,
     )
 

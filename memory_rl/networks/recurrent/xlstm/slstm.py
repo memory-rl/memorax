@@ -24,7 +24,7 @@ class sLSTM(nn.RNNCellBase):
     ker_size: int = 4  # in almost all cases ker_size should be 4
     p_factor: float = 4 / 3
     eps: float = 1e-8  # for numerical stability
-    use_conv: bool = (False,)
+    use_conv: bool = False
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
@@ -39,9 +39,9 @@ class sLSTM(nn.RNNCellBase):
 
         return sLSTMCarry(
             c=jnp.zeros((batch_size, head_num * head_dim)),
-            n=jnp.ones((batch_size, head_num * head_dim)),
+            n=jnp.zeros((batch_size, head_num * head_dim)),
             h=jnp.zeros((batch_size, head_num * head_dim)),
-            m=jnp.zeros((batch_size, head_num * head_dim)),
+            m=jnp.full((batch_size, head_num * head_dim), -1e30), # -1e30 acts like -inf but JAX safe
             x_prev=jnp.zeros((batch_size, ker_size - 1, inp_dim)),  # for 1D conv
         )
 
@@ -62,7 +62,7 @@ class sLSTM(nn.RNNCellBase):
         self,
         carry: sLSTMCarry,
         inputs: jnp.ndarray,  # shape (batch_size, features)
-    ) -> Tuple[jnp.ndarray, sLSTMCarry]:  # shape (batch_size, features)
+    ) -> Tuple[sLSTMCarry, jnp.ndarray]:  # shape (batch_size, features)
 
         assert (
             inputs.ndim == 2
@@ -76,13 +76,18 @@ class sLSTM(nn.RNNCellBase):
 
         batch_size, feature_dims = inputs.shape
 
-        inp_norm = nn.LayerNorm(self.inp_dim)
+        inp_norm = nn.LayerNorm()
+
         hid_norm = nn.GroupNorm(num_groups=self.head_num)
 
-        W_z = nn.Dense(features=self.head_num * self.head_dim)
-        W_i = nn.Dense(features=self.head_num * self.head_dim)
-        W_o = nn.Dense(features=self.head_num * self.head_dim)
-        W_f = nn.Dense(features=self.head_num * self.head_dim)
+        # W_z = nn.Dense(features=self.head_num * self.head_dim)
+        # W_i = nn.Dense(features=self.head_num * self.head_dim)
+        # W_o = nn.Dense(features=self.head_num * self.head_dim)
+        # W_f = nn.Dense(features=self.head_num * self.head_dim)
+        W_z = BlockLinear(out_features=self.head_num * self.head_dim, num_blocks=self.head_num)
+        W_i = BlockLinear(out_features=self.head_num * self.head_dim, num_blocks=self.head_num)
+        W_o = BlockLinear(out_features=self.head_num * self.head_dim, num_blocks=self.head_num)
+        W_f = BlockLinear(out_features=self.head_num * self.head_dim, num_blocks=self.head_num)
 
         R_z = BlockLinear(
             out_features=self.head_num * self.head_dim, num_blocks=self.head_num
@@ -110,35 +115,35 @@ class sLSTM(nn.RNNCellBase):
         x_window = jnp.concatenate(
             [carry.x_prev, x_window], axis=1
         )  # shape (batch_size, ker_size, feature_dims)
+        x_prev = x_window[:, -1, :]  # shape (batch_size, feature_dims)
         if self.use_conv:
             x_c = CausalConv1D(features=feature_dims, kernel_size=self.ker_size)(
                 x_window
-            )
-            x_c = nn.silu(x_c)  # shape (batch_size, ker_size, feature_dims)
-            x_c = x_c[:, -1, :]  # take the last value, shape (batch_size, feature_dims)
+            )[:, -1, :]  # take the last value, shape (batch_size, feature_dims)
+            x_i = x_f = nn.silu(x_c)  # shape (batch_size, ker_size, feature_dims)
+            x_z = x_o = x_c
         else:
-            x_c = x_t
+            x_i = x_f = x_z = x_o = x_t
 
-        # update x_prev for the next step
-        x_prev = x_window[:, 1:, :]  # shape (batch_size, ker_size - 1, feature_dims)
+        i_raw = W_i(x_i) + R_i(h_tm1)
+        f_raw = W_f(x_f) + R_f(h_tm1)
+        z_raw = W_z(x_z) + R_z(h_tm1)
+        o_raw = W_o(x_o) + R_o(h_tm1)
 
-        i_raw = W_i(x_c) + R_i(h_tm1)
-        f_raw = W_f(x_c) + R_f(h_tm1)
-        z_raw = W_z(x_c) + R_z(h_tm1)
-        o_raw = W_o(x_c) + R_o(h_tm1)
+        # logfplusm = m_tm1 + jax.nn.log_sigmoid(f_raw)
+        logf = jax.nn.log_sigmoid(f_raw)
 
-        logfplusm = m_tm1 + jax.nn.log_sigmoid(f_raw)
-
-        # Handle the n == 0 case
-        m_t = jnp.where(
-            jnp.all(n_tm1 == 0.0, axis=-1, keepdims=True),
-            i_raw,
-            jnp.maximum(i_raw, logfplusm),
-        )
+        # # Handle the n == 0 case
+        # m_t = jnp.where(
+        #     jnp.all(n_tm1 == 0.0, axis=-1, keepdims=True),
+        #     i_raw,
+        #     jnp.maximum(i_raw, logfplusm),
+        # )
+        m_t = jnp.maximum(logf + m_tm1, i_raw)
 
         o_t = jax.nn.sigmoid(o_raw)
         i_t = jnp.exp(i_raw - m_t)
-        f_t = jnp.exp(logfplusm - m_t)
+        f_t = jnp.exp((logf + m_tm1) - m_t)
         z_t = jnp.tanh(z_raw)
 
         c_t = f_t * c_tm1 + i_t * z_t
@@ -148,8 +153,8 @@ class sLSTM(nn.RNNCellBase):
         h_t = o_t * (c_t / (n_t + self.eps))
 
         out = hid_norm(
-            h_t.reshape(inputs.shape[0], self.head_num, self.head_dim)
-        ).reshape(inputs.shape[0], -1)
+            h_t.reshape(inputs.shape[0], self.head_num *self.head_dim)
+        ).reshape(inputs.shape[0], self.head_num * self.head_dim)
 
         # GLU-style projection
         out1, out2 = jnp.split(up_proj(out), 2, axis=-1)

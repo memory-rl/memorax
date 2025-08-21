@@ -80,14 +80,10 @@ class sLSTM(nn.RNNCellBase):
 
         hid_norm = nn.GroupNorm(num_groups=self.head_num)
 
-        # W_z = nn.Dense(features=self.head_num * self.head_dim)
-        # W_i = nn.Dense(features=self.head_num * self.head_dim)
-        # W_o = nn.Dense(features=self.head_num * self.head_dim)
-        # W_f = nn.Dense(features=self.head_num * self.head_dim)
-        W_z = BlockLinear(out_features=self.head_num * self.head_dim, num_blocks=self.head_num)
-        W_i = BlockLinear(out_features=self.head_num * self.head_dim, num_blocks=self.head_num)
-        W_o = BlockLinear(out_features=self.head_num * self.head_dim, num_blocks=self.head_num)
-        W_f = BlockLinear(out_features=self.head_num * self.head_dim, num_blocks=self.head_num)
+        W_z = nn.Dense(features=self.head_num * self.head_dim)
+        W_i = nn.Dense(features=self.head_num * self.head_dim)
+        W_o = nn.Dense(features=self.head_num * self.head_dim)
+        W_f = nn.Dense(features=self.head_num * self.head_dim)
 
         R_z = BlockLinear(
             out_features=self.head_num * self.head_dim, num_blocks=self.head_num

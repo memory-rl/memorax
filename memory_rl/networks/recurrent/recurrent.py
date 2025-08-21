@@ -91,6 +91,8 @@ class MaskedRNN(nn.RNN):
 
         slice_carry = seq_lengths is not None and return_carry
 
+        initial_carry = self.cell.initialize_carry(init_key, input_shape)
+
         def scan_fn(cell, carry, x, mask):
             carry = jax.tree.map(
                 lambda initial_carry, carry: jnp.where(
@@ -98,7 +100,7 @@ class MaskedRNN(nn.RNN):
                     initial_carry,
                     carry,
                 ),
-                self.cell.initialize_carry(init_key, input_shape),
+                initial_carry,
                 carry,
             )
             carry, y = cell(carry, x)

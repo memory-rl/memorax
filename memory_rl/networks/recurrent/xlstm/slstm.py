@@ -115,7 +115,7 @@ class sLSTM(nn.RNNCellBase):
         x_window = jnp.concatenate(
             [carry.x_prev, x_window], axis=1
         )  # shape (batch_size, ker_size, feature_dims)
-        x_prev = x_window[:, -1, :]  # shape (batch_size, feature_dims)
+        x_prev = x_window[:, 1:, :]  # shape (batch_size, feature_dims)
         if self.use_conv:
             x_c = CausalConv1D(features=feature_dims, kernel_size=self.ker_size)(
                 x_window

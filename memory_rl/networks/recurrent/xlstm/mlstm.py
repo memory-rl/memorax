@@ -85,8 +85,7 @@ class mLSTM(nn.RNNCellBase):
         W_i = nn.Dense(self.num_heads, use_bias=self.use_bias, name="W_i")
         W_f = nn.Dense(self.num_heads, use_bias=self.use_bias, name="W_f")
         W_o = nn.Dense(hid_dim, use_bias=self.use_bias, name="W_o")
-        # skip = nn.Conv(hid_dim, kernel_size=1, use_bias=False)
-        skip = nn.Dense(hid_dim, use_bias=False)
+        skip = nn.Conv(hid_dim, kernel_size=1, use_bias=False)
 
         group_norm = nn.GroupNorm(num_groups=self.num_heads)
 

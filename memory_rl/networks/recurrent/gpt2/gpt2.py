@@ -17,7 +17,7 @@ class GPTConfig:
     num_embeds: int
     dropout_rate: float = 0.1
     use_bias: bool = True
-    dtype: Optional[str] = None
+    dtype: Any = jnp.float32
 
 
 class SelfAttention(nn.Module):
@@ -44,24 +44,33 @@ class SelfAttention(nn.Module):
         )(
             x
         )  # (B, 3*C)
+
+        batch_size = x.shape[0]
         qkv = qkv.reshape(
-            x.shape[0], 3, self.num_heads, head_dim
+            batch_size, 3, self.num_heads, head_dim
         )  # (B, 3, num_heads, head_dim)
         q, k, v = qkv[:, 0], qkv[:, 1], qkv[:, 2]  # each (B, num_heads, head_dim)
         # Expand to (B, 1, num_heads, head_dim) for time axis
         k = k[:, None, :, :]
         v = v[:, None, :, :]
         # always use the full cache, but mask out future positions
+
+        batch_idx = jnp.arange(batch_size)
+        k_now = jnp.squeeze(k, axis=1)  # (B, H, D)
+        v_now = jnp.squeeze(v, axis=1)  # (B, H, D)
+        full_k = prev_k.at[batch_idx, pos, :, :].set(k_now)  # (B, T, H, D)
+        full_v = prev_v.at[batch_idx, pos, :, :].set(v_now)  # (B, T, H, D)
+
         max_seq = prev_k.shape[1]
         # Build mask: (B, 1, max_seq)
-        mask = jnp.arange(max_seq)[None, None, :] <= pos[..., None, None]
+        mask = jnp.arange(max_seq)[None, None, :] <= pos[..., None, None] # (B, 1, T)
         # query is current, keys/values are all cached
         scale = 1.0 / jnp.sqrt(head_dim).astype(self.dtype)
-        attn = jnp.einsum("bhd,bthd->bht", q, prev_k) * scale
+        attn = jnp.einsum("bhd,bthd->bht", q, full_k) * scale
         attn = jnp.where(mask, attn, jnp.finfo(self.dtype).min)
         attn = jax.nn.softmax(attn, axis=-1).astype(self.dtype)
         attn = nn.Dropout(self.dropout_rate)(attn, deterministic=deterministic)
-        out = jnp.einsum("bht,bthd->bhd", attn, prev_v)
+        out = jnp.einsum("bht,bthd->bhd", attn, full_v)
         out = out.reshape(x.shape[0], C)
         out = nn.Dense(C, use_bias=self.use_proj_bias, dtype=self.dtype, name="c_proj")(
             out
@@ -216,26 +225,25 @@ class GPTRNNCell(nn.recurrent.RNNCellBase):
         x = inputs + pos_emb.squeeze(axis=-2)  # (batch, num_embeds)
         x = nn.Dropout(self.config.dropout_rate)(x, deterministic=deterministic)
 
+        batch_size = x.shape[0]
         new_kv_cache_k = kv_cache_k
         new_kv_cache_v = kv_cache_v
         num_blocks = self.config.num_layers
         for i in range(num_blocks):
             prev_k_i = kv_cache_k[:, i]
             prev_v_i = kv_cache_v[:, i]
-            # cur_pos: (batch,) or scalar
-            cur_pos = pos if pos.shape == () else pos[0]
+
 
             x_out, k_new, v_new = Block(self.config, name=f"block_{i}")(
-                x, deterministic, prev_k_i, prev_v_i, cur_pos
+                x, deterministic, prev_k_i, prev_v_i, pos
             )
-            k_new_last = k_new[..., -1:, :, :]
-            v_new_last = v_new[..., -1:, :, :]
-            k_update = lax.dynamic_update_slice(
-                prev_k_i, k_new_last, (0, cur_pos, 0, 0)
-            )
-            v_update = lax.dynamic_update_slice(
-                prev_v_i, v_new_last, (0, cur_pos, 0, 0)
-            )
+            k_now = jnp.squeeze(k_new, axis=1)  # (B, H, D)
+            v_now = jnp.squeeze(v_new, axis=1)  # (B, H, D)
+
+            batch_idx = jnp.arange(batch_size)
+            k_update = prev_k_i.at[batch_idx, pos, :, :].set(k_now)  # (B, T, H, D)
+            v_update = prev_v_i.at[batch_idx, pos, :, :].set(v_now)  # (B, T, H, D)
+
             new_kv_cache_k = new_kv_cache_k.at[:, i].set(k_update)
             new_kv_cache_v = new_kv_cache_v.at[:, i].set(v_update)
             x = x_out

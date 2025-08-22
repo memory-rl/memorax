@@ -1,2 +1,2 @@
 from .mlstm import mLSTM
-from .slstm import sLSTM
+from .slstm import sLSTMCell, sLSTMBlock

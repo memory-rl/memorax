@@ -2,3 +2,4 @@ env_id: UmbrellaChain-bsuite
 
 parameters:
   chain_length: 10
+  max_steps_in_episode: ${eval:${.chain_length}+1}

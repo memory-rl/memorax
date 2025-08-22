@@ -59,7 +59,7 @@ class SHMCell(RNNCellBase):
     """
 
     features: int
-    num_thetas: int = 8
+    num_thetas: int = 128
     sample_theta: bool = True
 
     kernel_init: Initializer = default_kernel_init
@@ -93,9 +93,9 @@ class SHMCell(RNNCellBase):
             bias_init=self.bias_init,
         )
 
-        # inputs = LayerNorm(
-        #     epsilon=1e-5, dtype=self.dtype, param_dtype=self.param_dtype, name="ln"
-        # )(inputs)
+        inputs = LayerNorm(
+            epsilon=1e-5, dtype=self.dtype, param_dtype=self.param_dtype, name="ln"
+        )(inputs)
 
         # v(x), k(x), q(x), v_c(x), and η(x) (gate) with sigmoid.
         v = dense(name="v", features=H)(inputs)  # (*, H)

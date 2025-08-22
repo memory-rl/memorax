@@ -8,6 +8,7 @@ from memory_rl.networks.recurrent import (
     GPTRNNCell,
     MaskedRNN,
     mLSTM,
-    sLSTM,
+    sLSTMCell,
+    sLSTMBlock
 )
 from memory_rl.networks.feature_extractors import SeperateFeatureExtractor, SharedFeatureExtractor

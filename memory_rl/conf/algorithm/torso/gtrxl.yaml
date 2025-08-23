@@ -1,0 +1,4 @@
+_target_: memory_rl.networks.recurrent.GTrXLCell
+features: 128
+n_layers: 2
+n_heads: 2

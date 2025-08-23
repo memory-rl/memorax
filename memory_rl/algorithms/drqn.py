@@ -441,12 +441,13 @@ def make_drqn(cfg, env, env_params, logger) -> DRQN:
         head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
 
-    sample_sequence_length = (
+    sample_sequence_length = min_length_time_axis = (
         cfg.algorithm.mode.length or env_params.max_steps_in_episode
     )
     buffer = instantiate(
         cfg.algorithm.buffer,
         sample_sequence_length=sample_sequence_length,
+        min_length_time_axis=min_length_time_axis,
     )
     optimizer = optax.chain(
         optax.clip_by_global_norm(10.0),

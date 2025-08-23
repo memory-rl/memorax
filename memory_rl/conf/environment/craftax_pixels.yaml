@@ -1,0 +1,4 @@
+env_id: Craftax-Pixels-v1
+
+wrappers:
+ - _target_: gymnax.wrappers.FlattenObservationWrapper

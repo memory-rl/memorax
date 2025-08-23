@@ -1,2 +1,0 @@
-_target_: optax.adam
-learning_rate: 3e-4

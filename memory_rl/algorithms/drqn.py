@@ -163,7 +163,7 @@ class DRQN:
                 jnp.expand_dims(state.obs, 1),
                 mask=jnp.expand_dims(state.done, 1),
                 initial_carry=state.hidden_state,
-                rngs={"memory": memory_key}
+                rngs={"memory": memory_key},
             )
             greedy_action = q_values.squeeze(1).argmax(axis=-1)
 
@@ -225,7 +225,7 @@ class DRQN:
                 batch.experience.next_obs,
                 mask=batch.experience.next_done,
                 return_carry_history=self.cfg.algorithm.update_hidden_state,
-                rngs={"memory": next_memory_key}
+                rngs={"memory": next_memory_key},
             )
             q_next_target = jnp.max(q_next_target, axis=-1)
 
@@ -251,7 +251,7 @@ class DRQN:
                     batch.experience.obs,
                     mask=batch.experience.done,
                     return_carry_history=self.cfg.algorithm.update_hidden_state,
-                    rngs={"memory": memory_key}
+                    rngs={"memory": memory_key},
                 )
                 action = jnp.expand_dims(batch.experience.action, axis=-1)
                 q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)

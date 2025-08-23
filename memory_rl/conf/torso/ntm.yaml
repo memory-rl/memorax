@@ -1,0 +1,8 @@
+_target_: memory_rl.networks.recurrent.ntm.NTMCell
+memory_size: 128
+memory_width: 20
+controller_size: 128
+output_size: 64
+num_read_heads: 1
+num_write_heads: 1
+shift_range: 1

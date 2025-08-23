@@ -71,12 +71,10 @@ class DRQN:
         transition = Transition(
             obs=obs[0],
             done=done[0],
-            hidden_state=jax.tree.map(lambda x: x[0], carry),
             action=action[0],
             reward=reward[0],
             next_obs=obs[0],
             next_done=done[0],
-            next_hidden_state=jax.tree.map(lambda x: x[0], carry),
         )  # type: ignore
         buffer_state = self.buffer.init(transition)
 
@@ -117,16 +115,10 @@ class DRQN:
             transition = Transition(
                 obs=jnp.expand_dims(state.obs, 1),  # type: ignore
                 done=jnp.expand_dims(state.done, 1),  # type: ignore
-                hidden_state=jax.tree.map(  # type: ignore
-                    lambda x: jnp.expand_dims(x, 1), state.hidden_state
-                ),
                 action=jnp.expand_dims(action, 1),  # type: ignore
                 reward=jnp.expand_dims(reward, 1),  # type: ignore
                 next_obs=jnp.expand_dims(next_obs, 1),  # type: ignore
                 next_done=jnp.expand_dims(next_done, 1),  # type: ignore
-                next_hidden_state=jax.tree.map(  # type: ignore
-                    lambda x: jnp.expand_dims(x, 1), state.hidden_state
-                ),
             )
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
@@ -189,18 +181,10 @@ class DRQN:
             transition = Transition(
                 obs=jnp.expand_dims(state.obs, 1),
                 done=jnp.expand_dims(state.done, 1),
-                hidden_state=jax.tree.map(
-                    lambda x: jnp.expand_dims(x, 1),
-                    state.hidden_state,
-                ),
                 action=jnp.expand_dims(action, 1),
                 reward=jnp.expand_dims(reward, 1),
                 next_obs=jnp.expand_dims(next_obs, 1),
                 next_done=jnp.expand_dims(next_done, 1),
-                next_hidden_state=jax.tree.map(
-                    lambda x: jnp.expand_dims(x, 1),
-                    next_hidden_state,
-                ),
             )
 
             buffer_state = self.buffer.add(state.buffer_state, transition)
@@ -238,9 +222,6 @@ class DRQN:
                 state.target_params,
                 batch.experience.next_obs,
                 mask=batch.experience.next_done,
-                initial_carry=jax.tree.map(
-                    lambda x: jnp.take(x, 0, axis=1), batch.experience.next_hidden_state
-                ),
                 return_carry_history=self.cfg.algorithm.update_hidden_state,
             )
             q_next_target = jnp.max(q_next_target, axis=-1)
@@ -266,10 +247,6 @@ class DRQN:
                     params,
                     batch.experience.obs,
                     mask=batch.experience.done,
-                    initial_carry=jax.tree.map(
-                        lambda x: jnp.take(x, 0, axis=1),
-                        batch.experience.hidden_state,
-                    ),
                     return_carry_history=self.cfg.algorithm.update_hidden_state,
                 )
                 action = jnp.expand_dims(batch.experience.action, axis=-1)
@@ -425,12 +402,10 @@ class DRQN:
 class Transition:
     obs: chex.Array
     done: chex.Array
-    hidden_state: tuple
     action: chex.Array
     reward: chex.Array
     next_obs: chex.Array
     next_done: chex.Array
-    next_hidden_state: tuple
 
 
 def make_drqn(cfg, env, env_params, logger) -> DRQN:

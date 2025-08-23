@@ -178,3 +178,5 @@ cython_debug/
 
 wandb/
 .python-version
+multirun/
+popjaxrl/

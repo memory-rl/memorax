@@ -224,7 +224,20 @@ class DRQN:
                 mask=batch.experience.next_done,
                 return_carry_history=self.cfg.algorithm.update_hidden_state,
             )
-            q_next_target = jnp.max(q_next_target, axis=-1)
+
+            if self.cfg.algorithm.double:
+                _, q_next_online = self.q_network.apply(
+                    state.params,
+                    batch.experience.next_obs,
+                    mask=batch.experience.next_done,
+                    return_carry_history=self.cfg.algorithm.update_hidden_state,
+                )
+                next_actions = jnp.argmax(q_next_online, axis=-1)
+                q_next_target = jnp.take_along_axis(
+                    q_next_target, jnp.expand_dims(next_actions, -1), axis=-1
+                ).squeeze(-1)
+            else:
+                q_next_target = jnp.max(q_next_target, axis=-1)
 
             next_q_value = (
                 batch.experience.reward

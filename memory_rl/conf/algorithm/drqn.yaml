@@ -13,6 +13,7 @@ gamma:               0.99
 tau:                 1.0
 target_network_frequency: 1000
 batch_size:          128
+double:              False
 
 update_hidden_state: false
 

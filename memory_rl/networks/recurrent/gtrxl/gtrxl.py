@@ -187,7 +187,6 @@ class RelativeMultiHeadAttention(Module):
         # Query
         q = _split_heads(proj_q(h), n_heads)  # (b, h, 1, d_head)
 
-        # -------- KV cache logic --------
         # Use provided caches for mem part; otherwise compute from mem once.
         if (k_cache is None) or (v_cache is None):
             k_mem = _split_heads(proj_k(mem), n_heads)  # (b, h, mem_len, d_head)
@@ -360,24 +359,7 @@ class GTrXLBlock(Module):
 
 
 class GTrXLCell(RNNCellBase):
-    """Gated Transformer-XL cell (single-token step with segment-level recurrence + KV cache).
-
-    Carry:
-      - Old style (backward compatible): a tuple of per-layer memories:
-          ((b, mem_len, d_model), ... ) of length n_layers.
-      - New style (KV cache): a triple of tuples:
-          (
-            (mem_0, ..., mem_{L-1}),                   # each (b, mem_len, d_model)
-            (k_cache_0, ..., k_cache_{L-1}),           # each (b, h, mem_len, d_head)
-            (v_cache_0, ..., v_cache_{L-1}),           # each (b, h, mem_len, d_head)
-          )
-
-    Inputs:
-      (b, d_model)
-
-    Output:
-      (b, d_model)
-    """
+    """Gated Transformer-XL cell (single-token step with segment-level recurrence + KV cache)."""
 
     features: int  # == d_model
     n_layers: int
@@ -415,32 +397,10 @@ class GTrXLCell(RNNCellBase):
         d_head = self.d_head or (d_model // self.n_heads)
         assert d_model == self.n_heads * d_head, "d_model must equal n_heads * d_head"
 
-        # ----- Unpack carry (supports old and new styles) -----
-        if len(carry) == self.n_layers:
-            # Old style: only mems present.
-            mems = list(carry)  # per-layer: (b, mem_len, d_model)
-            # Initialize empty caches (zeros) matching shapes.
-            k_caches = [
-                jnp.zeros(
-                    (b, self.n_heads, self.mem_len, d_head), dtype=self.param_dtype
-                )
-                for _ in range(self.n_layers)
-            ]
-            v_caches = [
-                jnp.zeros(
-                    (b, self.n_heads, self.mem_len, d_head), dtype=self.param_dtype
-                )
-                for _ in range(self.n_layers)
-            ]
-        elif len(carry) == 3:
-            mems, k_caches, v_caches = carry
-            mems = list(mems)
-            k_caches = list(k_caches)
-            v_caches = list(v_caches)
-        else:
-            raise ValueError(
-                "carry must be either (mems...) or (mems, k_caches, v_caches)"
-            )
+        mems, k_caches, v_caches = carry
+        mems = list(mems)
+        k_caches = list(k_caches)
+        v_caches = list(v_caches)
 
         h = inputs[:, None, :]  # (b, 1, d_model)
         # r length is mem_len + 1; mem tensors are always of length mem_len.

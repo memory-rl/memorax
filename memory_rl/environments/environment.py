@@ -1,12 +1,16 @@
-import jax
 import gymnax
 import hydra
 
-from memory_rl.utils import BraxGymnaxWrapper, LogWrapper, NavixGymnaxWrapper, VecEnv
+from memory_rl.utils import (
+    BraxGymnaxWrapper,
+    LogWrapper,
+    NavixGymnaxWrapper,
+    PixelCraftaxEnvWrapper,
+)
+from craftax import craftax_env
 from popjaxrl.envs import make as make_popjaxrl
-#from pobax.envs import get_env
-from memory_rl.environments.tmaze_env import make_tmaze_env
 
+from memory_rl.environments.tmaze_env import make_tmaze_env
 
 
 def make_brax(env_id):
@@ -14,15 +18,19 @@ def make_brax(env_id):
     return env, None
 
 
+def make_craftax(env_id):
+    env = craftax_env.make_craftax_env_from_name(env_id, auto_reset=True)
+    env_params = env.default_params
+
+    # if "Pixels" in env_id:
+    #     env = PixelCraftaxEnvWrapper(env)
+
+    return env, env_params
+
+
 def make_navix(env_id):
     env = NavixGymnaxWrapper(env_id)
     return env, None
-
-def make_pobax(env_id, seed=0):
-    key = jax.random.key(seed)
-    env, env_params = get_env(env_id, key, apply_wrappers=False)
-    jax.debug.breakpoint()
-    return env, env_params
 
 
 register = {
@@ -59,8 +67,10 @@ register = {
     "Navix-Key-Corridor-S3R1-v0": make_navix,
     "Navix-Lava-Gap-S5-v0": make_navix,
     "tmaze": make_tmaze_env,
-    "tmaze_10": make_pobax,
-    "battleship_10": make_pobax,
+    "Craftax-Pixels-v1": make_craftax,
+    "Craftax-Symbolic-v1": make_craftax,
+    "Craftax-Classic-Symbolic-v1": make_craftax,
+    "Craftax-Classic-Pixels-v1": make_craftax,
 }
 
 

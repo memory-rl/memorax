@@ -11,7 +11,7 @@ import numpy as np
 from brax import envs
 from brax.envs.wrappers.training import AutoResetWrapper, EpisodeWrapper
 from flax import struct
-from gymnax.environments import environment, spaces
+from gymnax.environments import environment, spaces, EnvParams
 
 
 class GymnaxWrapper(object):
@@ -140,8 +140,56 @@ class NavixGymnaxWrapper:
         )
 
 
-class VecEnv(GymnaxWrapper):
-    def __init__(self, env):
+class PixelCraftaxEnvWrapper(GymnaxWrapper):
+    def __init__(self, env, normalize: bool = False):
         super().__init__(env)
-        self.reset = jax.vmap(self._env.reset, in_axes=(0, None))
-        self.step = jax.vmap(self._env.step, in_axes=(0, 0, 0, None))
+
+        self.renderer = None
+
+        self.normalize = normalize
+        self.size = 110
+
+    @partial(jax.jit, static_argnums=(0, -1))
+    def reset(
+        self, key: chex.PRNGKey, params: Optional[environment.EnvParams] = None
+    ) -> Tuple[chex.Array, environment.EnvState]:
+        image_obs, env_state = self._env.reset(key, params)
+        # Craftax already returned normalized visual input
+        image_obs = self.get_obs(image_obs, self.normalize)
+        return image_obs, env_state
+
+    @partial(jax.jit, static_argnums=(0, -1))
+    def step(
+        self,
+        key: chex.PRNGKey,
+        state: environment.EnvState,
+        action: Union[int, float],
+        params: Optional[environment.EnvParams] = None,
+    ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
+        image_obs, env_state, reward, done, info = self._env.step(
+            key, state, action, params
+        )
+        image_obs = self.get_obs(image_obs, self.normalize)
+        return image_obs, env_state, reward, done, info
+
+    @partial(jax.jit, static_argnums=(0, 2))
+    def get_obs(self, obs, normalize):
+        if not normalize:
+            obs *= 255
+        assert len(obs.shape) == 4
+        obs = obs[:27, :, :]
+        return obs
+
+    def observation_space(self, params):
+        low, high = 0, 255
+        if self.normalize:
+            high = 1
+        return spaces.Box(
+            low=low,
+            high=high,
+            shape=(
+                27,
+                33,
+                3,
+            ),
+        )

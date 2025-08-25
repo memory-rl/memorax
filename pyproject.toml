@@ -27,6 +27,7 @@ dependencies = [
     "wandb>=0.21.0",
     "hydra-joblib-launcher>=1.2.0",
     "pobax>=0.0.1",
+    "craftax>=1.5.0",
 ]
 
 [project.optional-dependencies]

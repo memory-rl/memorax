@@ -11,9 +11,9 @@ from flax.training import train_state
 from hydra.utils import instantiate
 
 from memory_rl.buffers import make_trajectory_buffer
-from memory_rl.logger import Logger
+from memory_rl.loggers import Logger
 from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.utils import periodic_incremental_update
+from memory_rl.utils import periodic_incremental_update, Transition
 
 
 @chex.dataclass
@@ -32,16 +32,6 @@ class Batch:
     """Batch of next obs with shape [batch_size, obs_dim]"""
     next_done: chex.Array
     """Batch of next done flags with shape [batch_size]"""
-
-
-@chex.dataclass(frozen=True)
-class Transition:
-    obs: chex.Array
-    done: chex.Array
-    action: chex.Array
-    reward: chex.Array
-    next_obs: chex.Array
-    next_done: chex.Array
 
 
 # Keep the network definitions (StochasticActor, Critic, DoubleCritic, Temperature) the same
@@ -471,6 +461,15 @@ class RSAC:
                 self.env.step, in_axes=(0, 0, 0, None)
             )(env_key, eval_state.env_state, action, self.env_params)
 
+            transition = Transition(
+                obs=eval_state.obs,  # type: ignore
+                action=action,  # type: ignore
+                reward=reward,  # type: ignore
+                done=next_done,  # type: ignore
+                next_obs=next_obs,  # type: ignore
+                info=info,  # type: ignore
+            )
+
             # Update evaluation state
             eval_state = eval_state.replace(
                 obs=next_obs,
@@ -479,15 +478,15 @@ class RSAC:
                 env_state=env_state,
             )
 
-            return (key, eval_state), info
+            return (key, eval_state), transition
 
-        (key, eval_state), info = jax.lax.scan(
+        (key, eval_state), transitions = jax.lax.scan(
             step,
             (key, eval_state),
             length=num_steps // self.cfg.algorithm.num_eval_envs,
         )
 
-        return key, info
+        return key, transitions
 
 
 def make_rsac(cfg, env, env_params, logger) -> RSAC:
@@ -533,7 +532,7 @@ def make_rsac(cfg, env, env_params, logger) -> RSAC:
         cfg.algorithm.mode.length or env_params.max_steps_in_episode
     )
     buffer = instantiate(
-        cfg.algorithm.mode.buffer,
+        cfg.algorithm.buffer,
         sample_sequence_length=sample_sequence_length,
     )
 

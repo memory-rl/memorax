@@ -1,3 +1,7 @@
-_target_: memory_rl.logger.ConsoleLogger
-debug: false
-log_interval: 1
+# @package logger.loggers.console
+_target_: memory_rl.loggers.ConsoleLogger
+title: Memory RL
+name: ${algorithm.name}
+total_timesteps: ${total_timesteps}
+refresh_per_second: 1
+env_id: ${environment.env_id}

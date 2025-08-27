@@ -11,8 +11,9 @@ from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from memory_rl.logger import Logger
+from memory_rl.loggers import Logger
 from memory_rl.networks import Network, heads
+from memory_rl.utils import Transition
 
 
 @chex.dataclass(frozen=True)
@@ -43,7 +44,6 @@ class DQN:
     optimizer: optax.GradientTransformation
     buffer: fbx.trajectory_buffer.TrajectoryBuffer
     epsilon_schedule: optax.Schedule
-    logger: Logger
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key) -> tuple[chex.PRNGKey, DQNState, chex.Array, gymnax.EnvState]:
@@ -263,21 +263,8 @@ class DQN:
 
             key, state, loss, q_value = update(key, state)
 
-            def callback(logger, step, info, loss, q_value):
-                if info["returned_episode"].any():
-                    data = {
-                        "training/episodic_returns": info["returned_episode_returns"][
-                            info["returned_episode"]
-                        ].mean(),
-                        "training/episodic_lengths": info["returned_episode_lengths"][
-                            info["returned_episode"]
-                        ].mean(),
-                        "losses/loss": loss,
-                        "losses/q_value": q_value,
-                    }
-                    logger.log(data, step=step)
-
-            jax.debug.callback(callback, self.logger, state.step, info, loss, q_value)
+            info["losses/loss"] = loss
+            info["losses/q_value"] = q_value
 
             return (key, state), info
 
@@ -323,25 +310,26 @@ class DQN:
 
             key, step_key = jax.random.split(key)
             step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
-            obs, env_state, _, _, info = jax.vmap(
+            next_obs, env_state, reward, done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
 
-            state = state.replace(obs=obs, env_state=env_state)  # type: ignore
+            transition = Transition(
+                obs=state.obs,  # type: ignore
+                action=action,  # type: ignore
+                reward=reward,  # type: ignore
+                done=done,  # type: ignore
+                next_obs=next_obs,  # type: ignore
+                info=info,  # type: ignore
+            )
 
-            return (key, state), info
+            state = state.replace(obs=next_obs, env_state=env_state)  # type: ignore
 
-        (key, *_), info = jax.lax.scan(step, (key, state), length=num_steps)
+            return (key, state), transition
 
-        return key, info
+        (key, *_), transitions = jax.lax.scan(step, (key, state), length=num_steps)
 
-
-@chex.dataclass(frozen=True)
-class Transition:
-    obs: chex.Array
-    action: chex.Array
-    reward: chex.Array
-    done: chex.Array
+        return key, transitions
 
 
 def make_dqn(cfg, env, env_params, logger) -> DQN:
@@ -382,5 +370,4 @@ def make_dqn(cfg, env, env_params, logger) -> DQN:
         optimizer=optimizer,  # type: ignore
         buffer=buffer,  # type: ignore
         epsilon_schedule=epsilon_schedule,  # type: ignore
-        logger=logger,  # type: ignore
     )

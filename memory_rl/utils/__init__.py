@@ -8,3 +8,4 @@ from .wrapper import (
     PixelCraftaxEnvWrapper,
 )
 from .decorators import callback
+from .dataclasses import Transition

@@ -36,7 +36,7 @@ class State(Protocol):
 
 class Algorithm(Protocol):
     init: Callable[[chex.PRNGKey], tuple[chex.PRNGKey, State]]
-    warmup: Callable[[chex.PRNGKey, State], tuple[chex.PRNGKey, State]]
+    warmup: Callable[[chex.PRNGKey, State, int], tuple[chex.PRNGKey, State]]
     train: Callable[[chex.PRNGKey, State, int], tuple[chex.PRNGKey, State, dict]]
     evaluate: Callable[[chex.PRNGKey, State, int], tuple[chex.PRNGKey, dict]]
 

@@ -11,9 +11,9 @@ from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from memory_rl.logger import Logger
+from memory_rl.loggers import Logger
 from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.utils import periodic_incremental_update
+from memory_rl.utils import periodic_incremental_update, Transition
 
 
 @chex.dataclass(frozen=True)
@@ -389,36 +389,36 @@ class DRQN:
 
             key, step_key = jax.random.split(key)
             step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
-            obs, env_state, _, done, info = jax.vmap(
+            next_obs, env_state, reward, next_done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, state.env_state, action, self.env_params)
 
+            transition = Transition(
+                obs=state.obs,  # type: ignore
+                done=state.done,  # type: ignore
+                action=action,  # type: ignore
+                reward=reward,  # type: ignore
+                next_obs=next_obs,  # type: ignore
+                next_done=next_done,  # type: ignore
+                info=info,  # type: ignore
+            )
+
             state = state.replace(
-                obs=obs,  # type: ignore
-                done=done,  # type: ignore
+                obs=next_obs,  # type: ignore
+                done=next_done,  # type: ignore
                 hidden_state=hidden_state,  # type: ignore
                 env_state=env_state,  # type: ignore
             )
 
-            return (key, state), info
+            return (key, state), transition
 
-        (key, _), info = jax.lax.scan(
+        (key, _), transitions = jax.lax.scan(
             step,
             (key, state),
             length=num_steps,
         )
 
-        return key, info
-
-
-@chex.dataclass(frozen=True)
-class Transition:
-    obs: chex.Array
-    done: chex.Array
-    action: chex.Array
-    reward: chex.Array
-    next_obs: chex.Array
-    next_done: chex.Array
+        return key, transitions
 
 
 def make_drqn(cfg, env, env_params, logger) -> DRQN:

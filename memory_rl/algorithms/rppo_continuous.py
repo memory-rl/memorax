@@ -10,23 +10,12 @@ from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from memory_rl.logger import Logger
+from memory_rl.loggers import Logger
 from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.utils import compute_recurrent_gae as compute_gae
+from memory_rl.utils import compute_recurrent_gae as compute_gae, Transition
 
 # Enable JAX debug mode for NaN detection
 jax.config.update("jax_debug_nans", True)
-
-
-@chex.dataclass(frozen=True)
-class Transition:
-    observation: chex.Array
-    action: chex.Array
-    reward: chex.Array
-    done: chex.Array
-    info: chex.Array
-    log_prob: chex.Array
-    value: chex.Array
 
 
 @chex.dataclass(frozen=True)
@@ -149,7 +138,7 @@ class RPPO:
                 )(step_key, state.env_state, action, self.env_params)
 
                 transition = Transition(
-                    observation=state.obs,  # type: ignore
+                    obs=state.obs,  # type: ignore
                     action=action,  # type: ignore
                     reward=reward,  # type: ignore
                     done=done,  # type: ignore
@@ -453,19 +442,28 @@ class RPPO:
 
             key, step_key = jax.random.split(key)
             step_key = jax.random.split(step_key, self.cfg.algorithm.num_eval_envs)
-            obs, env_state, _, done, info = jax.vmap(
+            next_obs, env_state, reward, done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, env_state, action, self.env_params)
 
-            return (key, obs, done, env_state, next_actor_h_state), info
+            transition = Transition(
+                obs=obs,  # type: ignore
+                action=action,  # type: ignore
+                reward=reward,  # type: ignore
+                done=done,  # type: ignore
+                next_obs=next_obs,  # type: ignore
+                info=info,  # type: ignore
+            )
 
-        (key, *_), info = jax.lax.scan(
+            return (key, next_obs, done, env_state, next_actor_h_state), transition
+
+        (key, *_), transitions = jax.lax.scan(
             step,
             (key, obs, done, env_state, initial_actor_hidden_state),
             length=num_steps // self.cfg.algorithm.num_eval_envs,
         )
 
-        return key, info
+        return key, transitions
 
 
 def make_rppo_continuous(cfg, env, env_params, logger):

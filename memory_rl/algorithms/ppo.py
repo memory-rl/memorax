@@ -10,20 +10,9 @@ from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from memory_rl.logger import Logger
+from memory_rl.loggers import Logger
 from memory_rl.networks import Network, heads
-from memory_rl.utils import compute_gae
-
-
-@chex.dataclass(frozen=True)
-class Transition:
-    observation: chex.Array
-    action: chex.Array
-    reward: chex.Array
-    done: chex.Array
-    info: chex.Array
-    log_prob: chex.Array
-    value: chex.Array
+from memory_rl.utils import compute_gae, Transition
 
 
 @chex.dataclass(frozen=True)
@@ -79,7 +68,7 @@ class PPO:
         return key, state
 
     def _actor_loss_fn(self, params, transitions, advantages):
-        probs = self.actor.apply(params, transitions.observation)
+        probs = self.actor.apply(params, transitions.obs)
         log_prob = probs.log_prob(transitions.action)
         entropy = probs.entropy().mean()
 
@@ -96,9 +85,7 @@ class PPO:
         return actor_loss - self.cfg.algorithm.ent_coef * entropy, entropy
 
     def _critic_loss_fn(self, params, transitions, advantages, returns):
-        value = self.critic.apply(
-            params, transitions.observation
-        ).squeeze(-1)
+        value = self.critic.apply(params, transitions.obs).squeeze(-1)
 
         if self.cfg.algorithm.clip_vloss:
             critic_loss = jnp.square(value - returns)
@@ -108,10 +95,7 @@ class PPO:
                 self.cfg.algorithm.clip_coef,
             )
             clipped_critic_loss = jnp.square(clipped_value - returns)
-            critic_loss = (
-                0.5
-                * jnp.maximum(critic_loss, clipped_critic_loss).mean()
-            )
+            critic_loss = 0.5 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
         else:
             critic_loss = 0.5 * jnp.square(value - returns).mean()
 
@@ -120,16 +104,13 @@ class PPO:
     def _update_minibatch(self, state, minibatch: tuple):
         transitions, advantages, returns = minibatch
 
-
-        (actor_loss, entropy), actor_grads = jax.value_and_grad(self._actor_loss_fn, has_aux=True)(
-            state.actor_params, transitions, advantages
-        )
+        (actor_loss, entropy), actor_grads = jax.value_and_grad(
+            self._actor_loss_fn, has_aux=True
+        )(state.actor_params, transitions, advantages)
         actor_updates, actor_optimizer_state = self.optimizer.update(
             actor_grads, state.actor_optimizer_state, state.actor_params
         )
-        actor_params = optax.apply_updates(
-            state.actor_params, actor_updates
-        )
+        actor_params = optax.apply_updates(state.actor_params, actor_updates)
 
         critic_loss, critic_grads = jax.value_and_grad(self._critic_loss_fn)(
             state.critic_params, transitions, advantages, returns
@@ -137,9 +118,7 @@ class PPO:
         critic_updates, critic_optimizer_state = self.optimizer.update(
             critic_grads, state.critic_optimizer_state, state.critic_params
         )
-        critic_params = optax.apply_updates(
-            state.critic_params, critic_updates
-        )
+        critic_params = optax.apply_updates(state.critic_params, critic_updates)
 
         state = state.replace(
             actor_params=actor_params,
@@ -152,15 +131,12 @@ class PPO:
     def _update_epoch(self, carry: tuple, _):
         key, state, batch = carry
 
-
         key, permutation_key = jax.random.split(key)
 
         permutation = jax.random.permutation(
             permutation_key, self.cfg.algorithm.batch_size
         )
-        flattened_batch = jax.tree.map(
-            lambda x: x.reshape(-1, *x.shape[2:]), batch
-        )
+        flattened_batch = jax.tree.map(lambda x: x.reshape(-1, *x.shape[2:]), batch)
         shuffled_batch = jax.tree.map(
             lambda x: jnp.take(x, permutation, axis=0), flattened_batch
         )
@@ -176,7 +152,6 @@ class PPO:
             state,
             minibatches,
         )
-
 
         return (
             key,
@@ -201,7 +176,7 @@ class PPO:
         )(step_key, state.env_state, action, self.env_params)
 
         transition = Transition(
-            observation=state.obs,  # type: ignore
+            obs=state.obs,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             done=done,  # type: ignore
@@ -223,7 +198,6 @@ class PPO:
 
     def _update_step(self, carry: tuple, _):
 
-
         (key, state), transitions = jax.lax.scan(
             self._step,
             carry,
@@ -239,9 +213,7 @@ class PPO:
         )
 
         if self.cfg.algorithm.normalize_advantage:
-            advantages = (advantages - advantages.mean()) / (
-                advantages.std() + 1e-8
-            )
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         batch = (transitions, advantages, returns)
 
@@ -267,15 +239,19 @@ class PPO:
                 }
                 logger.log(data, step=step)
 
-
         jax.debug.callback(
-            callback, self.logger, state.step, transitions.info, actor_loss, critic_loss, entropy
+            callback,
+            self.logger,
+            state.step,
+            transitions.info,
+            actor_loss,
+            critic_loss,
+            entropy,
         )
 
         return (key, state), transitions.info
 
     def train(self, key, state, num_steps):
-
 
         (key, state), info = jax.lax.scan(
             self._update_step,
@@ -302,17 +278,26 @@ class PPO:
 
             key, step_key = jax.random.split(key)
             step_key = jax.random.split(step_key, self.cfg.algorithm.num_eval_envs)
-            obs, env_state, _, _, info = jax.vmap(
+            next_obs, env_state, reward, done, info = jax.vmap(
                 self.env.step, in_axes=(0, 0, 0, None)
             )(step_key, env_state, action, self.env_params)
 
-            return (key, obs, env_state), info
+            transition = Transition(
+                obs=obs,  # type: ignore
+                action=action,  # type: ignore
+                reward=reward,  # type: ignore
+                done=done,  # type: ignore
+                next_obs=next_obs,  # type: ignore
+                info=info,  # type: ignore
+            )
 
-        (key, obs, env_state), info = jax.lax.scan(
+            return (key, next_obs, env_state), transition
+
+        (key, obs, env_state), transitions = jax.lax.scan(
             step, (key, obs, env_state), length=num_steps
         )
 
-        return key, info
+        return key, transitions
 
 
 def make_ppo(cfg, env, env_params, logger):

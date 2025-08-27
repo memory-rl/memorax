@@ -11,9 +11,9 @@ from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from memory_rl.logger import Logger
+from memory_rl.loggers import Logger
 from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.utils import periodic_incremental_update
+from memory_rl.utils import periodic_incremental_update, Transition
 
 
 @chex.dataclass
@@ -32,16 +32,6 @@ class Batch:
     """Batch of next obs with shape [batch_size, obs_dim]"""
     next_done: chex.Array
     """Batch of next done flags with shape [batch_size]"""
-
-
-@chex.dataclass(frozen=True)
-class Transition:
-    obs: chex.Array
-    done: chex.Array
-    action: chex.Array
-    reward: chex.Array
-    next_obs: chex.Array
-    next_done: chex.Array
 
 
 @chex.dataclass(frozen=True)
@@ -459,6 +449,15 @@ class RSACD:
                 self.env.step, in_axes=(0, 0, 0, None)
             )(env_key, state.env_state, action, self.env_params)
 
+            transition = Transition(
+                obs=state.obs,  # type: ignore
+                action=action,  # type: ignore
+                reward=reward,  # type: ignore
+                done=next_done,  # type: ignore
+                next_obs=next_obs,  # type: ignore
+                info=info,  # type: ignore
+            )
+
             # Update state
             state = state.replace(
                 obs=next_obs,
@@ -467,13 +466,13 @@ class RSACD:
                 env_state=env_state,
             )
 
-            return (key, state), info
+            return (key, state), transition
 
-        (key, state), info = jax.lax.scan(
+        (key, state), transitions = jax.lax.scan(
             step, (key, state), length=num_steps // self.cfg.algorithm.num_eval_envs
         )
 
-        return key, info
+        return key, transitions
 
 
 def make_rsacd(cfg, env, env_params, logger) -> RSACD:

@@ -1,7 +1,7 @@
-_target_: memory_rl.logger.WandbLogger
-project: memory-rl
+# @package logger.loggers.wandb
+_target_: memory_rl.loggers.WandbLogger
 entity: noahfarr
+project: memory-rl
 name: ${algorithm.name}_${environment.env_id}_${seed}_${now:%Y%m%d_%H%M%S}
 group: ${algorithm.name}_${environment.env_id}
 mode: online
-debug: false

@@ -1,4 +1,4 @@
-total_timesteps: 1_000_000
+total_timesteps: 500_000
 num_train_steps: 100_000
 num_evaluation_steps: 10_000
 seed: 0
@@ -8,8 +8,11 @@ defaults:
   - _self_
   - algorithm: dqn
   - environment: cartpole
-  - logger: default
+  - logger: []
   - optional hyperparameter: ${algorithm}/${environment}
 
-hydra:
-  output_subdir: null
+logger:
+  _target_: memory_rl.loggers.Logger
+  _convert_: all
+  loggers:
+

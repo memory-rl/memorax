@@ -60,11 +60,13 @@ class SHMCell(RNNCellBase):
     """
 
     features: int
+    output_features: int | None = None
     num_thetas: int = 128
     sample_theta: bool = True
 
-    kernel_init: Initializer = default_kernel_init
+    kernel_init: Initializer = initializers.variance_scaling(2.0, "fan_in", "uniform")  # Kaiming uniform
     bias_init: Initializer = initializers.zeros_init()
+    theta_init: Initializer = initializers.variance_scaling(1.0, "fan_avg", "uniform")  # Xavier uniform
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
     carry_init: Initializer = initializers.zeros_init()
@@ -87,7 +89,7 @@ class SHMCell(RNNCellBase):
         # Linear maps following paper sections:
         dense = partial(
             Dense,
-            use_bias=True,
+            use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             kernel_init=self.kernel_init,
@@ -100,10 +102,13 @@ class SHMCell(RNNCellBase):
 
         # v(x), k(x), q(x), v_c(x), and η(x) (gate) with sigmoid.
         v = dense(name="v", features=H)(inputs)  # (*, H)
-        k = dense(name="k", features=H)(inputs)  # (*, H)
-        q = dense(name="q", features=H)(inputs)  # (*, H)
+        k = jax.nn.relu(dense(name="k", features=H)(inputs))  # (*, H)
+        q = jax.nn.relu(dense(name="q", features=H)(inputs))  # (*, H)
         v_c = dense(name="vc", features=H)(inputs)  # (*, H)
         eta = sigmoid(dense(name="eta", features=1)(inputs))  # (*, 1)
+
+        k = k / (1e-5 + jnp.sum(k, axis=-1, keepdims=True))
+        q = q / (1e-5 + jnp.sum(q, axis=-1, keepdims=True))
 
         # U_t = eta * (v ⊗ k)  ∈ (*, H, H)
         U = (v[..., :, None] * k[..., None, :]) * eta[..., None]
@@ -111,7 +116,7 @@ class SHMCell(RNNCellBase):
         # Θ ∈ (L, H); choose θ_t ∈ (H,) per step. If sampling RNG not provided or
         # sample_theta=False, default to row 0 (deterministic).
         theta_table = self.param(
-            "theta_table", self.kernel_init, (self.num_thetas, H), self.param_dtype
+            "theta_table", self.theta_init, (self.num_thetas, H), self.param_dtype
         )
 
         if self.sample_theta and self.has_rng("memory"):
@@ -134,6 +139,9 @@ class SHMCell(RNNCellBase):
 
         # Read: h_t = M_t q(x_t)
         h = jnp.einsum("...ij,...j->...i", M_new, q)
+
+        if self.output_features is not None:
+            h = Dense(features=self.output_features, use_bias=True, dtype=self.dtype, kernel_init=self.kernel_init, bias_init=self.bias_init, name="out")(h)
 
         return M_new, h
 

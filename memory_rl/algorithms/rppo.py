@@ -39,7 +39,7 @@ class RPPO:
     critic_optimizer: optax.GradientTransformation
 
     def init(self, key):
-        key, env_key, actor_key, critic_key = jax.random.split(key, 4)
+        key, env_key, actor_key, actor_memory_key, critic_key, critic_memory_key = jax.random.split(key, 6)
 
         env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
@@ -53,13 +53,13 @@ class RPPO:
         dummy_mask_for_init = jnp.expand_dims(done, 1)  # (num_envs, 1)
 
         actor_params = self.actor_network.init(
-            actor_key,
+            {"params": actor_key, "memory": actor_memory_key},
             observation=dummy_obs_for_init,
             mask=dummy_mask_for_init,
             initial_carry=actor_hidden_state,
         )
         critic_params = self.critic_network.init(
-            critic_key,
+            {"params": critic_key, "memory": critic_memory_key},
             observation=dummy_obs_for_init,
             mask=dummy_mask_for_init,
             initial_carry=critic_hidden_state,
@@ -91,19 +91,21 @@ class RPPO:
     def _step(self, carry: tuple, _):
         key, state = carry
 
-        key, action_key, step_key = jax.random.split(key, 3)
+        key, action_key, step_key, actor_memory_key, critic_memory_key = jax.random.split(key, 5)
 
         actor_h_next, probs = self.actor_network.apply(
             state.actor_params,
             observation=jnp.expand_dims(state.obs, 1),  # (B, 1, F_obs)
             mask=jnp.expand_dims(state.done, 1),  # (B, 1) mask
             initial_carry=state.actor_hidden_state,
+            rngs={"memory": actor_memory_key},
         )
         critic_h_next, value = self.critic_network.apply(
             state.critic_params,
             observation=jnp.expand_dims(state.obs, 1),  # (B, 1, F_obs)
             mask=jnp.expand_dims(state.done, 1),  # (B, 1) mask
             initial_carry=state.critic_hidden_state,
+            rngs={"memory": critic_memory_key},
         )
 
         value = value.squeeze((1, -1))
@@ -137,12 +139,13 @@ class RPPO:
         )
         return (key, state), transition
 
-    def _actor_loss_fn(self, params, initial_hidden_state, transitions, advantages):
+    def _actor_loss_fn(self, params, actor_key, initial_hidden_state, transitions, advantages):
         _, probs = self.actor_network.apply(
             params,
             observation=transitions.obs,
             mask=transitions.done,
             initial_carry=initial_hidden_state,
+            rngs={"memory": actor_key},
         )
         log_probs = probs.log_prob(transitions.action)
         entropy = probs.entropy().mean()
@@ -167,12 +170,13 @@ class RPPO:
             clipfrac,
         )
 
-    def _critic_loss_fn(self, params, initial_hidden_state, transitions, returns):
+    def _critic_loss_fn(self, params, critic_key, initial_hidden_state, transitions, returns):
         _, values = self.critic_network.apply(
             params,
             observation=transitions.obs,
             mask=transitions.done,
             initial_carry=initial_hidden_state,
+            rngs={"memory": critic_key},
         )
         values = values.squeeze(-1)
 
@@ -190,7 +194,8 @@ class RPPO:
 
         return critic_loss
 
-    def _update_minibatch(self, state, minibatch: tuple):
+    def _update_minibatch(self, carry, minibatch: tuple):
+        key, state = carry
         (
             initial_actor_h_mb,
             initial_critic_h_mb,
@@ -199,16 +204,17 @@ class RPPO:
             returns,
         ) = minibatch
 
+        key, actor_key, critic_key = jax.random.split(key, 3)
         (actor_loss, aux), actor_grads = jax.value_and_grad(
             self._actor_loss_fn, has_aux=True
-        )(state.actor_params, initial_actor_h_mb, transitions, advantages)
+        )(state.actor_params, actor_key, initial_actor_h_mb, transitions, advantages)
         actor_updates, actor_optimizer_state = self.actor_optimizer.update(
             actor_grads, state.actor_optimizer_state, state.actor_params
         )
         actor_params = optax.apply_updates(state.actor_params, actor_updates)
 
         critic_loss, critic_grads = jax.value_and_grad(self._critic_loss_fn)(
-            state.critic_params, initial_critic_h_mb, transitions, returns
+            state.critic_params, critic_key, initial_critic_h_mb, transitions, returns
         )
         critic_updates, critic_optimizer_state = self.critic_optimizer.update(
             critic_grads, state.critic_optimizer_state, state.critic_params
@@ -221,7 +227,7 @@ class RPPO:
             critic_params=critic_params,
             critic_optimizer_state=critic_optimizer_state,
         )
-        return state, (actor_loss, critic_loss, aux)
+        return (key, state), (actor_loss, critic_loss, aux)
 
     def _update_epoch(self, carry: tuple, _):
 
@@ -258,9 +264,9 @@ class RPPO:
             shuffled_batch,
         )
 
-        state, (actor_loss, critic_loss, aux) = jax.lax.scan(
+        (key, state), (actor_loss, critic_loss, aux) = jax.lax.scan(
             self._update_minibatch,
-            state,
+            (key, state),
             minibatches,
         )
 
@@ -285,11 +291,13 @@ class RPPO:
             length=self.cfg.algorithm.mode.length,
         )
 
+        key, critic_key = jax.random.split(key)
         _, final_value = self.critic_network.apply(
             state.critic_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
             initial_carry=state.critic_hidden_state,  # Use the latest critic hidden state from scan
+            rngs={"memory": critic_key},
         )
 
         final_value = final_value.squeeze((1, -1))

@@ -1,27 +1,27 @@
 defaults:
   - feature_extractor@actor.feature_extractor: shared
-  - torso@actor.torso: gru
+  - torso@actor.torso: gtrxl
     
   - feature_extractor@critic.feature_extractor: shared
-  - torso@critic.torso: gru
+  - torso@critic.torso: gtrxl
 
   - mode: TBPTT
 
 
 name: rppo
-learning_rate: 2.5e-4
+learning_rate: 3e-4
 num_envs: 32
-num_eval_envs: 32
-# num_steps: 128 controlled via mode.length instead
+num_eval_envs: 16
+# num_steps: controlled via mode.length instead
 anneal_lr: True
 gamma: 0.99
 gae_lambda: 0.95
-num_minibatches: 8
-update_epochs: 8
+num_minibatches: 4
+update_epochs: 4
 normalize_advantage: True
 clip_coef: 0.2
-clip_vloss: False
-ent_coef: 0.01
+clip_vloss: True
+ent_coef: 0.0
 vf_coef: 0.5
 max_grad_norm: 0.5
 learning_starts: 0

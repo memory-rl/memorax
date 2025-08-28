@@ -11,7 +11,9 @@ OmegaConf.register_new_resolver("eval", eval)
 
 def log(logger, logger_state, state, info, *, prefix="evaluation"):
     info = jax.device_get(info)
-    step = jax.device_get(state.step).item()
+    step = jax.device_get(state.step)
+    if not isinstance(step, int):
+        step = step.item()
     episodic_returns = info["returned_episode_returns"][info["returned_episode"]].mean()
     episodic_lengths = info["returned_episode_lengths"][info["returned_episode"]].mean()
     data = {
@@ -57,13 +59,15 @@ def main(cfg: DictConfig):
 
     key, state = algorithm.warmup(key, state, cfg.algorithm.learning_starts)
 
-    while state.step < cfg.total_timesteps:
+    for i in range(0, cfg.total_timesteps, cfg.num_train_steps):
         key, state, info = algorithm.train(key, state, cfg.num_train_steps)
         logger_state = log(logger, logger_state, state, info, prefix="training")
-        key, transitions = algorithm.evaluate(
-            key, state, env_params.max_steps_in_episode
-        )
-        logger_state = log(logger, logger_state, state, transitions.info)
+
+        if i % cfg.evaluate_every == 0:
+            key, transitions = algorithm.evaluate(
+                key, state, env_params.max_steps_in_episode
+            )
+            logger_state = log(logger, logger_state, state, transitions.info)
         logger_state = logger.emit(logger_state)
 
     logger.finish(logger_state)

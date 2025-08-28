@@ -64,6 +64,7 @@ class GRUGating(Module):
     """GRU-style gating used in GTrXL to replace residual connections."""
 
     features: int
+    gate_init_bias: float = 2.0
     kernel_init: Initializer = default_kernel_init
     recurrent_kernel_init: Initializer = initializers.orthogonal()
     bias_init: Initializer = initializers.zeros_init()
@@ -90,7 +91,9 @@ class GRUGating(Module):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
-        z = sigmoid(dense_y(name="z_y")(y) + dense_x(name="z_x")(x))
+        z = sigmoid(
+            dense_y(name="z_y")(y) + dense_x(name="z_x")(x) - self.gate_init_bias
+        )
         r = sigmoid(dense_y(name="r_y")(y) + dense_x(name="r_x")(x))
         h_tilde = tanh(dense_y(name="h_y")(y) + dense_x(name="h_x")(r * x))
         return (1.0 - z) * x + z * h_tilde
@@ -229,6 +232,7 @@ class RelativeMultiHeadAttention(Module):
 
         attn_vec = jnp.einsum("bhqk,bhkd->bhqd", attn_prob, v_all)  # (b, h, 1, d_head)
         attn_vec = _merge_heads(attn_vec)  # (b, 1, d_model)
+
         out = proj_o(attn_vec)  # (b, 1, d_model)
 
         # Update caches: shift-left + append current, keep most recent mem_len.
@@ -302,7 +306,10 @@ class GTrXLBlock(Module):
         v_cache: Array | None = None,
     ) -> tuple[Array, Array, Array]:
         # Pre-LN -> Rel-MHA (with KV cache) -> GRU-gated residual
-        y = LayerNorm(dtype=self.dtype, name="ln_attn")(x)
+
+        mem_x = jnp.concatenate([jax.lax.stop_gradient(mem), x], axis=1)
+        mem_x_norm = LayerNorm(dtype=self.dtype, name="ln_attn")(mem_x)
+        mem_norm, x_norm = mem_x_norm[:, :-1, :], mem_x_norm[:, -1:, :]
         y, new_k_cache, new_v_cache = RelativeMultiHeadAttention(
             d_model=self.d_model,
             n_heads=self.n_heads,
@@ -313,13 +320,21 @@ class GTrXLBlock(Module):
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
             name="attn",
-        )(y, mem, r, deterministic=deterministic, k_cache=k_cache, v_cache=v_cache)
+        )(
+            x_norm,
+            mem_norm,
+            r,
+            deterministic=deterministic,
+            k_cache=k_cache,
+            v_cache=v_cache,
+        )
         if self.dropout_rate > 0:
             y = Dropout(
                 rate=self.dropout_rate,
                 deterministic=deterministic,
                 name="attn_out_drop",
             )(y)
+        y = jax.nn.relu(y)
         x = GRUGating(
             self.d_model,
             dtype=self.dtype,
@@ -346,6 +361,7 @@ class GTrXLBlock(Module):
             y2 = Dropout(
                 rate=self.dropout_rate, deterministic=deterministic, name="ff_out_drop"
             )(y2)
+        y2 = jax.nn.relu(y2)
         x = GRUGating(
             self.d_model,
             dtype=self.dtype,
@@ -386,7 +402,7 @@ class GTrXLCell(RNNCellBase):
 
     @compact
     def __call__(
-        self, carry: tuple[Any, ...], inputs: Array
+        self, carry: tuple[Any, ...], inputs: Array, deterministic: bool = True
     ) -> tuple[tuple[Any, ...], Array]:
         # inputs: (b, d_model)
         assert inputs.shape[-1] == self.features, "inputs last dim must equal d_model"
@@ -405,10 +421,6 @@ class GTrXLCell(RNNCellBase):
         h = inputs[:, None, :]  # (b, 1, d_model)
         # r length is mem_len + 1; mem tensors are always of length mem_len.
         r = self._build_pos_emb(self.mem_len, 1, d_model)  # (mem_len+1, d_model)
-
-        deterministic = (
-            True  # Dropout disabled by default inside scan unless RNG is provided.
-        )
 
         new_mems = []
         new_k_caches = []

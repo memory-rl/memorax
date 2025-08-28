@@ -383,10 +383,12 @@ class GTrXLCell(RNNCellBase):
     d_head: int | None = None
     d_inner: int | None = None
     mem_len: int = 128
+    input_adapter: bool = True
     dropout_rate: float = 0.0
     attn_dropout_rate: float = 0.0
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
+    carry_dtype: Dtype = jnp.bfloat16
     kernel_init: Initializer = default_kernel_init
     bias_init: Initializer = initializers.zeros_init()
     carry_init: Initializer = initializers.zeros_init()
@@ -405,10 +407,22 @@ class GTrXLCell(RNNCellBase):
         self, carry: tuple[Any, ...], inputs: Array, deterministic: bool = True
     ) -> tuple[tuple[Any, ...], Array]:
         # inputs: (b, d_model)
+
+        d_model = self.features
+        if self.input_adapter and (inputs.shape[-1] != d_model):
+            inputs = Dense(
+                d_model,
+                kernel_init=self.kernel_init,
+                bias_init=self.bias_init,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name="in_proj",
+            )(inputs)
+
         assert inputs.shape[-1] == self.features, "inputs last dim must equal d_model"
 
+
         b = inputs.shape[0]
-        d_model = self.features
         d_inner = self.d_inner or (4 * d_model)
         d_head = self.d_head or (d_model // self.n_heads)
         assert d_model == self.n_heads * d_head, "d_model must equal n_heads * d_head"
@@ -455,13 +469,13 @@ class GTrXLCell(RNNCellBase):
                 mem_cat = jnp.concatenate(
                     [mems[layer_idx], cur], axis=1
                 )  # (b, mem_len+1, d_model)
-                new_mem = mem_cat[:, -self.mem_len :, :]  # keep most recent mem_len
+                new_mem = mem_cat[:, -self.mem_len :, :].astype(self.carry_dtype)  # keep most recent mem_len
             else:
-                new_mem = jnp.zeros((b, 0, d_model), dtype=self.param_dtype)
+                new_mem = jnp.zeros((b, 0, d_model), dtype=self.carry_dtype)
 
             new_mems.append(new_mem)
-            new_k_caches.append(k_cache_upd)
-            new_v_caches.append(v_cache_upd)
+            new_k_caches.append(k_cache_upd.astype(self.carry_dtype))
+            new_v_caches.append(v_cache_upd.astype(self.carry_dtype))
 
         y = h.squeeze(axis=1)  # (b, d_model)
         return (tuple(new_mems), tuple(new_k_caches), tuple(new_v_caches)), y
@@ -474,7 +488,7 @@ class GTrXLCell(RNNCellBase):
         batch_dims = input_shape[:-1]
         mem_shape = batch_dims + (self.mem_len, self.features)
         mems = tuple(
-            self.carry_init(random.fold_in(rng, i), mem_shape, self.param_dtype)
+            self.carry_init(random.fold_in(rng, i), mem_shape, self.carry_dtype)
             for i in range(self.n_layers)
         )
 
@@ -485,11 +499,11 @@ class GTrXLCell(RNNCellBase):
         v_cache_shape = batch_dims + (self.n_heads, self.mem_len, d_head)
 
         k_caches = tuple(
-            jnp.zeros(k_cache_shape, dtype=self.param_dtype)
+            jnp.zeros(k_cache_shape, dtype=self.carry_dtype)
             for _ in range(self.n_layers)
         )
         v_caches = tuple(
-            jnp.zeros(v_cache_shape, dtype=self.param_dtype)
+            jnp.zeros(v_cache_shape, dtype=self.carry_dtype)
             for _ in range(self.n_layers)
         )
 

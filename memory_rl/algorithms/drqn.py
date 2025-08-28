@@ -41,7 +41,7 @@ class DRQN:
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
-        key, env_key, q_key = jax.random.split(key, 3)
+        key, env_key, q_key, memory_key = jax.random.split(key, 4)
         env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
 
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
@@ -54,13 +54,13 @@ class DRQN:
         carry = self.q_network.initialize_carry(obs.shape)
 
         params = self.q_network.init(
-            q_key,
+            {"params": q_key, "memory": memory_key},
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
             initial_carry=carry,
         )
         target_params = self.q_network.init(
-            q_key,
+            {"params": q_key, "memory": memory_key},
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
             initial_carry=carry,
@@ -150,7 +150,7 @@ class DRQN:
                 state,
             ) = carry
 
-            key, step_key, action_key, sample_key = jax.random.split(key, 4)
+            key, step_key, action_key, sample_key, memory_key = jax.random.split(key, 5)
 
             sample_key = jax.random.split(sample_key, self.cfg.algorithm.num_envs)
             random_action = jax.vmap(self.env.action_space(self.env_params).sample)(
@@ -162,6 +162,7 @@ class DRQN:
                 jnp.expand_dims(state.obs, 1),
                 mask=jnp.expand_dims(state.done, 1),
                 initial_carry=state.hidden_state,
+                rngs={"memory": memory_key},
             )
             greedy_action = q_values.squeeze(1).argmax(axis=-1)
 
@@ -217,19 +218,24 @@ class DRQN:
             #     lambda x: jnp.take(x, 0, axis=1), batch.experience.next_hidden_state
             # )
 
+            key, memory_key, next_memory_key = jax.random.split(key, 3)
+
             next_hidden_state, q_next_target = self.q_network.apply(
                 state.target_params,
                 batch.experience.next_obs,
                 mask=batch.experience.next_done,
                 return_carry_history=self.cfg.algorithm.update_hidden_state,
+                rngs={"memory": next_memory_key},
             )
 
             if self.cfg.algorithm.double:
+                memory_key, double_memory_key = jax.random.split(memory_key)
                 _, q_next_online = self.q_network.apply(
                     state.params,
                     batch.experience.next_obs,
                     mask=batch.experience.next_done,
                     return_carry_history=self.cfg.algorithm.update_hidden_state,
+                    rngs={"memory": double_memory_key},
                 )
                 next_actions = jnp.argmax(q_next_online, axis=-1)
                 q_next_target = jnp.take_along_axis(
@@ -260,6 +266,7 @@ class DRQN:
                     batch.experience.obs,
                     mask=batch.experience.done,
                     return_carry_history=self.cfg.algorithm.update_hidden_state,
+                    rngs={"memory": memory_key},
                 )
                 action = jnp.expand_dims(batch.experience.action, axis=-1)
                 q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)

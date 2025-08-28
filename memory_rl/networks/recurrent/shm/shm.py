@@ -4,6 +4,7 @@ from typing import (
     TypeVar,
 )
 
+import jax
 from jax import numpy as jnp
 from jax import random
 
@@ -129,6 +130,7 @@ class SHMCell(RNNCellBase):
 
         # Memory update: M_t = M_{t-1} ⊙ C_t + U_t
         M_new = M * Ct + U
+        # jax.debug.print("M_new: {}", M_new)
 
         # Read: h_t = M_t q(x_t)
         h = jnp.einsum("...ij,...j->...i", M_new, q)

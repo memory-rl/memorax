@@ -16,6 +16,12 @@ def log(logger, logger_state, state, info, *, prefix="evaluation"):
         step = step.item()
     episodic_returns = info["returned_episode_returns"][info["returned_episode"]].mean()
     episodic_lengths = info["returned_episode_lengths"][info["returned_episode"]].mean()
+
+    if "returned_episode_regret" in info:
+        episodic_regret = info["returned_episode_regret"][
+            info["returned_episode"]
+        ].mean()
+
     data = {
         f"{prefix}/episodic_returns": episodic_returns,
         f"{prefix}/episodic_lengths": episodic_lengths,
@@ -28,11 +34,18 @@ def log(logger, logger_state, state, info, *, prefix="evaluation"):
                 or k.endswith("returned_episode")
                 or k.endswith("returned_episode_returns")
                 or k.endswith("returned_episode_lengths")
+                or k.endswith("returned_episode_regret")
+                or k.endswith("timestep")
+                or k.endswith("step_regret")
+                or k.endswith("total_regret")
                 or k.startswith("losses")
             )
         },
         **{k: v.mean() for k, v in info.items() if k.startswith("losses")},
     }
+
+    if "returned_episode_regret" in info:
+        data[f"{prefix}/episodic_regret"] = episodic_regret
     logger_state = logger.log(logger_state, data, step=step)
 
     return logger_state

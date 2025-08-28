@@ -129,7 +129,12 @@ class MaskedRNN(nn.RNN):
             burn_in_inputs, inputs = jnp.split(inputs, [burn_in_length], axis=time_axis)
             burn_in_mask, mask = jnp.split(mask, [burn_in_length], axis=time_axis)
 
-            scan_output = scan(self.cell, carry, burn_in_inputs, burn_in_mask)
+            scan_output = scan(
+                self.cell,
+                carry,
+                burn_in_inputs,
+                burn_in_mask,
+            )
             if slice_carry or return_carry_history:
                 final_burn_in_carry, (burn_in_carry, outputs) = scan_output
             else:

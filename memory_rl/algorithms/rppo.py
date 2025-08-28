@@ -37,7 +37,6 @@ class RPPO:
     critic_network: RecurrentNetwork
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
-    logger: Logger
 
     def init(self, key):
         key, env_key, actor_key, critic_key = jax.random.split(key, 4)
@@ -141,13 +140,18 @@ class RPPO:
     def _actor_loss_fn(self, params, initial_hidden_state, transitions, advantages):
         _, probs = self.actor_network.apply(
             params,
-            observation=transitions.observation,
+            observation=transitions.obs,
             mask=transitions.done,
             initial_carry=initial_hidden_state,
         )
         log_probs = probs.log_prob(transitions.action)
         entropy = probs.entropy().mean()
         ratio = jnp.exp(log_probs - transitions.log_prob)
+        approx_kl = jnp.mean(transitions.log_prob - log_probs)
+        clipfrac = jnp.mean(
+            (jnp.abs(ratio - 1.0) > self.cfg.algorithm.clip_coef).astype(jnp.float32)
+        )
+
         actor_loss = -jnp.minimum(
             ratio * advantages,
             jnp.clip(
@@ -157,12 +161,16 @@ class RPPO:
             )
             * advantages,
         ).mean()
-        return actor_loss - self.cfg.algorithm.ent_coef * entropy, entropy
+        return actor_loss - self.cfg.algorithm.ent_coef * entropy, (
+            entropy,
+            approx_kl,
+            clipfrac,
+        )
 
     def _critic_loss_fn(self, params, initial_hidden_state, transitions, returns):
         _, values = self.critic_network.apply(
             params,
-            observation=transitions.observation,
+            observation=transitions.obs,
             mask=transitions.done,
             initial_carry=initial_hidden_state,
         )
@@ -191,7 +199,7 @@ class RPPO:
             returns,
         ) = minibatch
 
-        (actor_loss, entropy), actor_grads = jax.value_and_grad(
+        (actor_loss, aux), actor_grads = jax.value_and_grad(
             self._actor_loss_fn, has_aux=True
         )(state.actor_params, initial_actor_h_mb, transitions, advantages)
         actor_updates, actor_optimizer_state = self.actor_optimizer.update(
@@ -213,7 +221,7 @@ class RPPO:
             critic_params=critic_params,
             critic_optimizer_state=critic_optimizer_state,
         )
-        return state, (actor_loss, critic_loss, entropy)
+        return state, (actor_loss, critic_loss, aux)
 
     def _update_epoch(self, carry: tuple, _):
 
@@ -250,7 +258,7 @@ class RPPO:
             shuffled_batch,
         )
 
-        state, (actor_loss, critic_loss, entropy) = jax.lax.scan(
+        state, (actor_loss, critic_loss, aux) = jax.lax.scan(
             self._update_minibatch,
             state,
             minibatches,
@@ -264,7 +272,7 @@ class RPPO:
             transitions,
             advantages,
             returns,
-        ), (actor_loss, critic_loss, entropy)
+        ), (actor_loss, critic_loss, aux)
 
     def _update_step(self, carry: tuple, _):
 
@@ -305,7 +313,7 @@ class RPPO:
         if self.cfg.algorithm.normalize_advantage:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        (key, state, *_), (actor_loss, critic_loss, entropy) = jax.lax.scan(
+        (key, state, *_), (actor_loss, critic_loss, aux) = jax.lax.scan(
             self._update_epoch,
             (
                 key,
@@ -319,39 +327,24 @@ class RPPO:
             length=self.cfg.algorithm.update_epochs,
         )
 
-        def callback(logger, step, info, actor_loss, critic_loss, entropy):
-            if info["returned_episode"].any():
-                data = {
-                    "training/episodic_returns": info[
-                        "returned_episode_returns"
-                    ].mean(),
-                    "training/episodic_lengths": info[
-                        "returned_episode_lengths"
-                    ].mean(),
-                    "losses/actor_loss": actor_loss.mean(),
-                    "losses/critic_loss": critic_loss.mean(),
-                    "losses/entropy": entropy.mean(),
-                }
-                logger.log(data, step=step)
+        info = transitions.info
 
-        jax.debug.callback(
-            callback,
-            self.logger,
-            state.step,
-            transitions.info,
-            actor_loss,
-            critic_loss,
-            entropy,
-        )
+        info["losses/actor_loss"] = actor_loss.mean()
+        info["losses/critic_loss"] = critic_loss.mean()
+
+        entropy, approx_kl, clipfrac = aux
+        info["losses/entropy"] = entropy.mean()
+        info["losses/approx_kl"] = approx_kl.mean()
+        info["losses/clipfrac"] = clipfrac.mean()
 
         return (
             key,
             state,
-        ), transitions.info
+        ), info
 
     def train(self, key, state, num_steps):
 
-        (key, state), info = tqdx.scan(
+        (key, state), info = jax.lax.scan(
             self._update_step,
             (key, state),
             length=num_steps
@@ -462,5 +455,4 @@ def make_rppo(cfg, env, env_params, logger):
         critic_network=critic,
         actor_optimizer=actor_optimizer,
         critic_optimizer=critic_optimizer,
-        logger=logger,
     )

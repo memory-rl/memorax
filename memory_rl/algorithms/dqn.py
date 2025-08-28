@@ -349,12 +349,7 @@ def make_dqn(cfg, env, env_params, logger) -> DQN:
         head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
 
-    buffer = fbx.make_flat_buffer(
-        max_length=cfg.algorithm.buffer_size,
-        min_length=cfg.algorithm.batch_size,
-        sample_batch_size=cfg.algorithm.batch_size,
-        add_batch_size=cfg.algorithm.num_envs,
-    )
+    buffer = instantiate(cfg.algorithm.buffer)
     optimizer = optax.adam(learning_rate=cfg.algorithm.learning_rate)
     epsilon_schedule = optax.linear_schedule(
         cfg.algorithm.start_e,

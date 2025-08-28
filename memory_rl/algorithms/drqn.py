@@ -38,7 +38,6 @@ class DRQN:
     optimizer: optax.GradientTransformation
     buffer: fbx.trajectory_buffer.TrajectoryBuffer
     epsilon_schedule: optax.Schedule
-    logger: Logger
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -323,28 +322,8 @@ class DRQN:
             key, update_key = jax.random.split(key)
             state, loss, q_value = update(update_key, state)
 
-            def callback(logger, step, info, loss, q_value):
-                if info["returned_episode"].any():
-                    data = {
-                        "training/episodic_returns": info["returned_episode_returns"][
-                            info["returned_episode"]
-                        ].mean(),
-                        "training/episodic_lengths": info["returned_episode_lengths"][
-                            info["returned_episode"]
-                        ].mean(),
-                        "losses/loss": loss,
-                        "losses/q_value": q_value,
-                    }
-                    logger.log(data, step=step)
-
-            jax.debug.callback(
-                callback,
-                self.logger,
-                state.step,
-                info,
-                loss,
-                q_value,
-            )
+            info["losses/loss"] = loss
+            info["losses/q_value"] = q_value
 
             return (key, state), info
 
@@ -456,5 +435,4 @@ def make_drqn(cfg, env, env_params, logger) -> DRQN:
         optimizer=optimizer,  # type: ignore
         buffer=buffer,  # type: ignore
         epsilon_schedule=epsilon_schedule,  # type: ignore
-        logger=logger,
     )

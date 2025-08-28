@@ -1,6 +1,6 @@
 version = 1
 revision = 2
-requires-python = "==3.10.*"
+requires-python = "==3.10.18"
 resolution-markers = [
     "sys_platform == 'linux'",
     "sys_platform != 'linux'",
@@ -1006,7 +1006,9 @@ dependencies = [
     { name = "jumanji" },
     { name = "navix" },
     { name = "omegaconf" },
+    { name = "orbax" },
     { name = "pobax" },
+    { name = "tqdx" },
     { name = "wandb" },
 ]
 
@@ -1036,7 +1038,9 @@ requires-dist = [
     { name = "jumanji", specifier = ">=1.1.1" },
     { name = "navix", specifier = ">=0.7.0" },
     { name = "omegaconf", specifier = ">=2.3.0" },
+    { name = "orbax", specifier = ">=0.1.9" },
     { name = "pobax", specifier = ">=0.0.1" },
+    { name = "tqdx", specifier = ">=0.1.3" },
     { name = "wandb", specifier = ">=0.21.0" },
 ]
 provides-extras = ["cuda"]
@@ -1350,6 +1354,15 @@ sdist = { url = "https://files.pythonhosted.org/packages/c0/75/1e011953c48be502d
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b9/33/f86091c706db1a5459f501830241afff2ecab3532725c188ea57be6e54de/optax-0.2.5-py3-none-any.whl", hash = "sha256:966deae936207f268ac8f564d8ed228d645ac1aaddefbbf194096d2299b24ba8", size = 354324, upload-time = "2025-06-10T17:00:46.062Z" },
 ]
+
+[[package]]
+name = "orbax"
+version = "0.1.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "orbax-checkpoint" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c7/78/0e144f12703c95d4495e9abc390c2f548ee9f24d2e487137108a921b1d81/orbax-0.1.9.tar.gz", hash = "sha256:42dd487ceef9fbf027f4720f3d041686af75120466a528a8a8141226bc197218", size = 1649, upload-time = "2023-09-06T20:43:02.819Z" }
 
 [[package]]
 name = "orbax-checkpoint"
@@ -1959,6 +1972,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a8/4b/29b4ef32e036bb34e4ab51796dd745cdba7ed47ad142a9f4a1eb8e0c744d/tqdm-4.67.1.tar.gz", hash = "sha256:f8aef9c52c08c13a65f30ea34f4e5aac3fd1a34959879d7e59e63027286627f2", size = 169737, upload-time = "2024-11-24T20:12:22.481Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d0/30/dc54f88dd4a2b5dc8a0279bdd7270e735851848b762aeb1c1184ed1f6b14/tqdm-4.67.1-py3-none-any.whl", hash = "sha256:26445eca388f82e72884e0d580d5464cd801a3ea01e63e5601bdff9ba6a48de2", size = 78540, upload-time = "2024-11-24T20:12:19.698Z" },
+]
+
+[[package]]
+name = "tqdx"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jax" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/52/34/45558925de9ea31d14d2e6541f325a119b95f7e912c1b5afc6851af783a1/tqdx-0.1.3.tar.gz", hash = "sha256:fb375b501ab3e26272e997eec073d97ff69900f8b424d5039afcce5963c1a07a", size = 3511, upload-time = "2025-07-21T14:28:36.71Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6a/40/466c9b5f1323747c943f53b64afefe6a65f5eb780dd040b5ead648e86fd2/tqdx-0.1.3-py3-none-any.whl", hash = "sha256:e615d03f988b3e2e8931d38477bfa1a761452b575dd256f87c08731165615bb1", size = 4461, upload-time = "2025-07-21T14:28:35.724Z" },
 ]
 
 [[package]]

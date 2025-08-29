@@ -7,7 +7,7 @@ from memory_rl.networks.recurrent import (
     GPTConfig,
     GPTRNNCell,
     MaskedRNN,
-    mLSTM,
+    mLSTMBlock,
     sLSTMCell,
     sLSTMBlock,
     GTrXLCell,

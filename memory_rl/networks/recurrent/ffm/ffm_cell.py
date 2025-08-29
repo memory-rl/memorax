@@ -21,6 +21,9 @@ class FFMCell(nn.RNNCellBase):
     min_period: int = 1
     max_period: int = 1024
 
+    kernel_init: nn.initializers.Initializer = None
+    bias_init: nn.initializers.Initializer = None
+
     @property
     def num_feature_axes(self) -> int:
         return 1

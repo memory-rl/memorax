@@ -82,9 +82,10 @@ class MaskedRNN(nn.RNN):
 
         carry: Any
         input_shape = inputs.shape[:time_axis] + inputs.shape[time_axis + 1 :]
+
+        if init_key is None:
+            init_key = jax.random.key(0)
         if initial_carry is None:
-            if init_key is None:
-                init_key = jax.random.key(0)
             carry = self.cell.initialize_carry(init_key, input_shape)
         else:
             carry = initial_carry
@@ -92,6 +93,7 @@ class MaskedRNN(nn.RNN):
         slice_carry = seq_lengths is not None and return_carry
 
         initial_carry = self.cell.initialize_carry(init_key, input_shape)
+
         def scan_fn(cell, carry, x, mask):
             carry = jax.tree.map(
                 lambda initial_carry, carry: jnp.where(

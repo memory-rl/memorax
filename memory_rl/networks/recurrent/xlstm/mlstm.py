@@ -5,7 +5,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
-from .utils import BlockLinear, CausalConv1D
+from utils import BlockLinear, CausalConv1D
 
 
 @flax.struct.dataclass

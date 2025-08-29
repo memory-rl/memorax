@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
-from slstm import sLSTM
+from slstm import sLSTMBlock
 from mlstm import mLSTM
 import optax
 
@@ -10,14 +10,11 @@ def test_slstm():
     seq_length = 10
     inp_dim = 32
 
-    rnn = nn.RNN(sLSTM(
-        inp_dim=inp_dim,
-        head_dim=64,
-        head_num=4,
-        ker_size=4,
-        p_factor=4/3,
-        eps=1e-8,
-        use_conv=True
+    rnn = nn.RNN(sLSTMBlock(
+        features=inp_dim,
+        num_layers=2,
+        num_heads=4,
+        mlp_pf=4.0/3,
     ))
 
     x = jnp.ones((batch_size, seq_length, inp_dim))
@@ -48,14 +45,11 @@ def test_slstm_overfit_dummy_data():
     seq_length = 10
     inp_dim = 4
 
-    rnn = nn.RNN(sLSTM(
-        inp_dim=inp_dim,
-        head_dim=4,
-        head_num=2,
-        ker_size=4,
-        p_factor=4/3,
-        eps=1e-8,
-        use_conv=True
+    rnn = nn.RNN(sLSTMBlock(
+        features=inp_dim,
+        num_layers=2,
+        num_heads=4,
+        mlp_pf=4.0/3,
     ))
 
     x = jax.random.normal(jax.random.PRNGKey(1), (batch_size, seq_length, inp_dim))
@@ -80,7 +74,7 @@ def test_slstm_overfit_dummy_data():
         new_params = optax.apply_updates(params, updates)
         return new_params, opt_state
 
-    for _ in range(1000):
+    for _ in range(5000):
         variables, opt_state = update(variables, opt_state)
 
     final_loss = loss_fn(variables)
@@ -125,3 +119,10 @@ def test_mlstm_overfit_dummy_data():
 
     final_loss = loss_fn(variables)
     assert final_loss < 1e-3, f"Model did not overfit: final loss {final_loss}"
+
+
+if __name__ == "__main__":
+    test_mlstm()
+    test_mlstm_overfit_dummy_data()
+    test_slstm()
+    test_slstm_overfit_dummy_data()

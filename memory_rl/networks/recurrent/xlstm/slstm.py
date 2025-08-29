@@ -9,12 +9,14 @@ import jax
 from jax import numpy as jnp
 from jax import random
 
+import flax.linen as nn
 from flax.linen import initializers, LayerNorm, GroupNorm
 from flax.linen.activation import sigmoid, tanh
 from flax.linen.dtypes import promote_dtype
 from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.module import Module, compact, nowrap
 from flax.linen.recurrent import RNNCellBase
+import math
 from flax.typing import (
     Array,
     PRNGKey,
@@ -163,9 +165,6 @@ class sLSTMCell(RNNCellBase):
         return 1
 
 
-import math
-
-
 class BlockDiagonalDense(Module):
     """Block-diagonal (per-head) linear layer: split features into NH heads and
     apply a head-local Dense. Equivalent to a block-diagonal weight matrix."""
@@ -277,6 +276,7 @@ class sLSTMBlock(RNNCellBase):
 
     features: int
     num_heads: int = 4
+    num_layers: int = 1
     use_causal_conv: bool = True
     conv_kernel_size: int = 4
 
@@ -309,152 +309,170 @@ class sLSTMBlock(RNNCellBase):
         carry: tuple[Array, Array, Array, Array, Array],  # (c, n, h, m, convbuf)
         inputs: Array,
     ) -> tuple[tuple[Array, Array, Array, Array, Array], Array]:
-        c, n, h, m, convbuf = carry
+        c, n, h, m, convbuf = carry  # Each: (batch, num_layers, ...)
         if self.features % self.num_heads != 0:
             raise ValueError(
                 f"features ({self.features}) must be divisible by num_heads ({self.num_heads})."
             )
-
-        # Pre-LayerNorm (pre-LN residual backbone)
-        x_ln = LayerNorm(
-            use_scale=True,
-            use_bias=True,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="pre_ln",
-        )(inputs)
-
-        # Optional causal Conv(K) with Swish for i/f gate inputs (depthwise per-feature).
-        # window = [x_t, x_{t-1}, ..., x_{t-K+1}] in convbuf order.
-        if self.use_causal_conv:
-            K = self.conv_kernel_size
-            # conv kernels: (K, d), depthwise; separate params for i and f
-            k_i = self.param(
-                "conv_i_kernel", self.kernel_init, (K, self.features), self.param_dtype
+        x = inputs
+        new_carry = []
+        for layer in range(self.num_layers):
+            c_l = c[:, layer]
+            n_l = n[:, layer]
+            h_l = h[:, layer]
+            m_l = m[:, layer]
+            convbuf_l = convbuf[:, layer]
+            x_ln = LayerNorm(
+                use_scale=True,
+                use_bias=True,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name=f"pre_ln_{layer}",
+            )(x)
+            if self.use_causal_conv:
+                K = self.conv_kernel_size
+                k_i = self.param(
+                    f"conv_i_kernel_{layer}", self.kernel_init, (K, self.features), self.param_dtype
+                )
+                k_f = self.param(
+                    f"conv_f_kernel_{layer}", self.kernel_init, (K, self.features), self.param_dtype
+                )
+                win = jnp.concatenate([x_ln[..., None, :], convbuf_l], axis=-2)
+                conv_i = jnp.sum(win * k_i, axis=-2)
+                conv_f = jnp.sum(win * k_f, axis=-2)
+                conv_i = jax.nn.silu(conv_i)
+                conv_f = jax.nn.silu(conv_f)
+                new_convbuf_l = jnp.concatenate(
+                    [x_ln[..., None, :], convbuf_l[..., :-1, :]], axis=-2
+                )
+            else:
+                conv_i = conv_f = 0.0
+                new_convbuf_l = convbuf_l
+            linear_block_diagonal_dense = partial(
+                BlockDiagonalDense,
+                self.num_heads,
+                use_bias=False,
+                kernel_init=self.kernel_init,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
             )
-            k_f = self.param(
-                "conv_f_kernel", self.kernel_init, (K, self.features), self.param_dtype
+            recurrent_block_diagonal_dense = partial(
+                BlockDiagonalDense,
+                self.num_heads,
+                use_bias=True,
+                kernel_init=self.recurrent_kernel_init,
+                bias_init=self.bias_init,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
             )
-            # assemble current causal window
-            win = jnp.concatenate([x_ln[..., None, :], convbuf], axis=-2)  # (..., K, d)
-            conv_i = jnp.sum(win * k_i, axis=-2)
-            conv_f = jnp.sum(win * k_f, axis=-2)
-            conv_i = jax.nn.silu(conv_i)
-            conv_f = jax.nn.silu(conv_f)
-            # update conv buffer (prepend x_t, drop oldest)
-            new_convbuf = jnp.concatenate(
-                [x_ln[..., None, :], convbuf[..., :-1, :]], axis=-2
-            )
-        else:
-            conv_i = conv_f = 0.0
-            new_convbuf = convbuf  # unchanged
-
-        linear_block_diagonal_dense = partial(
-            BlockDiagonalDense,
-            self.num_heads,
-            use_bias=False,
-            kernel_init=self.kernel_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-        recurrent_block_diagonal_dense = partial(
-            BlockDiagonalDense,
-            self.num_heads,
-            use_bias=True,
-            kernel_init=self.recurrent_kernel_init,
-            bias_init=self.bias_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-
-        # Block-diagonal (per-head) input/recurrent linears for gates and candidate
-        lin_x = {
-            "z": linear_block_diagonal_dense(name="x_z"),
-            "i": linear_block_diagonal_dense(name="x_i"),
-            "f": linear_block_diagonal_dense(name="x_f"),
-            "o": linear_block_diagonal_dense(name="x_o"),
-        }
-        lin_h = {
-            "z": recurrent_block_diagonal_dense(name="h_z"),
-            "i": recurrent_block_diagonal_dense(name="h_i"),
-            "f": recurrent_block_diagonal_dense(name="h_f"),
-            "o": recurrent_block_diagonal_dense(name="h_o"),
-        }
-
-        z_raw = lin_x["z"](x_ln) + lin_h["z"](h)
-        i_raw = lin_x["i"](x_ln) + lin_h["i"](h) + conv_i
-        f_raw = lin_x["f"](x_ln) + lin_h["f"](h) + conv_f
-        o_raw = lin_x["o"](x_ln) + lin_h["o"](h)
-
-        z = self.activation_fn(z_raw)
-        o = sigmoid(o_raw)
-
-        if self.stabilize:
-            log_f = self._log_forget(f_raw)  # log f_t
-            m_new = jnp.maximum(log_f + m, i_raw)  # stabilizer update
-            i_p = jnp.exp(i_raw - m_new)
-            f_p = jnp.exp(log_f + m - m_new)
-        else:
-            m_new = m
-            i_p = jnp.exp(i_raw)
-            f_p = self._apply_forget_no_stabilize(f_raw)
-
-        c_new = f_p * c + i_p * z
-        n_new = f_p * n + i_p
-        h_tilde = c_new / jnp.maximum(n_new, self.eps)
-        h_new = o * h_tilde  # hidden of the cell
-
-        # Head-wise normalization (GroupNorm with NH groups)
-        h_norm = GroupNorm(
-            num_groups=self.num_heads,
-            use_bias=True,
-            use_scale=True,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="head_group_norm",
-        )(h_new)
-        h = h_norm + inputs
-        h_ln = LayerNorm(
-            use_scale=True,
-            use_bias=True,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="post_ln",
-        )(h)
-
-        # Post up-projection: gated MLP (GeGLU) with Pf = 4/3
-        mlp_out = GatedMLP(
-            self.features,
-            pf=self.mlp_pf,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="geglu",
-        )(h_ln)
-
-        y = mlp_out + h  # pre-LN residual
-
-        new_carry = (c_new, n_new, h_new, m_new, new_convbuf)
-        return new_carry, y
-
+            lin_x = {
+                "z": linear_block_diagonal_dense(name=f"x_z_{layer}"),
+                "i": linear_block_diagonal_dense(name=f"x_i_{layer}"),
+                "f": linear_block_diagonal_dense(name=f"x_f_{layer}"),
+                "o": linear_block_diagonal_dense(name=f"x_o_{layer}"),
+            }
+            lin_h = {
+                "z": recurrent_block_diagonal_dense(name=f"h_z_{layer}"),
+                "i": recurrent_block_diagonal_dense(name=f"h_i_{layer}"),
+                "f": recurrent_block_diagonal_dense(name=f"h_f_{layer}"),
+                "o": recurrent_block_diagonal_dense(name=f"h_o_{layer}"),
+            }
+            z_raw = lin_x["z"](x_ln) + lin_h["z"](h_l)
+            i_raw = lin_x["i"](x_ln) + lin_h["i"](h_l) + conv_i
+            f_raw = lin_x["f"](x_ln) + lin_h["f"](h_l) + conv_f
+            o_raw = lin_x["o"](x_ln) + lin_h["o"](h_l)
+            z = self.activation_fn(z_raw)
+            o = sigmoid(o_raw)
+            if self.stabilize:
+                log_f = self._log_forget(f_raw)
+                m_new_l = jnp.maximum(log_f + m_l, i_raw)
+                i_p = jnp.exp(i_raw - m_new_l)
+                f_p = jnp.exp(log_f + m_l - m_new_l)
+            else:
+                m_new_l = m_l
+                i_p = jnp.exp(i_raw)
+                f_p = self._apply_forget_no_stabilize(f_raw)
+            c_new_l = f_p * c_l + i_p * z
+            n_new_l = f_p * n_l + i_p
+            h_tilde = c_new_l / jnp.maximum(n_new_l, self.eps)
+            h_new_l = o * h_tilde
+            h_norm = GroupNorm(
+                num_groups=self.num_heads,
+                use_bias=True,
+                use_scale=True,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name=f"head_group_norm_{layer}",
+            )(h_new_l)
+            h_res = h_norm + x
+            h_ln = LayerNorm(
+                use_scale=True,
+                use_bias=True,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name=f"post_ln_{layer}",
+            )(h_res)
+            mlp_out = GatedMLP(
+                self.features,
+                pf=self.mlp_pf,
+                kernel_init=self.kernel_init,
+                bias_init=self.bias_init,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                name=f"geglu_{layer}",
+            )(h_ln)
+            y = mlp_out + h_res
+            # Prepare carry for this layer
+            new_carry.append((c_new_l, n_new_l, h_new_l, m_new_l, new_convbuf_l))
+            # Output for next layer
+            x = y
+        # Stack carry arrays: each (batch, features) -> (batch, num_layers, features)
+        c_new = jnp.stack([nc[0] for nc in new_carry], axis=1)
+        n_new = jnp.stack([nc[1] for nc in new_carry], axis=1)
+        h_new = jnp.stack([nc[2] for nc in new_carry], axis=1)
+        m_new = jnp.stack([nc[3] for nc in new_carry], axis=1)
+        convbuf_new = jnp.stack([nc[4] for nc in new_carry], axis=1)
+        return (c_new, n_new, h_new, m_new, convbuf_new), x
+    
     @nowrap
     def initialize_carry(
         self, rng: PRNGKey, input_shape: tuple[int, ...]
     ) -> tuple[Array, Array, Array, Array, Array]:
         batch_dims = input_shape[:-1]
         k1, k2, k3, k4, k5 = random.split(rng, 5)
-        mem_shape = batch_dims + (self.features,)
+        mem_shape = batch_dims + (self.num_layers, self.features)
         c0 = self.carry_init(k1, mem_shape, self.param_dtype)
         n0 = self.carry_init(k2, mem_shape, self.param_dtype)
         h0 = self.carry_init(k3, mem_shape, self.param_dtype)
         m0 = self.carry_init(k4, mem_shape, self.param_dtype)
-        # conv buffer holds K-1 previous LN(x); keep even if use_causal_conv=False for shape stability
         K = self.conv_kernel_size
-        buf_shape = batch_dims + (max(K - 1, 0), self.features)
+        buf_shape = batch_dims + (self.num_layers, max(K - 1, 0), self.features)
         convbuf0 = self.carry_init(k5, buf_shape, self.param_dtype)
         return (c0, n0, h0, m0, convbuf0)
 
     @property
     def num_feature_axes(self) -> int:
         return 1
+
+
+if __name__ == "__main__":
+    batch_size = 2
+    seq_length = 10
+    embedding_dim = 64
+
+    rnn = nn.RNN(
+        sLSTMBlock(
+            features=embedding_dim,
+            num_heads=4,
+            num_layers=2,  # Example: 2 layers
+        )
+    )
+
+    x = jnp.ones((batch_size, seq_length, embedding_dim))
+    variables = rnn.init(jax.random.PRNGKey(0), x)
+    y = rnn.apply(variables, x)
+    assert y.shape == (
+        batch_size,
+        seq_length,
+        embedding_dim,
+    ), f"Unexpected output shape: {y.shape}"

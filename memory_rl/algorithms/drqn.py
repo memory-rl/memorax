@@ -10,7 +10,6 @@ import optax
 from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
-import tqdx
 
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import periodic_incremental_update, Transition

@@ -8,7 +8,7 @@ name: drqn
 learning_rate:       3e-4
 num_envs:            10
 num_eval_envs:       10
-buffer_size:         10_000
+buffer_size:         100_000
 gamma:               0.99
 tau:                 1.0
 target_network_frequency: 1000

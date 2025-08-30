@@ -80,6 +80,9 @@ class mLSTMCell(RNNCellBase):
 
     @compact
     def __call__(self, carry, inputs):
+        assert (
+            inputs.shape[-1] != self.features
+        ), f"xLSTMCell: input width {inputs.shape[-1]} != features {self.features}. "
         (C, n, m, h_prev) = carry
         assert (
             self.features % self.num_heads == 0

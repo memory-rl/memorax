@@ -1,9 +1,2 @@
 _target_: memory_rl.networks.recurrent.sLSTMBlock
 features: 128
-# inp_dim: 128
-# head_num: 1
-# head_dim: 4
-# ker_size: 4  # in almost all cases ker_size should be 4
-# # p_factor: 4/3  # p_factor of 4/3 as in xLSTM paper
-# # eps: 1e-8,  # for numerical stability
-# use_conv: True

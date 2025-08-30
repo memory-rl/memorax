@@ -10,8 +10,8 @@ import optax
 from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
+import tqdx
 
-from memory_rl.loggers import Logger
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import periodic_incremental_update, Transition
 
@@ -380,11 +380,8 @@ class DRQN:
             )(step_key, state.env_state, action, self.env_params)
 
             transition = Transition(
-                obs=state.obs,  # type: ignore
                 done=state.done,  # type: ignore
-                action=action,  # type: ignore
                 reward=reward,  # type: ignore
-                next_obs=next_obs,  # type: ignore
                 next_done=next_done,  # type: ignore
                 info=info,  # type: ignore
             )

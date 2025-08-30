@@ -26,13 +26,128 @@ class GymnaxWrapper(object):
 
 
 @struct.dataclass
-class LogEnvState:
-    env_state: environment.EnvState
-    episode_returns: float
-    episode_lengths: int
-    returned_episode_returns: float
-    returned_episode_lengths: int
-    timestep: int
+class WrappedParams:
+    env_params: Any
+    max_steps_in_episode: int
+
+
+def _as_int(x) -> int:
+    if isinstance(x, (int, np.integer)):
+        return int(x)
+    if hasattr(x, "item"):
+        return int(x.item())
+    return int(x)
+
+
+class PopGymWrapper(GymnaxWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+
+    @property
+    def default_params(self) -> WrappedParams:
+        env_params = self._env.default_params
+        max_steps = self._infer_max_steps(self._env, env_params)
+        return WrappedParams(env_params=env_params, max_steps_in_episode=max_steps)
+
+    def reset_env(
+        self, key: chex.PRNGKey, params: WrappedParams
+    ) -> Tuple[chex.Array, Any]:
+        return self._env.reset_env(key, params.env_params)
+
+    def step_env(
+        self, key: chex.PRNGKey, state: Any, action: Any, params: WrappedParams
+    ) -> Tuple[chex.Array, Any, float, bool, dict]:
+        obs, new_state, reward, done, info = self._env.step_env(
+            key, state, action, params.env_params
+        )
+        return obs, new_state, reward, done, info
+
+    def action_space(self, params: Optional[WrappedParams] = None) -> spaces.Space:
+        env_params = self._env_params(params)
+        return self._env.action_space(env_params)
+
+    def observation_space(self, params: Optional[WrappedParams] = None) -> spaces.Space:
+        env_params = self._env_params(params)
+        return self._env.observation_space(env_params)
+
+    def state_space(self, params: Optional[WrappedParams] = None) -> spaces.Space:
+        if hasattr(self._env, "state_space"):
+            env_params = self._env_params(params)
+            return self._env.state_space(env_params)
+        return super().state_space(params)
+
+    @property
+    def name(self) -> str:
+        return getattr(self._env, "name", self.env.__class__.__name__)
+
+    @property
+    def num_actions(self) -> int:
+        return (
+            getattr(self._env, "num_actions", None)
+            or self._env.action_space(self.env.default_params).n
+        )
+
+    def _env_params(self, params: Optional[WrappedParams]):
+        return self._env.default_params if (params is None) else params.env_params
+
+    def _infer_max_steps(self, env, params) -> int:
+        """
+        Try common horizon fields first; fall back to simple derivations.
+        Handles your Battleship, CartPole, Concentration, CountRecall,
+        HigherLower, MineSweeper, MultiarmedBandit, Pendulum, Repeat*, and MetaCartPole.
+        """
+        # Direct fields on the env instance
+        for attr in [
+            "max_steps_in_episode",  # CartPole, Pendulum, etc.
+            "max_episode_length",  # Battleship, MineSweeper
+            "episode_length",  # MultiarmedBandit, Concentration (ceil expr)
+        ]:
+            if hasattr(env, attr):
+                return _as_int(getattr(env, attr))
+
+        # Derived by convention
+        # Deck/card-based games
+        if hasattr(env, "decksize") and hasattr(env, "num_decks"):
+            return _as_int(getattr(env, "decksize") * getattr(env, "num_decks"))
+
+        if hasattr(env, "num_cards"):
+            return _as_int(getattr(env, "num_cards"))
+
+        # Grid + mines (in case max_episode_length wasn't present)
+        if hasattr(env, "dims") and hasattr(env, "num_mines"):
+            dims = np.array(getattr(env, "dims"))
+            return int(int(dims[0]) * int(dims[1]) - int(getattr(env, "num_mines")))
+
+        # Meta envs (e.g., NoisyStatelessMetaCartPole)
+        # If params has num_trials_per_episode and the env holds an inner env with a per-trial max,
+        # report worst-case as trials * inner_max.
+        if hasattr(params, "num_trials_per_episode") and hasattr(env, "env"):
+            trials = _as_int(getattr(params, "num_trials_per_episode"))
+            inner_env = getattr(env, "env")
+            # Prefer inner explicit horizons; else recurse to derive from inner+its default params.
+            inner_default = getattr(
+                params, "env_params", getattr(inner_env, "default_params", None)
+            )
+            if callable(inner_default):
+                inner_default = inner_default()
+            inner_max = None
+            for attr in [
+                "max_steps_in_episode",
+                "max_episode_length",
+                "episode_length",
+            ]:
+                if hasattr(inner_env, attr):
+                    inner_max = _as_int(getattr(inner_env, attr))
+                    break
+            if inner_max is None:
+                # Recurse with inner env + its params
+                inner_max = self._infer_max_steps(inner_env, inner_default)
+            return int(trials * inner_max)
+
+        raise ValueError(
+            f"Could not infer max_steps_in_episode for {env.__class__.__name__}. "
+            "Pass override_max_steps=... to PopGymWrapper."
+        )
 
 
 @struct.dataclass
@@ -94,6 +209,16 @@ class BSuiteWrapper(GymnaxWrapper):
         info["total_regret"] = episode_regret
 
         return obs, new_state, reward, done, info
+
+
+@struct.dataclass
+class LogEnvState:
+    env_state: environment.EnvState
+    episode_returns: float
+    episode_lengths: int
+    returned_episode_returns: float
+    returned_episode_lengths: int
+    timestep: int
 
 
 class LogWrapper(GymnaxWrapper):

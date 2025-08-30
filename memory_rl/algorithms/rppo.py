@@ -2,7 +2,6 @@ import chex
 import flax.linen as nn
 import gymnax
 import jax
-import tqdx
 import jax.numpy as jnp
 import optax
 from flax import core

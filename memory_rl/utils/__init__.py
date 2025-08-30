@@ -6,6 +6,7 @@ from .wrapper import (
     LogWrapper,
     NavixGymnaxWrapper,
     PixelCraftaxEnvWrapper,
+    PopGymWrapper,
 )
 from .decorators import callback
 from .dataclasses import Transition

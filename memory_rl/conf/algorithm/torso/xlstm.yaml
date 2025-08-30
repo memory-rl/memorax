@@ -1,0 +1,17 @@
+_target_: memory_rl.networks.recurrent.xLSTMCell
+
+features: 128
+pattern: ["s", "m"]  # any order/length
+
+s_kwargs:
+  num_heads: 8
+  use_causal_conv: true
+  conv_kernel_size: 4
+  mlp_pf: ${eval:4/3}
+
+m_kwargs:
+  num_heads: 8
+  up_proj_factor: 2
+  conv1d_kernel_size: 4
+  qkv_proj_blocksize: 4
+

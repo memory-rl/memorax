@@ -421,7 +421,7 @@ def make_drqn(cfg, env, env_params, logger) -> DRQN:
         min_length_time_axis=min_length_time_axis,
     )
     optimizer = optax.chain(
-        optax.clip_by_global_norm(10.0),
+        optax.clip_by_global_norm(1.0),
         optax.adam(learning_rate=cfg.algorithm.learning_rate),
     )
     epsilon_schedule = optax.linear_schedule(

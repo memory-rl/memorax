@@ -39,7 +39,9 @@ class RPPO:
     critic_optimizer: optax.GradientTransformation
 
     def init(self, key):
-        key, env_key, actor_key, actor_memory_key, critic_key, critic_memory_key = jax.random.split(key, 6)
+        key, env_key, actor_key, actor_memory_key, critic_key, critic_memory_key = (
+            jax.random.split(key, 6)
+        )
 
         env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
@@ -91,7 +93,9 @@ class RPPO:
     def _step(self, carry: tuple, _):
         key, state = carry
 
-        key, action_key, step_key, actor_memory_key, critic_memory_key = jax.random.split(key, 5)
+        key, action_key, step_key, actor_memory_key, critic_memory_key = (
+            jax.random.split(key, 5)
+        )
 
         actor_h_next, probs = self.actor_network.apply(
             state.actor_params,
@@ -139,7 +143,9 @@ class RPPO:
         )
         return (key, state), transition
 
-    def _actor_loss_fn(self, params, actor_key, initial_hidden_state, transitions, advantages):
+    def _actor_loss_fn(
+        self, params, actor_key, initial_hidden_state, transitions, advantages
+    ):
         _, probs = self.actor_network.apply(
             params,
             observation=transitions.obs,
@@ -170,7 +176,9 @@ class RPPO:
             clipfrac,
         )
 
-    def _critic_loss_fn(self, params, critic_key, initial_hidden_state, transitions, returns):
+    def _critic_loss_fn(
+        self, params, critic_key, initial_hidden_state, transitions, returns
+    ):
         _, values = self.critic_network.apply(
             params,
             observation=transitions.obs,
@@ -389,11 +397,8 @@ class RPPO:
             )(step_key, env_state, action, self.env_params)
 
             transition = Transition(
-                obs=obs,  # type: ignore
-                action=action,  # type: ignore
                 reward=reward,  # type: ignore
                 done=done,  # type: ignore
-                next_obs=next_obs,  # type: ignore
                 info=info,  # type: ignore
             )
 

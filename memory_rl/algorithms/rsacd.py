@@ -450,11 +450,8 @@ class RSACD:
             )(env_key, state.env_state, action, self.env_params)
 
             transition = Transition(
-                obs=state.obs,  # type: ignore
-                action=action,  # type: ignore
                 reward=reward,  # type: ignore
                 done=next_done,  # type: ignore
-                next_obs=next_obs,  # type: ignore
                 info=info,  # type: ignore
             )
 

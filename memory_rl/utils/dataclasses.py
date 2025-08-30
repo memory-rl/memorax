@@ -4,10 +4,10 @@ import chex
 
 @chex.dataclass(frozen=True)
 class Transition:
-    obs: chex.Array
-    done: chex.Array
-    action: chex.Array
-    reward: chex.Array
+    obs: Optional[chex.Array] = None
+    done: Optional[chex.Array] = None
+    action: Optional[chex.Array] = None
+    reward: Optional[chex.Array] = None
     next_obs: Optional[chex.Array] = None
     next_done: Optional[chex.Array] = None
     info: Optional[dict] = None

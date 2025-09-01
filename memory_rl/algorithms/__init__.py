@@ -7,6 +7,7 @@ from memory_rl.algorithms.rsac import make_rsac
 from memory_rl.algorithms.sac import make_sac
 from memory_rl.algorithms.sacd import make_sacd
 from memory_rl.algorithms.rsacd import make_rsacd
+from memory_rl.algorithms.pqn import make_pqn
+from memory_rl.algorithms.rpqn import make_rpqn
 
 from memory_rl.algorithms.algorithm import Algorithm, State, make
-

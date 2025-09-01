@@ -190,18 +190,13 @@ class RPQN:
 
             return (key, state), transition
 
-        def preprocess_transition(key, x):
-            x = jax.random.permutation(key, x, axis=1)  # shuffle along env axis only
-            x = x.reshape(
-                x.shape[0], self.cfg.algorithm.num_minibatches, -1, *x.shape[2:]
-            )
-            x = jnp.swapaxes(x, 0, 1)
-            return x
-
         def update_epoch(carry, _):
             key, state, initial_hidden_state, transitions, lambda_targets = carry
 
-            permutation = jax.random.permutation(key, self.cfg.algorithm.num_envs)
+            key, permutation_key = jax.random.split(key)
+            permutation = jax.random.permutation(
+                permutation_key, self.cfg.algorithm.num_envs
+            )
             batch = (initial_hidden_state, transitions, lambda_targets)
             shuffled_batch = jax.tree.map(
                 lambda x: jnp.take(x, permutation, axis=0), batch

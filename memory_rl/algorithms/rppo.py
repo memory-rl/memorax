@@ -1,3 +1,4 @@
+from functools import partial
 import chex
 import flax.linen as nn
 import gymnax
@@ -36,7 +37,8 @@ class RPPO:
     critic_network: RecurrentNetwork
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
-
+    
+    @partial(jax.jit, static_argnums=(0,))
     def init(self, key):
         key, env_key, actor_key, actor_memory_key, critic_key, critic_memory_key = (
             jax.random.split(key, 6)
@@ -126,8 +128,8 @@ class RPPO:
             done=state.done,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
-            next_done=next_done,  # type: ignore
-            info=info,  # type: ignore
+            next_done=next_done,
+            info=info,
             log_prob=log_prob,  # type: ignore
             value=value,  # type: ignore
         )
@@ -356,7 +358,8 @@ class RPPO:
             key,
             state,
         ), info
-
+        
+    @partial(jax.jit, static_argnums=(0, 3), donate_argnums=(2,))
     def train(self, key, state, num_steps):
 
         (key, state), info = jax.lax.scan(
@@ -368,6 +371,7 @@ class RPPO:
 
         return key, state, info
 
+    @partial(jax.jit, static_argnums=(0, 3), donate_argnums=(2,))
     def evaluate(self, key, state, num_steps):
 
         key, reset_key = jax.random.split(key)

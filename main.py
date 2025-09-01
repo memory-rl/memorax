@@ -1,15 +1,13 @@
 import hydra
-import jax
-from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
-from memory_rl import Algorithm, make
-from memory_rl.environments.environment import make as make_env
+from hydra.utils import instantiate
 
 OmegaConf.register_new_resolver("eval", eval)
 
 
 def log(logger, logger_state, state, info, *, prefix="evaluation"):
+    import jax
     info = jax.device_get(info)
     step = jax.device_get(state.step)
     if not isinstance(step, int):
@@ -53,6 +51,9 @@ def log(logger, logger_state, state, info, *, prefix="evaluation"):
 
 @hydra.main(version_base=None, config_path="memory_rl/conf", config_name="config")
 def main(cfg: DictConfig):
+    import jax
+    from memory_rl import Algorithm, make
+    from memory_rl.environments.environment import make as make_env
 
     logger = instantiate(cfg.logger)
     logger_state = logger.init(OmegaConf.to_container(cfg, resolve=True))
@@ -65,7 +66,11 @@ def main(cfg: DictConfig):
 
     key, state = algorithm.init(key)
 
-    key, transitions = algorithm.evaluate(key, state, env_params.max_steps_in_episode)
+    if cfg.environment.env_id == "Craftax-Symbolic-v1":
+        max_steps_in_episode = 20_000
+    else:
+        max_steps_in_episode = env_params.max_steps_in_episode
+    key, transitions = algorithm.evaluate(key, state, max_steps_in_episode)
 
     logger_state = log(logger, logger_state, state, transitions.info)
     logger.emit(logger_state)
@@ -78,7 +83,7 @@ def main(cfg: DictConfig):
 
         if i % cfg.evaluate_every == 0:
             key, transitions = algorithm.evaluate(
-                key, state, env_params.max_steps_in_episode
+                key, state, max_steps_in_episode
             )
             logger_state = log(logger, logger_state, state, transitions.info)
         logger_state = logger.emit(logger_state)

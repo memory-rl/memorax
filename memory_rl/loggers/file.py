@@ -30,10 +30,12 @@ class FileLogger(BaseLogger[FileLoggerState]):
     directory: str = "logs"
 
     def init(self, cfg: dict) -> FileLoggerState:
+        cell = cfg["algorithm"]["actor"]["torso"]["_target_"].split(".")[-1]
         path = (
             Path(self.directory)
             / self.algorithm
             / self.environment
+            / cell
             / str(self.seed)
             / f"{datetime.now():%Y%m%d-%H%M%S}"
         )

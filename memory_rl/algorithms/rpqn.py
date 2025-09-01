@@ -263,7 +263,7 @@ class RPQN:
             (key, state), transitions = jax.lax.scan(
                 step,
                 (key, state),
-                length=self.cfg.algorithm.num_steps,
+                length=self.cfg.algorithm.mode.length,
             )
 
             key, memory_key = jax.random.split(key)
@@ -313,7 +313,7 @@ class RPQN:
             (key, state),
             length=(
                 num_steps
-                // (self.cfg.algorithm.num_steps * self.cfg.algorithm.num_envs)
+                // (self.cfg.algorithm.mode.length * self.cfg.algorithm.num_envs)
             ),
         )
         return key, state, info
@@ -348,12 +348,14 @@ class RPQN:
 
         def step(carry: tuple[chex.PRNGKey, RPQNState], _):
             key, state = carry
+            key, memory_key = jax.random.split(key)
 
             hidden_state, q_values = self.q_network.apply(
                 state.params,
                 observation=jnp.expand_dims(state.obs, 1),
                 mask=jnp.expand_dims(state.done, 1),
                 initial_carry=state.hidden_state,
+                rngs={"memory": memory_key},
             )
             action = q_values.argmax(axis=-1).squeeze(-1)
 
@@ -395,7 +397,10 @@ def make_rpqn(cfg, env, env_params, logger) -> RPQN:
         head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
 
-    optimizer = optax.adam(learning_rate=cfg.algorithm.learning_rate)
+    optimizer = optax.chain(
+        optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
+        optax.adam(learning_rate=cfg.algorithm.learning_rate),
+    )
     epsilon_schedule = optax.linear_schedule(
         cfg.algorithm.start_e,
         cfg.algorithm.end_e,

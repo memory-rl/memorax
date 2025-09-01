@@ -1,6 +1,8 @@
 # @package _global_
 
 total_timesteps: 15_000_000
+num_train_steps: 500_000
+evaluate_every: 2_500_000
 
 algorithm:
   learning_rate: 5e-5

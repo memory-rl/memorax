@@ -1,6 +1,6 @@
-# @package logger.loggers.wandb
+# @package logger.loggers.file
 _target_: memory_rl.loggers.FileLogger
 algorithm: ${algorithm.name}
 environment: ${environment.env_id}
 seed: ${seed}
-directory: logs
+directory: /work/scratch/nf52xehe

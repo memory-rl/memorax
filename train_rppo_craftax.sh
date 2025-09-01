@@ -4,8 +4,8 @@ python main.py -m \
   algorithm/torso@algorithm.critic.torso=optimized_lstm \
   environment=craftax_symbolic \
 seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
+logger=[wandb,file] \
+hydra/launcher=lichtenberg &
 
 python main.py -m \
   algorithm=rppo \
@@ -13,17 +13,9 @@ python main.py -m \
   algorithm/torso@algorithm.critic.torso=gru \
   environment=craftax_symbolic \
 seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
+logger=[wandb,file] \
+hydra/launcher=lichtenberg &
 
-python main.py -m \
-  algorithm=rppo \
-  algorithm/torso@algorithm.actor.torso=ffm \
-  algorithm/torso@algorithm.critic.torso=ffm \
-  environment=craftax_symbolic \
-seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
 
 python main.py -m \
   algorithm=rppo \
@@ -31,8 +23,8 @@ python main.py -m \
   algorithm/torso@algorithm.critic.torso=slstm \
   environment=craftax_symbolic \
 seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
+logger=[wandb,file] \
+hydra/launcher=lichtenberg &
 
 python main.py -m \
   algorithm=rppo \
@@ -40,8 +32,8 @@ python main.py -m \
   algorithm/torso@algorithm.critic.torso=mlstm \
   environment=craftax_symbolic \
 seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
+logger=[wandb,file] \
+hydra/launcher=lichtenberg &
 
 python main.py -m \
   algorithm=rppo \
@@ -49,8 +41,8 @@ python main.py -m \
   algorithm/torso@algorithm.critic.torso=xlstm \
   environment=craftax_symbolic \
 seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
+logger=[wandb,file] \
+hydra/launcher=lichtenberg &
 
 python main.py -m \
   algorithm=rppo \
@@ -58,8 +50,8 @@ python main.py -m \
   algorithm/torso@algorithm.critic.torso=gtrxl \
   environment=craftax_symbolic \
 seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
+logger=[wandb,file] \
+hydra/launcher=lichtenberg &
 
 python main.py -m \
   algorithm=rppo \
@@ -67,6 +59,6 @@ python main.py -m \
   algorithm/torso@algorithm.critic.torso=shm \
   environment=craftax_symbolic \
 seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
+logger=[wandb,file] \
+hydra/launcher=lichtenberg &
 

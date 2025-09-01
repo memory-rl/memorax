@@ -38,7 +38,6 @@ def _as_int(x) -> int:
         return int(x.item())
     return int(x)
 
-
 class PopGymWrapper(GymnaxWrapper):
     def __init__(self, env):
         super().__init__(env)

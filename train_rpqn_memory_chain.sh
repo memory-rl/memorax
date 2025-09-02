@@ -1,20 +1,11 @@
 python main.py -m \
   algorithm=rpqn \
-  algorithm/torso=optimized_lstm \
-  environment=bsuite_memory_chain \
-  environment.parameters.memory_length=16,32,64,128,256,512,1024 \
-seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
-
-python main.py -m \
-  algorithm=rpqn \
   algorithm/torso=gru \
   environment=bsuite_memory_chain \
   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
 seed=0,1,2,3,4 \
 logger=wandb \
-hydra/launcher=julia2 &
+hydra/launcher=lichtenberg &
 
 python main.py -m \
   algorithm=rpqn \
@@ -23,7 +14,7 @@ python main.py -m \
   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
 seed=0,1,2,3,4 \
 logger=wandb \
-hydra/launcher=julia2 &
+hydra/launcher=lichtenberg &
 
 python main.py -m \
   algorithm=rpqn \
@@ -32,7 +23,7 @@ python main.py -m \
   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
 seed=0,1,2,3,4 \
 logger=wandb \
-hydra/launcher=julia2 &
+hydra/launcher=lichtenberg &
 
 python main.py -m \
   algorithm=rpqn \
@@ -41,7 +32,7 @@ python main.py -m \
   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
 seed=0,1,2,3,4 \
 logger=wandb \
-hydra/launcher=julia2 &
+hydra/launcher=lichtenberg &
 
 python main.py -m \
   algorithm=rpqn \
@@ -50,16 +41,8 @@ python main.py -m \
   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
 seed=0,1,2,3,4 \
 logger=wandb \
-hydra/launcher=julia2 &
+hydra/launcher=lichtenberg &
 
-python main.py -m \
-  algorithm=rpqn \
-  algorithm/torso=shm \
-  environment=bsuite_memory_chain \
-  environment.parameters.memory_length=16,32,64,128,256,512,1024 \
-seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
 
 python main.py -m \
   algorithm=rpqn \
@@ -68,13 +51,5 @@ python main.py -m \
   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
 seed=0,1,2,3,4 \
 logger=wandb \
-hydra/launcher=julia2 &
+hydra/launcher=lichtenberg &
 
-python main.py -m \
-  algorithm=rpqn \
-  algorithm/torso=gpt2 \
-  environment=bsuite_memory_chain \
-  environment.parameters.memory_length=16,32,64,128,256,512,1024 \
-seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &

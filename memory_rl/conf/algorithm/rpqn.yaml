@@ -3,19 +3,18 @@ defaults:
   - torso: gru
 
 name: rpqn
-learning_rate:       1e-4
-num_envs:            16
-num_eval_envs:       4
-num_steps:           16
-num_minibatches:     8
+learning_rate:       3e-4
+num_envs:            256
+num_eval_envs:       16
+num_minibatches:     4
 update_epochs:       4
-td_lambda:           0.7
+td_lambda:           0.95
 gamma:               0.99
 batch_size:          128
 
-start_e:             0.1
+start_e:             1.0
 end_e:               0.005
-exploration_fraction: 0.2
+exploration_fraction: 0.25
 
 learning_starts:     0
 

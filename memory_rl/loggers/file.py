@@ -31,7 +31,10 @@ class FileLogger(BaseLogger[FileLoggerState]):
     directory: str = "logs"
 
     def init(self, cfg: dict) -> FileLoggerState:
-        cell = cfg["algorithm"]["actor"]["torso"]["_target_"].split(".")[-1]
+        try:
+            cell = cfg["algorithm"]["actor"]["torso"]["_target_"].split(".")[-1]
+        except KeyError:
+            cell = cfg["algorithm"]["torso"]["_target_"].split(".")[-1]
 
         base_path = (
             Path(self.directory)
@@ -58,7 +61,9 @@ class FileLogger(BaseLogger[FileLoggerState]):
         for step, data in sorted(state.buffer.items()):
             for seed, path in state.paths.items():
 
-                for metric, value in {k: v[seed] if k != "SPS" else v for k, v in data.items()}.items():
+                for metric, value in {
+                    k: v[seed] if k != "SPS" else v for k, v in data.items()
+                }.items():
                     metric_path = (path / f"{metric}.csv").resolve()
                     metric_path.parent.mkdir(exist_ok=True, parents=True)
 

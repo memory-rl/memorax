@@ -344,20 +344,20 @@ class RPPO:
             length=self.cfg.algorithm.update_epochs,
         )
 
-        info = transitions.info
-
-        info["losses/actor_loss"] = actor_loss
-        info["losses/critic_loss"] = critic_loss
-
         entropy, approx_kl, clipfrac = aux
-        info["losses/entropy"] = entropy
-        info["losses/approx_kl"] = approx_kl
-        info["losses/clipfrac"] = clipfrac
+        metrics = {
+            **transitions.info,
+            "losses/actor_loss": actor_loss,
+            "losses/critic_loss": critic_loss,
+            "losses/entropy": entropy,
+            "losses/approx_kl": approx_kl,
+            "losses/clipfrac": clipfrac,
+        }
 
         return (
             key,
             state,
-        ), info
+        ), metrics
 
     @partial(jax.jit, static_argnums=(0, 3), donate_argnums=(2,))
     def train(self, key, state, num_steps):

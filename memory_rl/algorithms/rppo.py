@@ -37,8 +37,8 @@ class RPPO:
     critic_network: RecurrentNetwork
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
-    
-    @partial(jax.jit, static_argnums=(0,))
+
+    @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
         key, env_key, actor_key, actor_memory_key, critic_key, critic_memory_key = (
             jax.random.split(key, 6)
@@ -172,9 +172,9 @@ class RPPO:
             * advantages,
         ).mean()
         return actor_loss - self.cfg.algorithm.ent_coef * entropy, (
-            entropy,
-            approx_kl,
-            clipfrac,
+            entropy.mean(),  # type: ignore
+            approx_kl.mean(),  # type: ignore
+            clipfrac.mean(),  # type: ignore
         )
 
     def _critic_loss_fn(
@@ -236,7 +236,7 @@ class RPPO:
             critic_params=critic_params,
             critic_optimizer_state=critic_optimizer_state,
         )
-        return (key, state), (actor_loss, critic_loss, aux)
+        return (key, state), (actor_loss.mean(), critic_loss.mean(), aux)
 
     def _update_epoch(self, carry: tuple, _):
 
@@ -346,19 +346,19 @@ class RPPO:
 
         info = transitions.info
 
-        info["losses/actor_loss"] = actor_loss.mean()
-        info["losses/critic_loss"] = critic_loss.mean()
+        info["losses/actor_loss"] = actor_loss
+        info["losses/critic_loss"] = critic_loss
 
         entropy, approx_kl, clipfrac = aux
-        info["losses/entropy"] = entropy.mean()
-        info["losses/approx_kl"] = approx_kl.mean()
-        info["losses/clipfrac"] = clipfrac.mean()
+        info["losses/entropy"] = entropy
+        info["losses/approx_kl"] = approx_kl
+        info["losses/clipfrac"] = clipfrac
 
         return (
             key,
             state,
         ), info
-        
+
     @partial(jax.jit, static_argnums=(0, 3), donate_argnums=(2,))
     def train(self, key, state, num_steps):
 
@@ -371,7 +371,7 @@ class RPPO:
 
         return key, state, info
 
-    @partial(jax.jit, static_argnums=(0, 3), donate_argnums=(2,))
+    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnums=(2,))
     def evaluate(self, key, state, num_steps):
 
         key, reset_key = jax.random.split(key)
@@ -384,12 +384,14 @@ class RPPO:
 
         def step(carry, _):
             key, obs, done, env_state, actor_h_state = carry
+            key, memory_key = jax.random.split(key)
 
             next_actor_h_state, probs = self.actor_network.apply(
                 state.actor_params,
                 observation=jnp.expand_dims(obs, 1),  # CORRECT: (num_envs, 1, obs_dim)
                 mask=jnp.expand_dims(done, 1),  # CORRECT: (num_envs, 1)
                 initial_carry=actor_h_state,
+                rngs={"memory": memory_key},
             )
             action = jnp.argmax(probs.logits, axis=-1).squeeze(1)  # CORRECT: squeeze(1)
 

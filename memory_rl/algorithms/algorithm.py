@@ -45,7 +45,7 @@ class Algorithm(Protocol):
     evaluate: Callable[[chex.PRNGKey, State, int], tuple[chex.PRNGKey, dict]]
 
 
-def make(algorithm_id: str, cfg, env, env_params, logger) -> Algorithm:
+def make(algorithm_id: str, cfg, env, env_params, logger=None) -> Algorithm:
 
     if algorithm_id not in register:
         raise ValueError(f"Unknown algorithm {algorithm_id}")

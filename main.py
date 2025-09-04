@@ -1,13 +1,16 @@
+import time
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
+import jax.numpy as jnp
 from hydra.utils import instantiate
 
 OmegaConf.register_new_resolver("eval", eval)
 
 
-def log(logger, logger_state, state, info, *, prefix="evaluation"):
+def log(logger, logger_state, state, info, *, prefix="evaluation", sps=0):
     import jax
+
     info = jax.device_get(info)
     step = jax.device_get(state.step)
     if not isinstance(step, int):
@@ -44,6 +47,9 @@ def log(logger, logger_state, state, info, *, prefix="evaluation"):
 
     if "returned_episode_regret" in info:
         data[f"{prefix}/episodic_regret"] = episodic_regret
+
+    if sps:
+        data["SPS"] = sps
     logger_state = logger.log(logger_state, data, step=step)
 
     return logger_state
@@ -55,38 +61,60 @@ def main(cfg: DictConfig):
     from memory_rl import Algorithm, make
     from memory_rl.environments.environment import make as make_env
 
+    num_seeds = 10
+
     logger = instantiate(cfg.logger)
     logger_state = logger.init(OmegaConf.to_container(cfg, resolve=True))
 
     key = jax.random.key(cfg.seed)
+    keys = jax.random.split(key, num_seeds)
 
     env, env_params = make_env(cfg.environment)
 
     algorithm: Algorithm = make(cfg.algorithm.name, cfg, env, env_params, logger)
 
-    key, state = algorithm.init(key)
+    # key, state = algorithm.init(key)
+    keys, states = jax.vmap(algorithm.init)(keys)
 
     if cfg.environment.env_id == "Craftax-Symbolic-v1":
         max_steps_in_episode = 20_000
     else:
         max_steps_in_episode = env_params.max_steps_in_episode
-    key, transitions = algorithm.evaluate(key, state, max_steps_in_episode)
 
-    logger_state = log(logger, logger_state, state, transitions.info)
+    # key, transitions = algorithm.evaluate(key, state, max_steps_in_episode)
+    keys, transitions = jax.vmap(algorithm.evaluate, in_axes=(0, 0, None))(
+        keys, states, max_steps_in_episode
+    )
+
+    logger_state = log(logger, logger_state, states, transitions.info)
     logger.emit(logger_state)
 
-    key, state = algorithm.warmup(key, state, cfg.algorithm.learning_starts)
+    # key, state = algorithm.warmup(key, state, cfg.algorithm.learning_starts)
+    keys, states = jax.vmap(algorithm.warmup, in_axes=(0, 0, None))(
+        keys, states, cfg.algorithm.learning_starts
+    )
 
     for i in range(0, cfg.total_timesteps, cfg.num_train_steps):
-        key, state, info = algorithm.train(key, state, cfg.num_train_steps)
-        logger_state = log(logger, logger_state, state, info, prefix="training")
+        start = time.perf_counter()
+        # key, state, info = algorithm.train(key, state, cfg.num_train_steps)
+        keys, states, info = jax.vmap(algorithm.train, in_axes=(0, 0, None))(
+            keys, states, cfg.num_train_steps
+        )
+        end = time.perf_counter()
+
+        sps = cfg.num_train_steps / (end - start) * num_seeds
+        # logger_state = log(
+        #     logger, logger_state, state, info, prefix="training", sps=sps
+        # )
+        print(sps)
 
         if i % cfg.evaluate_every == 0:
-            key, transitions = algorithm.evaluate(
-                key, state, max_steps_in_episode
+            # key, transitions = algorithm.evaluate(key, state, max_steps_in_episode)
+            keys, transitions = jax.vmap(algorithm.evaluate, in_axes=(0, 0, None))(
+                keys, states, max_steps_in_episode
             )
-            logger_state = log(logger, logger_state, state, transitions.info)
-        logger_state = logger.emit(logger_state)
+            # logger_state = log(logger, logger_state, state, transitions.info)
+        # logger_state = logger.emit(logger_state)
 
     logger.finish(logger_state)
 

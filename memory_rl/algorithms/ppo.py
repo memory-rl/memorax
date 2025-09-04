@@ -1,5 +1,7 @@
 from typing import Any
 
+from functools import partial
+
 import chex
 import flax.linen as nn
 import gymnax
@@ -10,7 +12,6 @@ from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from memory_rl.loggers import Logger
 from memory_rl.networks import Network, heads
 from memory_rl.utils import compute_gae, Transition
 
@@ -34,8 +35,8 @@ class PPO:
     actor: Network
     critic: Network
     optimizer: optax.GradientTransformation
-    logger: Logger
 
+    @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
         key, env_key, actor_key, critic_key = jax.random.split(key, 4)
 
@@ -82,7 +83,7 @@ class PPO:
             )
             * advantages,
         ).mean()
-        return actor_loss - self.cfg.algorithm.ent_coef * entropy, entropy
+        return actor_loss - self.cfg.algorithm.ent_coef * entropy, entropy.mean()
 
     def _critic_loss_fn(self, params, transitions, advantages, returns):
         value = self.critic.apply(params, transitions.obs).squeeze(-1)
@@ -126,7 +127,7 @@ class PPO:
             critic_params=critic_params,
             critic_optimizer_state=critic_optimizer_state,
         )
-        return state, (actor_loss, critic_loss, entropy)
+        return state, (actor_loss.mean(), critic_loss.mean(), entropy)
 
     def _update_epoch(self, carry: tuple, _):
         key, state, batch = carry
@@ -224,33 +225,16 @@ class PPO:
         )
         transitions, *_ = batch
 
-        def callback(logger, step, info, actor_loss, critic_loss, entropy):
-            if info["returned_episode"].any():
-                data = {
-                    "training/episodic_returns": info[
-                        "returned_episode_returns"
-                    ].mean(),
-                    "training/episodic_lengths": info[
-                        "returned_episode_lengths"
-                    ].mean(),
-                    "losses/actor_loss": actor_loss.mean(),
-                    "losses/critic_loss": critic_loss.mean(),
-                    "losses/entropy": entropy.mean(),
-                }
-                logger.log(data, step=step)
+        metrics = {
+            **transitions.info,
+            "losses/actor_loss": actor_loss,
+            "losses/critic_loss": critic_loss,
+            "losses/entropy": entropy,
+        }
 
-        jax.debug.callback(
-            callback,
-            self.logger,
-            state.step,
-            transitions.info,
-            actor_loss,
-            critic_loss,
-            entropy,
-        )
+        return (key, state), metrics
 
-        return (key, state), transitions.info
-
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(self, key, state, num_steps):
 
         (key, state), info = jax.lax.scan(
@@ -263,6 +247,7 @@ class PPO:
 
         return key, state, info
 
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key, state, num_steps):
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_eval_envs)
@@ -338,5 +323,4 @@ def make_ppo(cfg, env, env_params, logger):
         actor=actor,
         critic=critic,
         optimizer=optimizer,
-        logger=logger,
     )

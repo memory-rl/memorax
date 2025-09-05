@@ -14,6 +14,6 @@ from memory_rl.networks.recurrent import (
     SHMCell,
 )
 from memory_rl.networks.feature_extractors import (
-    SeperateFeatureExtractor,
+    SeparateFeatureExtractor,
     SharedFeatureExtractor,
 )

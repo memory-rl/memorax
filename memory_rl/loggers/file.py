@@ -36,9 +36,18 @@ class FileLogger(BaseLogger[FileLoggerState]):
         except KeyError:
             cell = cfg["algorithm"]["torso"]["_target_"].split(".")[-1]
 
+        params = ""
+        for key, param in cfg["environment"]["parameters"].items():
+            if key == "max_steps_in_episode":
+                continue
+            params += f"{param}/"
+
+        if params:
+            params = params[:-1]
         base_path = (
             Path(self.directory)
             / self.environment
+            / params
             / self.algorithm
             / cell
             / f"{datetime.now():%Y%m%d-%H%M%S}"

@@ -26,15 +26,18 @@ class WandbLogger(BaseLogger):
     mode: str = "disabled"
 
     def init(self, cfg: dict) -> WandbLoggerState:
-        runs = {seed: wandb.init(
-            entity=self.entity,
-            project=self.project,
-            name=self.name,
-            group=self.group,
-            mode=self.mode,
-            config=cfg,
-            reinit="create_new"
-        ) for seed in range(cfg["num_seeds"])}
+        runs = {
+            seed: wandb.init(
+                entity=self.entity,
+                project=self.project,
+                name=self.name,
+                group=self.group,
+                mode=self.mode,
+                config=cfg,
+                reinit="create_new",
+            )
+            for seed in range(cfg["num_seeds"])
+        }
         return WandbLoggerState(runs=runs)
 
     def log(self, state: WandbLoggerState, data: PyTree, step: int) -> WandbLoggerState:
@@ -44,12 +47,14 @@ class WandbLogger(BaseLogger):
     def emit(self, state: WandbLoggerState) -> WandbLoggerState:
         for step, data in sorted(state.buffer.items()):
             for seed, run in state.runs.items():
-                run.log({k: v[seed] if k != "SPS" else v for k, v in data.items()}, step=step)
+                run.log(
+                    {k: v[seed] if k != "SPS" else v for k, v in data.items()},
+                    step=step,
+                )
 
         state.buffer.clear()
         return state
 
     def finish(self, state: WandbLoggerState) -> None:
-        for run in state.runs:
+        for run in state.runs.values():
             run.finish()
-

@@ -1,2 +1,2 @@
-from .seperate_feature_extractor import SeperateFeatureExtractor
+from .separate_feature_extractor import SeparateFeatureExtractor
 from .shared_feature_extractor import SharedFeatureExtractor

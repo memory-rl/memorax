@@ -37,12 +37,12 @@ class BaseLogger(Generic[StateT], ABC):
 
 @chex.dataclass(frozen=True)
 class LoggerState(BaseLoggerState):
-    logger_states: tuple[BaseLoggerState, ...]
+    logger_states: dict[str, BaseLoggerState]
 
 
 @chex.dataclass(frozen=True)
 class Logger(BaseLogger[LoggerState]):
-    loggers: tuple[BaseLogger[Any], ...]
+    loggers: dict[str, BaseLogger[Any]]
 
     _is_leaf = staticmethod(lambda x: isinstance(x, (BaseLogger, BaseLoggerState)))
 
@@ -53,10 +53,6 @@ class Logger(BaseLogger[LoggerState]):
             is_leaf=self._is_leaf,
         )
         return LoggerState(logger_states=logger_states)
-
-    def __post_init__(self):
-        if not isinstance(self.loggers, tuple):
-            object.__setattr__(self, "loggers", tuple(self.loggers.values()))
 
     def log(self, state: LoggerState, data: PyTree, step: int) -> LoggerState:
         logger_states = jax.tree.map(

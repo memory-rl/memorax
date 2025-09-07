@@ -1,0 +1,106 @@
+total_timesteps: 1000000
+num_train_steps: 50000
+evaluate_every: 100000
+seed: 0
+num_seeds: 5
+logger:
+  _target_: memory_rl.loggers.Logger
+  _convert_: all
+  loggers:
+    wandb:
+      _target_: memory_rl.loggers.WandbLogger
+      entity: noahfarr
+      project: memory-rl
+      name: rppo_MemoryChain-bsuite_0_20250904_224732
+      group: rppo_MemoryChain-bsuite
+      mode: online
+    file:
+      _target_: memory_rl.loggers.FileLogger
+      algorithm: rppo
+      environment: MemoryChain-bsuite
+      seed: 0
+      directory: /home/mak72ze/memory-rl/logs
+algorithm:
+  actor:
+    feature_extractor:
+      _target_: memory_rl.networks.SharedFeatureExtractor
+      extractor:
+        _target_: memory_rl.networks.MLP
+        features:
+        - 128
+        kernel_init:
+          _target_: flax.linen.initializers.orthogonal
+          scale: 1.414
+    torso:
+      _target_: memory_rl.networks.recurrent.xLSTMCell
+      features: 128
+      pattern:
+      - m
+      - s
+      s_kwargs:
+        num_heads: 4
+        use_causal_conv: true
+        conv_kernel_size: 4
+        mlp_pf: 1.3333333333333333
+      m_kwargs:
+        num_heads: 4
+        up_proj_factor: 2
+        conv1d_kernel_size: 4
+        qkv_proj_blocksize: 4
+      kernel_init:
+        _target_: flax.linen.initializers.orthogonal
+        scale: 1.414
+  critic:
+    feature_extractor:
+      _target_: memory_rl.networks.SharedFeatureExtractor
+      extractor:
+        _target_: memory_rl.networks.MLP
+        features:
+        - 128
+        kernel_init:
+          _target_: flax.linen.initializers.orthogonal
+          scale: 1.414
+    torso:
+      _target_: memory_rl.networks.recurrent.xLSTMCell
+      features: 128
+      pattern:
+      - m
+      - s
+      s_kwargs:
+        num_heads: 4
+        use_causal_conv: true
+        conv_kernel_size: 4
+        mlp_pf: 1.3333333333333333
+      m_kwargs:
+        num_heads: 4
+        up_proj_factor: 2
+        conv1d_kernel_size: 4
+        qkv_proj_blocksize: 4
+  mode:
+    name: TBPTT
+    length: 64
+    mask: false
+  name: rppo
+  learning_rate: 0.0003
+  num_envs: 32
+  num_eval_envs: 16
+  anneal_lr: true
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  normalize_advantage: true
+  clip_coef: 0.2
+  clip_vloss: true
+  ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  learning_starts: 0
+environment:
+  env_id: MemoryChain-bsuite
+  wrappers:
+  - _target_: memory_rl.utils.wrapper.BSuiteWrapper
+  parameters:
+    memory_length: 256
+    max_steps_in_episode: 257
+hyperparameter: {}

@@ -7,13 +7,13 @@ from memory_rl.networks.recurrent import (
     GPTConfig,
     GPTRNNCell,
     MaskedRNN,
-    mLSTM,
+    mLSTMBlock,
     sLSTMCell,
     sLSTMBlock,
     GTrXLCell,
     SHMCell,
 )
 from memory_rl.networks.feature_extractors import (
-    SeperateFeatureExtractor,
+    SeparateFeatureExtractor,
     SharedFeatureExtractor,
 )

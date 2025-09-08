@@ -1,0 +1,27 @@
+defaults:
+  - feature_extractor: shared
+  - torso: gru
+  - mode: TBPTT
+
+name: rpqn
+learning_rate:       3e-4
+num_envs:            256
+num_eval_envs:       16
+num_minibatches:     4
+update_epochs:       4
+td_lambda:           0.95
+gamma:               0.99
+batch_size:          128
+
+start_e:             1.0
+end_e:               0.005
+exploration_fraction: 0.25
+max_grad_norm:       0.5
+
+learning_starts:     0
+
+feature_extractor:
+  extractor:
+    features:        [128]
+    normalizer:
+      _target_: flax.linen.LayerNorm

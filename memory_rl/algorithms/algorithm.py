@@ -12,6 +12,8 @@ from memory_rl.algorithms import (
     make_rsacd,
     make_sac,
     make_sacd,
+    make_pqn,
+    make_rpqn,
 )
 
 register = {
@@ -24,6 +26,8 @@ register = {
     "rsac": make_rsac,
     "sacd": make_sacd,
     "rsacd": make_rsacd,
+    "pqn": make_pqn,
+    "rpqn": make_rpqn,
 }
 
 
@@ -41,9 +45,9 @@ class Algorithm(Protocol):
     evaluate: Callable[[chex.PRNGKey, State, int], tuple[chex.PRNGKey, dict]]
 
 
-def make(algorithm_id: str, cfg, env, env_params, logger) -> Algorithm:
+def make(algorithm_id: str, cfg, env, env_params) -> Algorithm:
 
     if algorithm_id not in register:
         raise ValueError(f"Unknown algorithm {algorithm_id}")
 
-    return register[algorithm_id](cfg, env, env_params, logger)
+    return register[algorithm_id](cfg, env, env_params)

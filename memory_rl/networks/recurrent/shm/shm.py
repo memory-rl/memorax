@@ -123,9 +123,9 @@ class SHMCell(RNNCellBase):
             rng = self.make_rng(
                 "memory"
             )  # split per step when used with RNN(split_rngs=...)
-
-            idx = random.randint(rng, (), 0, self.num_thetas, dtype=jnp.int32)
-            theta_t = theta_table[idx]
+            batch_shape = v_c.shape[:-1]                 # e.g. (..., B)
+            idx = random.randint(rng, batch_shape, 0, self.num_thetas, dtype=jnp.int32)  # (..., B)
+            theta_t = theta_table[idx]   
             theta_t = jnp.broadcast_to(theta_t, v_c.shape)  # (*, H)
         else:
             theta_t = jnp.broadcast_to(theta_table[0], v_c.shape)  # (*, H)

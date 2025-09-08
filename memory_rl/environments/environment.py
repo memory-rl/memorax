@@ -6,9 +6,10 @@ from memory_rl.utils import (
     LogWrapper,
     NavixGymnaxWrapper,
     PixelCraftaxEnvWrapper,
+    PopGymWrapper,
 )
 from craftax import craftax_env
-from popjaxrl.envs import make as make_popjaxrl
+from popjaxrl.envs import make as make_popjaxrl_env
 
 from memory_rl.environments.tmaze_env import make_tmaze_env
 
@@ -25,6 +26,13 @@ def make_craftax(env_id):
     # if "Pixels" in env_id:
     #     env = PixelCraftaxEnvWrapper(env)
 
+    return env, env_params
+
+
+def make_popjaxrl(env_id):
+    env, env_params = make_popjaxrl_env(env_id)
+    env = PopGymWrapper(env)
+    env_params = env.default_params
     return env, env_params
 
 

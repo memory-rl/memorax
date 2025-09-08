@@ -1,0 +1,31 @@
+# @package _global_
+
+total_timesteps: 1_000_000_000
+num_train_steps: 1_000_000
+evaluate_every: 10_000_000
+
+algorithm:
+  learning_rate:       3e-4
+  num_envs:            1024
+  num_eval_envs:       2
+  num_minibatches:     4
+  update_epochs:       4
+  td_lambda:           0.5
+  gamma:               0.99
+  batch_size:          128
+  max_grad_norm:       0.5
+
+  start_e:             1.0
+  end_e:               0.005
+  exploration_fraction: 0.1
+
+  learning_starts:     0
+
+  mode:
+    length: 128
+
+  feature_extractor:
+    extractor:
+      features:        [512]
+      normalizer:
+        _target_: flax.linen.LayerNorm

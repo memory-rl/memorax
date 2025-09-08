@@ -1,4 +1,4 @@
-_target_: memory_rl.networks.SeperateFeatureExtractor
+_target_: memory_rl.networks.SeparateFeatureExtractor
 
 observation_extractor:
   _target_: memory_rl.networks.MLP

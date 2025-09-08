@@ -1,19 +1,22 @@
 defaults:
-  - submitit_slurm   # brings in _target_
-  - _self_
+    - submitit_slurm   # brings in _target_
+    - _self_
 
 timeout_min: 1440          # wall-time [h] × 60
 nodes: 1
-cpus_per_task: 1
 tasks_per_node: 1
+cpus_per_task: 16
+gres: "gpu:a100:1"
+mem_per_cpu: 4G
 
-gpus_per_node: 1
+account: project02654
 
-additional_parameters:
-  account: project02654
-  gres: gpu:1
-  mem_per_cpu: 4G
-    
 setup:
-    - "module load cuda cudnn"
-    - "conda activate memory-rl"
+    - "module purge"
+    - "module load cuda"
+    - "source $HOME/memory-rl/.venv/bin/activate"
+    - 'export JAX_PLATFORMS=cuda'
+    - "export XLA_PYTHON_CLIENT_PREALLOCATE=false"
+    - "export XLA_PYTHON_CLIENT_ALLOCATOR=cuda_async"
+    - "export XLA_PYTHON_CLIENT_MEM_FRACTION=0.85"
+

@@ -180,3 +180,5 @@ wandb/
 .python-version
 multirun/
 popjaxrl/
+logs/
+*.png

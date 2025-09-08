@@ -19,6 +19,7 @@ def compute_gae(gamma: float, gae_lambda: float, final_value: jax.Array, transit
         (jnp.zeros_like(final_value), final_value),
         transitions,
         reverse=True,
+        unroll=16,
     )
     returns = advantages + transitions.value
     return advantages, returns
@@ -47,6 +48,7 @@ def compute_recurrent_gae(
         (jnp.zeros_like(final_value), final_value, final_done),
         transitions,
         reverse=True,
+        unroll=16,
     )
     returns = advantages + transitions.value
     return advantages, returns

@@ -82,65 +82,76 @@ class PPO:
         )
         return (key, state), transition
 
-    def _actor_loss_fn(self, params, transitions, advantages):
-        probs = self.actor.apply(params, transitions.obs)
-        log_prob = probs.log_prob(transitions.action)
-        entropy = probs.entropy().mean()
+    def _update_actor(self, state: PPOState, transitions, advantages):
 
-        ratio = jnp.exp(log_prob - transitions.log_prob)
-        actor_loss = -jnp.minimum(
-            ratio * advantages,
-            jnp.clip(
-                ratio,
-                1.0 - self.cfg.algorithm.clip_coef,
-                1.0 + self.cfg.algorithm.clip_coef,
-            )
-            * advantages,
-        ).mean()
-        return actor_loss - self.cfg.algorithm.ent_coef * entropy, entropy.mean()
+        def actor_loss_fn(params):
+            probs = self.actor.apply(params, transitions.obs)
+            log_prob = probs.log_prob(transitions.action)
+            entropy = probs.entropy().mean()
 
-    def _critic_loss_fn(self, params, transitions, returns):
-        value = self.critic.apply(params, transitions.obs).squeeze(-1)
-
-        if self.cfg.algorithm.clip_vloss:
-            critic_loss = jnp.square(value - returns)
-            clipped_value = transitions.value + jnp.clip(
-                (value - transitions.value),
-                -self.cfg.algorithm.clip_coef,
-                self.cfg.algorithm.clip_coef,
-            )
-            clipped_critic_loss = jnp.square(clipped_value - returns)
-            critic_loss = 0.5 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
-        else:
-            critic_loss = 0.5 * jnp.square(value - returns).mean()
-
-        return self.cfg.algorithm.vf_coef * critic_loss
-
-    def _update_minibatch(self, state, minibatch: tuple):
-        transitions, advantages, returns = minibatch
+            ratio = jnp.exp(log_prob - transitions.log_prob)
+            actor_loss = -jnp.minimum(
+                ratio * advantages,
+                jnp.clip(
+                    ratio,
+                    1.0 - self.cfg.algorithm.clip_coef,
+                    1.0 + self.cfg.algorithm.clip_coef,
+                )
+                * advantages,
+            ).mean()
+            return actor_loss - self.cfg.algorithm.ent_coef * entropy, entropy.mean()
 
         (actor_loss, entropy), actor_grads = jax.value_and_grad(
-            self._actor_loss_fn, has_aux=True
-        )(state.actor_params, transitions, advantages)
+            actor_loss_fn, has_aux=True
+        )(state.actor_params)
         actor_updates, actor_optimizer_state = self.optimizer.update(
             actor_grads, state.actor_optimizer_state, state.actor_params
         )
         actor_params = optax.apply_updates(state.actor_params, actor_updates)
 
-        critic_loss, critic_grads = jax.value_and_grad(self._critic_loss_fn)(
-            state.critic_params, transitions,  returns
+        state = state.replace(
+            actor_params=actor_params,
+            actor_optimizer_state=actor_optimizer_state,
+        )
+
+        return state, actor_loss.mean(), entropy
+
+    def _update_critic(self, state: PPOState, transitions, returns):
+
+        def critic_loss_fn(params):
+            value = self.critic.apply(params, transitions.obs).squeeze(-1)
+
+            if self.cfg.algorithm.clip_vloss:
+                critic_loss = jnp.square(value - returns)
+                clipped_value = transitions.value + jnp.clip(
+                    (value - transitions.value),
+                    -self.cfg.algorithm.clip_coef,
+                    self.cfg.algorithm.clip_coef,
+                )
+                clipped_critic_loss = jnp.square(clipped_value - returns)
+                critic_loss = 0.5 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
+            else:
+                critic_loss = 0.5 * jnp.square(value - returns).mean()
+
+            return self.cfg.algorithm.vf_coef * critic_loss
+
+        critic_loss, critic_grads = jax.value_and_grad(critic_loss_fn)(
+            state.critic_params
         )
         critic_updates, critic_optimizer_state = self.optimizer.update(
             critic_grads, state.critic_optimizer_state, state.critic_params
         )
         critic_params = optax.apply_updates(state.critic_params, critic_updates)
 
-        state = state.replace(
-            actor_params=actor_params,
-            actor_optimizer_state=actor_optimizer_state,
-            critic_params=critic_params,
-            critic_optimizer_state=critic_optimizer_state,
-        )
+        state = state.replace(critic_params=critic_params, critic_optimizer_state=critic_optimizer_state)
+        return state, critic_loss.mean()
+
+    def _update_minibatch(self, state, minibatch: tuple):
+        transitions, advantages, returns = minibatch
+
+        state, critic_loss = self._update_critic(state, transitions, returns)
+        state, actor_loss, entropy = self._update_actor(state, transitions, advantages)
+
         return state, (actor_loss.mean(), critic_loss.mean(), entropy)
 
     def _update_epoch(self, carry: tuple, _):
@@ -273,7 +284,7 @@ class PPO:
         return key, transitions
 
 
-def make_ppo(cfg, env, env_params, logger):
+def make_ppo(cfg, env, env_params):
 
     actor = Network(
         feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),

@@ -12,7 +12,6 @@ from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from memory_rl.loggers import Logger
 from memory_rl.networks import Network, heads
 from memory_rl.utils import periodic_incremental_update, Transition
 
@@ -59,7 +58,6 @@ class SAC:
     critic_optimizer: optax.GradientTransformation
     temp_optimizer: optax.GradientTransformation
     buffer: Any
-    logger: Logger
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -328,23 +326,6 @@ class SAC:
             state, update_info = update(update_key, state)
             info.update(update_info)
 
-            def callback(logger, step, info):
-                if info["returned_episode"].any():
-                    data = {
-                        "training/episodic_returns": info[
-                            "returned_episode_returns"
-                        ].mean(),
-                        "training/episodic_lengths": info[
-                            "returned_episode_lengths"
-                        ].mean(),
-                        "losses/actor_loss": info["actor_loss"].mean(),
-                        "losses/entropy": info["entropy"].mean(),
-                        "losses/critic_loss": info["critic_loss"].mean(),
-                        "losses/temp_loss": info["temp_loss"].mean(),
-                    }
-                    logger.log(data, step=step)
-
-            jax.debug.callback(callback, self.logger, state.step, info)
 
             return (key, state), info
 
@@ -401,7 +382,7 @@ class SAC:
         return key, transitions
 
 
-def make_sac(cfg, env, env_params, logger) -> SAC:
+def make_sac(cfg, env, env_params) -> SAC:
 
     action_dim = env.action_space(env_params).shape[0]
 

@@ -1,6 +1,7 @@
 defaults:
   - feature_extractor: shared
   - torso: gru
+  - mode: TBPTT
 
 name: rpqn
 learning_rate:       3e-4
@@ -15,6 +16,7 @@ batch_size:          128
 start_e:             1.0
 end_e:               0.005
 exploration_fraction: 0.25
+max_grad_norm:       0.5
 
 learning_starts:     0
 

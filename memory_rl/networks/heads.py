@@ -95,14 +95,14 @@ class SquashedGaussian(nn.Module):
         return distrax.Transformed(dist, distrax.Block(distrax.Tanh(), ndims=1))
 
 
-class Temperature(nn.Module):
-    initial_temperature: float
+class Alpha(nn.Module):
+    initial_alpha: float
 
     @nn.compact
     def __call__(self) -> jnp.ndarray:
-        log_temp = self.param(
+        log_alpha = self.param(
             "log_temp",
-            constant(jnp.log(self.initial_temperature)),
+            constant(jnp.log(self.initial_alpha)),
             (),
         )
-        return jnp.exp(log_temp)
+        return jnp.exp(log_alpha)

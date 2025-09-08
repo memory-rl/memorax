@@ -76,9 +76,8 @@ def main(cfg: DictConfig):
 
     env, env_params = make_env(cfg.environment)
 
-    algorithm: Algorithm = make(cfg.algorithm.name, cfg, env, env_params, logger)
+    algorithm: Algorithm = make(cfg.algorithm.name, cfg, env, env_params)
 
-    # key, state = algorithm.init(key)
     keys, state = jax.vmap(algorithm.init)(keys)
 
     if cfg.environment.env_id == "Craftax-Symbolic-v1":
@@ -86,7 +85,6 @@ def main(cfg: DictConfig):
     else:
         max_steps_in_episode = env_params.max_steps_in_episode
 
-    # key, transitions = algorithm.evaluate(key, state, max_steps_in_episode)
     keys, transitions = jax.vmap(algorithm.evaluate, in_axes=(0, 0, None))(
         keys, state, max_steps_in_episode
     )
@@ -94,14 +92,12 @@ def main(cfg: DictConfig):
     logger_state = log(logger, logger_state, state, transitions.info)
     logger.emit(logger_state)
 
-    # key, state = algorithm.warmup(key, state, cfg.algorithm.learning_starts)
     keys, state = jax.vmap(algorithm.warmup, in_axes=(0, 0, None))(
         keys, state, cfg.algorithm.learning_starts
     )
 
     for i in range(0, cfg.total_timesteps, cfg.num_train_steps):
         start = time.perf_counter()
-        # key, state, info = algorithm.train(key, state, cfg.num_train_steps)
         keys, state, info = jax.vmap(algorithm.train, in_axes=(0, 0, None))(
             keys, state, cfg.num_train_steps
         )
@@ -111,10 +107,8 @@ def main(cfg: DictConfig):
         logger_state = log(
             logger, logger_state, state, info, prefix="training", sps=sps
         )
-        # print(sps)
 
         if i % cfg.evaluate_every == 0:
-            # key, transitions = algorithm.evaluate(key, state, max_steps_in_episode)
             keys, transitions = jax.vmap(algorithm.evaluate, in_axes=(0, 0, None))(
                 keys, state, max_steps_in_episode
             )

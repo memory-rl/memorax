@@ -182,3 +182,4 @@ multirun/
 popjaxrl/
 logs/
 *.png
+outputs/

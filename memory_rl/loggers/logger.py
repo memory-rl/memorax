@@ -88,6 +88,7 @@ class Logger(BaseLogger[LoggerState]):
     @jax.jit
     def get_episodic_lengths(transitions):
         done = transitions.done
+        done = jnp.moveaxis(done, 1, 0)
 
         def step(carry_len, done_t):
             curr_len = carry_len + 1
@@ -106,6 +107,7 @@ class Logger(BaseLogger[LoggerState]):
     def get_episodic_returns(transitions):
         r = transitions.reward
         done = transitions.done
+        done = jnp.moveaxis(done, 1, 0)
 
         def step(carry_sum, inp):
             r_t, d_t = inp
@@ -123,6 +125,7 @@ class Logger(BaseLogger[LoggerState]):
     def get_discounted_episodic_returns(transitions, gamma: float):
         r = transitions.reward
         done = transitions.done
+        done = jnp.moveaxis(done, 1, 0)
 
         def step(carry, inp):
             gsum, pow_ = carry

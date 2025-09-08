@@ -11,7 +11,6 @@ from flax.training import train_state
 from hydra.utils import instantiate
 
 from memory_rl.buffers import make_trajectory_buffer
-from memory_rl.loggers import Logger
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import periodic_incremental_update, Transition
 
@@ -66,7 +65,6 @@ class RSAC:
     critic_optimizer: optax.GradientTransformation
     temp_optimizer: optax.GradientTransformation
     buffer: Any
-    logger: Logger
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -392,19 +390,6 @@ class RSAC:
             state, update_info = update(update_key, state)
             info.update(update_info)
 
-            def callback(logger, step, info):
-                if info["returned_episode"].any():
-                    data = {
-                        "training/episodic_returns": info[
-                            "returned_episode_returns"
-                        ].mean(),
-                        "training/episodic_lengths": info[
-                            "returned_episode_lengths"
-                        ].mean(),
-                    }
-                    logger.log(data, step=step)
-
-            jax.debug.callback(callback, self.logger, state.step, info)
 
             return (key, state), info
 
@@ -486,7 +471,7 @@ class RSAC:
         return key, transitions
 
 
-def make_rsac(cfg, env, env_params, logger) -> RSAC:
+def make_rsac(cfg, env, env_params) -> RSAC:
 
     action_dim = env.action_space(env_params).shape[0]
 
@@ -544,5 +529,4 @@ def make_rsac(cfg, env, env_params, logger) -> RSAC:
         critic_optimizer=critic_optimizer,
         temp_optimizer=temp_optimizer,
         buffer=buffer,
-        logger=logger,
     )

@@ -10,7 +10,6 @@ from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from memory_rl.loggers import Logger
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import compute_recurrent_gae as compute_gae, Transition
 
@@ -124,99 +123,112 @@ class RPPO:
         )
         return (key, state), transition
 
-    def _actor_loss_fn(
-        self, params, actor_key, initial_hidden_state, transitions, advantages
-    ):
-        _, probs = self.actor.apply(
-            params,
-            observation=transitions.obs,
-            mask=transitions.done,
-            initial_carry=initial_hidden_state,
-            rngs={"memory": actor_key},
-        )
-        log_probs = probs.log_prob(transitions.action)
-        entropy = probs.entropy().mean()
-        ratio = jnp.exp(log_probs - transitions.log_prob)
-        approx_kl = jnp.mean(transitions.log_prob - log_probs)
-        clipfrac = jnp.mean(
-            (jnp.abs(ratio - 1.0) > self.cfg.algorithm.clip_coef).astype(jnp.float32)
-        )
+    def _update_actor(self, key, state: RPPOState, initial_actor_hidden_state, transitions, advantages):
+        key, actor_key = jax.random.split(key)
 
-        actor_loss = -jnp.minimum(
-            ratio * advantages,
-            jnp.clip(
-                ratio,
-                1.0 - self.cfg.algorithm.clip_coef,
-                1.0 + self.cfg.algorithm.clip_coef,
+        def actor_loss_fn(
+            params 
+        ):
+            _, probs = self.actor.apply(
+                params,
+                observation=transitions.obs,
+                mask=transitions.done,
+                initial_carry=initial_actor_hidden_state,
+                rngs={"memory": actor_key},
             )
-            * advantages,
-        ).mean()
-        return actor_loss - self.cfg.algorithm.ent_coef * entropy, (
-            entropy.mean(),  # type: ignore
-            approx_kl.mean(),  # type: ignore
-            clipfrac.mean(),  # type: ignore
-        )
-
-    def _critic_loss_fn(
-        self, params, critic_key, initial_hidden_state, transitions, returns
-    ):
-        _, values = self.critic.apply(
-            params,
-            observation=transitions.obs,
-            mask=transitions.done,
-            initial_carry=initial_hidden_state,
-            rngs={"memory": critic_key},
-        )
-        values = values.squeeze(-1)
-
-        if self.cfg.algorithm.clip_vloss:
-            critic_loss = jnp.square(values - returns)
-            clipped_value = transitions.value + jnp.clip(
-                (values - transitions.value),
-                -self.cfg.algorithm.clip_coef,
-                self.cfg.algorithm.clip_coef,
+            log_probs = probs.log_prob(transitions.action)
+            entropy = probs.entropy().mean()
+            ratio = jnp.exp(log_probs - transitions.log_prob)
+            approx_kl = jnp.mean(transitions.log_prob - log_probs)
+            clipfrac = jnp.mean(
+                (jnp.abs(ratio - 1.0) > self.cfg.algorithm.clip_coef).astype(jnp.float32)
             )
-            clipped_critic_loss = jnp.square(clipped_value - returns)
-            critic_loss = 0.5 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
-        else:
-            critic_loss = 0.5 * jnp.square(values - returns).mean()
 
-        return critic_loss
+            actor_loss = -jnp.minimum(
+                ratio * advantages,
+                jnp.clip(
+                    ratio,
+                    1.0 - self.cfg.algorithm.clip_coef,
+                    1.0 + self.cfg.algorithm.clip_coef,
+                )
+                * advantages,
+            ).mean()
+            return actor_loss - self.cfg.algorithm.ent_coef * entropy, (
+                entropy.mean(),  # type: ignore
+                approx_kl.mean(),  # type: ignore
+                clipfrac.mean(),  # type: ignore
+            )
 
-    def _update_minibatch(self, carry, minibatch: tuple):
-        key, state = carry
-        (
-            initial_actor_h_mb,
-            initial_critic_h_mb,
-            transitions,
-            advantages,
-            returns,
-        ) = minibatch
-
-        key, actor_key, critic_key = jax.random.split(key, 3)
         (actor_loss, aux), actor_grads = jax.value_and_grad(
-            self._actor_loss_fn, has_aux=True
-        )(state.actor_params, actor_key, initial_actor_h_mb, transitions, advantages)
+            actor_loss_fn, has_aux=True
+        )(state.actor_params)
         actor_updates, actor_optimizer_state = self.actor_optimizer.update(
             actor_grads, state.actor_optimizer_state, state.actor_params
         )
         actor_params = optax.apply_updates(state.actor_params, actor_updates)
 
-        critic_loss, critic_grads = jax.value_and_grad(self._critic_loss_fn)(
-            state.critic_params, critic_key, initial_critic_h_mb, transitions, returns
+        state = state.replace(
+            actor_params=actor_params,
+            actor_optimizer_state=actor_optimizer_state,
+        )
+        return key, state, actor_loss.mean(), aux
+
+
+    def _update_critic(self, key, state: RPPOState, initial_critic_hidden_state, transitions, returns):
+
+        key, critic_key = jax.random.split(key)
+
+        def critic_loss_fn(
+            params
+        ):
+            _, values = self.critic.apply(
+                params,
+                observation=transitions.obs,
+                mask=transitions.done,
+                initial_carry=initial_critic_hidden_state,
+                rngs={"memory": critic_key},
+            )
+            values = values.squeeze(-1)
+
+            if self.cfg.algorithm.clip_vloss:
+                critic_loss = jnp.square(values - returns)
+                clipped_value = transitions.value + jnp.clip(
+                    (values - transitions.value),
+                    -self.cfg.algorithm.clip_coef,
+                    self.cfg.algorithm.clip_coef,
+                )
+                clipped_critic_loss = jnp.square(clipped_value - returns)
+                critic_loss = 0.5 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
+            else:
+                critic_loss = 0.5 * jnp.square(values - returns).mean()
+
+            return critic_loss
+
+        critic_loss, critic_grads = jax.value_and_grad(critic_loss_fn)(
+            state.critic_params
         )
         critic_updates, critic_optimizer_state = self.critic_optimizer.update(
             critic_grads, state.critic_optimizer_state, state.critic_params
         )
         critic_params = optax.apply_updates(state.critic_params, critic_updates)
 
-        state = state.replace(
-            actor_params=actor_params,
-            actor_optimizer_state=actor_optimizer_state,
-            critic_params=critic_params,
-            critic_optimizer_state=critic_optimizer_state,
-        )
-        return (key, state), (actor_loss.mean(), critic_loss.mean(), aux)
+        state = state.replace(critic_params=critic_params, critic_optimizer_state=critic_optimizer_state)
+        return key, state, critic_loss.mean()
+
+    def _update_minibatch(self, carry, minibatch: tuple):
+        key, state = carry
+        (
+            initial_actor_hidden_state,
+            initial_critic_hidden_state,
+            transitions,
+            advantages,
+            returns,
+        ) = minibatch
+
+        key, state, critic_loss = self._update_critic(key, state, initial_critic_hidden_state, transitions, returns)
+        key, state, actor_loss, aux = self._update_actor(key, state, initial_actor_hidden_state, transitions, advantages)
+
+        return (key, state), (actor_loss, critic_loss, aux)
 
     def _update_epoch(self, carry: tuple, _):
 

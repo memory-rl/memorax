@@ -5,57 +5,35 @@ from omegaconf import DictConfig, OmegaConf
 import jax.numpy as jnp
 from hydra.utils import instantiate
 
+from memory_rl.loggers.logger import Logger
+
 OmegaConf.register_new_resolver("eval", eval)
 
 
-def log(logger, logger_state, state, info, *, prefix="evaluation", sps=0):
+def log(logger, logger_state, state, transitions, gamma, *, prefix="evaluation", sps=0):
     import jax
 
-    def masked_mean(data, mask):
-        nominator = jnp.sum(data * mask, axis=tuple(range(1, data.ndim)))
-        denominator = jnp.sum(mask, axis=tuple(range(1, data.ndim)))
-        return nominator / denominator
+    num_episodes = Logger.get_num_episodes(transitions)
+    episodic_lengths = Logger.get_episodic_lengths(transitions)
+    episodic_returns = Logger.get_episodic_returns(transitions)
+    discounted_episodic_returns = Logger.get_discounted_episodic_returns(
+        transitions, gamma
+    )
 
-    episodic_returns = masked_mean(info["returned_episode_returns"], info["returned_episode"])
-    episodic_lengths = masked_mean(info["returned_episode_lengths"], info["returned_episode"])
-
-
-    if "returned_episode_regret" in info:
-        episodic_regret = masked_mean(info["returned_episode_regret"], info["returned_episode"])
-
-    step = jax.device_get(state.step)
-    if not isinstance(step, int):
-        step = step[0].item()
-
-    data = {
-        f"{prefix}/episodic_returns": episodic_returns,
-        f"{prefix}/episodic_lengths": episodic_lengths,
-        **{
-            f"{prefix}/{k}": v.mean(axis=tuple(range(1, v.ndim)))
-            for k, v in info.items()
-            if not (
-                k.endswith("episodic_returns")
-                or k.endswith("episodic_lengths")
-                or k.endswith("returned_episode")
-                or k.endswith("returned_episode_returns")
-                or k.endswith("returned_episode_lengths")
-                or k.endswith("returned_episode_regret")
-                or k.endswith("timestep")
-                or k.endswith("step_regret")
-                or k.endswith("total_regret")
-                or k.startswith("losses")
-            )
-        },
-        **{k: v.mean(axis=tuple(range(1, v.ndim))) for k, v in info.items() if k.startswith("losses")},
-    }
-
-    if "returned_episode_regret" in info:
-        data[f"{prefix}/episodic_regret"] = episodic_regret
-
+    data = {f"{prefix}/{k}": v.mean(axis=tuple(range(1, v.ndim))) for k, v in transitions.info.items() if not k.startswith("losses")}
+    losses = {k: v.mean(axis=tuple(range(1, v.ndim))) for k, v in transitions.info.items() if k.startswith("losses")}
+    data.update(losses)
+    data[f"{prefix}/num_episodes"] = num_episodes
+    data[f"{prefix}/episodic_lengths"] = episodic_lengths
+    data[f"{prefix}/episodic_returns"] = episodic_returns
+    data[f"{prefix}/discounted_episodic_returns"] = discounted_episodic_returns
 
     if sps:
         data["SPS"] = sps
 
+
+    step = jax.device_get(state.step).item()
+    data = jax.device_get(data)
     logger_state = logger.log(logger_state, data, step=step)
 
     return logger_state
@@ -89,7 +67,7 @@ def main(cfg: DictConfig):
         keys, state, max_steps_in_episode
     )
 
-    logger_state = log(logger, logger_state, state, transitions.info)
+    log(logger, logger_state, state, transitions, cfg.algorithm.gamma, prefix="evaluation")
     logger.emit(logger_state)
 
     keys, state = jax.vmap(algorithm.warmup, in_axes=(0, 0, None))(
@@ -98,21 +76,21 @@ def main(cfg: DictConfig):
 
     for i in range(0, cfg.total_timesteps, cfg.num_train_steps):
         start = time.perf_counter()
-        keys, state, info = jax.vmap(algorithm.train, in_axes=(0, 0, None))(
+        keys, state, transitions = jax.vmap(algorithm.train, in_axes=(0, 0, None))(
             keys, state, cfg.num_train_steps
         )
         end = time.perf_counter()
 
         sps = cfg.num_train_steps / (end - start) * cfg.num_seeds
         logger_state = log(
-            logger, logger_state, state, info, prefix="training", sps=sps
+            logger, logger_state, state, transitions, cfg.algorithm.gamma, prefix="training", sps=sps
         )
 
         if i % cfg.evaluate_every == 0:
             keys, transitions = jax.vmap(algorithm.evaluate, in_axes=(0, 0, None))(
                 keys, state, max_steps_in_episode
             )
-            logger_state = log(logger, logger_state, state, transitions.info)
+            logger_state = log(logger, logger_state, state, transitions, cfg.algorithm.gamma)
         logger_state = logger.emit(logger_state)
 
     logger.finish(logger_state)

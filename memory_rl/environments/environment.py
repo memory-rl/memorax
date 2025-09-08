@@ -88,7 +88,7 @@ def make(cfg):
     if env_params is not None:
         env_params = env_params.replace(**cfg.get("parameters", {}))
 
-    env = LogWrapper(env)
+    # env = LogWrapper(env)
     for wrapper in cfg.get("wrappers", []):
         env = hydra.utils.instantiate(wrapper, env=env)
 

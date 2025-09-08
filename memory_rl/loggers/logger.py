@@ -98,14 +98,13 @@ class Logger(BaseLogger[LoggerState]):
 
         init_len = jnp.zeros_like(done[0], dtype=jnp.int32)
         _, lengths_at_done = jax.lax.scan(step, init_len, done)
-        jax.debug.print("{}", lengths_at_done)
-        jax.debug.print("{}", lengths_at_done.sum())
         return lengths_at_done.sum() / Logger.get_num_episodes(transitions)
 
     @staticmethod
     @jax.jit
     def get_episodic_returns(transitions):
         r = transitions.reward
+        r = jnp.moveaxis(r, 1, 0)
         done = transitions.done
         done = jnp.moveaxis(done, 1, 0)
 
@@ -124,6 +123,7 @@ class Logger(BaseLogger[LoggerState]):
     @jax.jit
     def get_discounted_episodic_returns(transitions, gamma: float):
         r = transitions.reward
+        r = jnp.moveaxis(r, 1, 0)
         done = transitions.done
         done = jnp.moveaxis(done, 1, 0)
 

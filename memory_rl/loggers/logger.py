@@ -18,7 +18,6 @@ class BaseLoggerState: ...
 
 StateT = TypeVar("StateT", bound=BaseLoggerState)
 
-
 @chex.dataclass(frozen=True)
 class BaseLogger(Generic[StateT], ABC):
 
@@ -80,12 +79,14 @@ class Logger(BaseLogger[LoggerState]):
             is_leaf=self._is_leaf,
         )
 
-    @partial(jax.jit, static_argnames=("self",))
-    def get_num_episodes(self, transitions) -> int:
+    @staticmethod
+    @jax.jit
+    def get_num_episodes(transitions) -> int:
         return transitions.done.sum()
 
-    @partial(jax.jit, static_argnames=("self",))
-    def get_episodic_lengths(self, transitions):
+    @staticmethod
+    @jax.jit
+    def get_episodic_lengths(transitions):
         done = transitions.done
 
         def step(carry_len, done_t):
@@ -96,10 +97,13 @@ class Logger(BaseLogger[LoggerState]):
 
         init_len = jnp.zeros_like(done[0], dtype=jnp.int32)
         _, lengths_at_done = jax.lax.scan(step, init_len, done)
-        return lengths_at_done.sum() / self.get_num_episodes(transitions)
+        jax.debug.print("{}", lengths_at_done)
+        jax.debug.print("{}", lengths_at_done.sum())
+        return lengths_at_done.sum() / Logger.get_num_episodes(transitions)
 
-    @partial(jax.jit, static_argnames=("self",))
-    def get_episodic_returns(self, transitions):
+    @staticmethod
+    @jax.jit
+    def get_episodic_returns(transitions):
         r = transitions.reward
         done = transitions.done
 
@@ -112,13 +116,13 @@ class Logger(BaseLogger[LoggerState]):
 
         init_sum = jnp.zeros_like(r[0])
         _, returns_at_done = jax.lax.scan(step, init_sum, (r, done))
-        return returns_at_done.sum() / self.get_num_episodes(transitions)
+        return returns_at_done.sum() / Logger.get_num_episodes(transitions)
 
-    @partial(jax.jit, static_argnames=("self",))
-    def get_discounted_episodic_returns(self, transitions, gamma: float):
+    @staticmethod
+    @jax.jit
+    def get_discounted_episodic_returns(transitions, gamma: float):
         r = transitions.reward
         done = transitions.done
-        gamma = jnp.asarray(gamma, dtype=r.dtype)
 
         def step(carry, inp):
             gsum, pow_ = carry
@@ -131,4 +135,4 @@ class Logger(BaseLogger[LoggerState]):
 
         init = (jnp.zeros_like(r[0]), jnp.ones_like(r[0]))
         _, disc_returns_at_done = jax.lax.scan(step, init, (r, done))
-        return disc_returns_at_done.sum() / self.get_num_episodes(transitions)
+        return disc_returns_at_done.sum() / Logger.get_num_episodes(transitions)

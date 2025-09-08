@@ -166,11 +166,10 @@ class DQN:
 
             key, state, loss, q_value = self._update(key, state)
 
-            info = transitions.info
-            info["losses/loss"] = loss
-            info["losses/q_value"] = q_value
+            transitions.info["losses/loss"] = loss
+            transitions.info["losses/q_value"] = q_value
 
-            return (key, state), info
+            return (key, state), transitions
 
 
 
@@ -225,12 +224,12 @@ class DQN:
         state: DQNState,
         num_steps: int,
     ) -> tuple[chex.PRNGKey, DQNState, dict]:
-        (key, state), info = jax.lax.scan(
+        (key, state), transitions = jax.lax.scan(
             self._learn,
             (key, state),
             length=(num_steps // self.cfg.algorithm.train_frequency),
         )
-        return key, state, info
+        return key, state, transitions
 
 
 

@@ -1,5 +1,5 @@
 total_timesteps: 1_000_000
-num_train_steps: 50_000
+num_train_steps: 100_000
 evaluate_every: 100_000
 seed: 0
 num_seeds: 1

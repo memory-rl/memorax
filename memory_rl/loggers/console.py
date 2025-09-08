@@ -5,6 +5,7 @@ from collections import defaultdict
 from dataclasses import field
 from typing import Any, DefaultDict, Mapping, Optional
 
+import jax
 import chex
 from omegaconf import DictConfig, OmegaConf
 
@@ -34,7 +35,6 @@ class ConsoleLoggerState(BaseLoggerState):
             "metrics": {},  # dict[str, float]
         }
     )
-    last_update: float = field(default_factory=time.perf_counter)
 
 
 @chex.dataclass(frozen=True)
@@ -93,32 +93,23 @@ class ConsoleLogger(BaseLogger[ConsoleLoggerState]):
         return state
 
     def emit(self, state: ConsoleLoggerState) -> ConsoleLoggerState:
-        global_step = state.stats["global_step"]
         for step, data in sorted(state.buffer.items()):
-
             state.stats["global_step"] = max(
-                state.stats["global_step"], int(data.get("global_step", step))
+                state.stats["global_step"], step
             )
 
             state.stats["SPS"] = data.get("SPS", state.stats["SPS"])
 
             state.stats["losses"].update(
-                {k: v for k, v in data.items() if k.startswith("losses/")}
+                {k: v.mean() for k, v in data.items() if k.startswith("losses/")}
             )
             state.stats["metrics"].update(
                 {
-                    k: v
+                    k: v.mean()
                     for k, v in data.items()
                     if k.startswith("training/") or k.startswith("evaluation/")
                 }
             )
-
-        now = time.perf_counter()
-        dt = now - state.last_update
-        ds = state.stats["global_step"] - global_step
-        state.stats["SPS"] = 0.1 * ds / dt + 0.9 * state.stats["SPS"]
-
-        state = state.replace(last_update=now)
 
         state.buffer.clear()
 

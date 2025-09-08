@@ -1,9 +1,2 @@
-_target_: memory_rl.networks.recurrent.mLSTM
-embedding_dim: 128
-num_heads: 4
-head_dim: 16
-p_factor: 2
-use_bias: True
-# use_exp_f_gate: True
-ker_size: 4
-use_conv: True
+_target_: memory_rl.networks.recurrent.mLSTMBlock
+features: 128

@@ -1,4 +1,6 @@
-from typing import Any
+from typing import Any, Callable
+
+from functools import partial
 
 import chex
 import flax.linen as nn
@@ -10,7 +12,6 @@ from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from memory_rl.loggers import Logger
 from memory_rl.networks import Network, heads
 from memory_rl.utils import compute_gae, Transition
 
@@ -34,38 +35,52 @@ class PPO:
     actor: Network
     critic: Network
     optimizer: optax.GradientTransformation
-    logger: Logger
 
-    def init(self, key):
-        key, env_key, actor_key, critic_key = jax.random.split(key, 4)
 
-        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
-        obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
-            env_keys, self.env_params
+    def _deterministic_action(
+        self, key: chex.PRNGKey, state: PPOState) -> tuple[chex.PRNGKey, chex.Array, chex.Array, chex.Array]:
+        probs = self.actor.apply(state.actor_params, state.obs)
+        action = jnp.argmax(probs.logits, axis=-1)
+        log_prob = probs.log_prob(action)
+        value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
+        return key, action, log_prob, value
+
+
+    def _stochastic_action(self, key: chex.PRNGKey, state: PPOState) -> tuple[chex.PRNGKey, chex.Array, chex.Array, chex.Array]:
+        key, action_key = jax.random.split(key)
+        probs = self.actor.apply(state.actor_params, state.obs)
+        action = probs.sample(seed=action_key)
+        log_prob = probs.log_prob(action)
+        value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
+        return key, action, log_prob, value
+
+    def _step(self, carry: tuple, _, *, policy: Callable):
+        key, state = carry
+
+        key, action_key, step_key = jax.random.split(key, 3)
+        key, action, log_prob, value = policy(action_key, state)
+
+        step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
+        next_obs, env_state, reward, done, info = jax.vmap(
+            self.env.step, in_axes=(0, 0, 0, None)
+        )(step_key, state.env_state, action, self.env_params)
+
+        transition = Transition(
+            obs=state.obs,          # type: ignore
+            action=action,          # type: ignore
+            reward=reward,          # type: ignore
+            done=done,              # type: ignore
+            info=info,              # type: ignore
+            log_prob=log_prob,      # type: ignore
+            value=value,            # type: ignore
         )
 
-        actor_params = self.actor.init(actor_key, obs)
-        actor_optimizer_state = self.optimizer.init(actor_params)
-
-        critic_params = self.critic.init(critic_key, obs)
-        critic_optimizer_state = self.optimizer.init(critic_params)
-
-        return (
-            key,
-            PPOState(
-                step=0,  # type: ignore
-                obs=obs,  # type: ignore
-                env_state=env_state,  # type: ignore
-                actor_params=actor_params,  # type: ignore
-                actor_optimizer_state=actor_optimizer_state,  # type: ignore
-                critic_params=critic_params,  # type: ignore
-                critic_optimizer_state=critic_optimizer_state,  # type: ignore
-            ),
+        state = state.replace(
+            step=state.step + self.cfg.algorithm.num_envs,
+            obs=next_obs,
+            env_state=env_state,
         )
-
-    def warmup(self, key, state, num_steps):
-        """No warmup needed for PPO"""
-        return key, state
+        return (key, state), transition
 
     def _actor_loss_fn(self, params, transitions, advantages):
         probs = self.actor.apply(params, transitions.obs)
@@ -82,9 +97,9 @@ class PPO:
             )
             * advantages,
         ).mean()
-        return actor_loss - self.cfg.algorithm.ent_coef * entropy, entropy
+        return actor_loss - self.cfg.algorithm.ent_coef * entropy, entropy.mean()
 
-    def _critic_loss_fn(self, params, transitions, advantages, returns):
+    def _critic_loss_fn(self, params, transitions, returns):
         value = self.critic.apply(params, transitions.obs).squeeze(-1)
 
         if self.cfg.algorithm.clip_vloss:
@@ -113,7 +128,7 @@ class PPO:
         actor_params = optax.apply_updates(state.actor_params, actor_updates)
 
         critic_loss, critic_grads = jax.value_and_grad(self._critic_loss_fn)(
-            state.critic_params, transitions, advantages, returns
+            state.critic_params, transitions,  returns
         )
         critic_updates, critic_optimizer_state = self.optimizer.update(
             critic_grads, state.critic_optimizer_state, state.critic_params
@@ -126,7 +141,7 @@ class PPO:
             critic_params=critic_params,
             critic_optimizer_state=critic_optimizer_state,
         )
-        return state, (actor_loss, critic_loss, entropy)
+        return state, (actor_loss.mean(), critic_loss.mean(), entropy)
 
     def _update_epoch(self, carry: tuple, _):
         key, state, batch = carry
@@ -159,47 +174,10 @@ class PPO:
             batch,
         ), (actor_loss, critic_loss, entropy)
 
-    def _step(self, carry: tuple, _):
-        key, state = carry
-
-        key, action_key, step_key = jax.random.split(key, 3)
-
-        probs = self.actor.apply(state.actor_params, state.obs)
-        action = probs.sample(seed=action_key)
-        log_prob = probs.log_prob(action)
-
-        value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
-
-        step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
-        next_obs, env_state, reward, done, info = jax.vmap(
-            self.env.step, in_axes=(0, 0, 0, None)
-        )(step_key, state.env_state, action, self.env_params)
-
-        transition = Transition(
-            obs=state.obs,  # type: ignore
-            action=action,  # type: ignore
-            reward=reward,  # type: ignore
-            done=done,  # type: ignore
-            info=info,  # type: ignore
-            log_prob=log_prob,  # type: ignore
-            value=value,  # type: ignore
-        )
-
-        state = state.replace(
-            step=state.step + self.cfg.algorithm.num_envs,
-            obs=next_obs,
-            env_state=env_state,
-        )
-        carry = (
-            key,
-            state,
-        )
-        return carry, transition
-
     def _update_step(self, carry: tuple, _):
 
         (key, state), transitions = jax.lax.scan(
-            self._step,
+            partial(self._step, policy=self._stochastic_action),
             carry,
             length=self.cfg.algorithm.num_steps,
         )
@@ -224,33 +202,49 @@ class PPO:
         )
         transitions, *_ = batch
 
-        def callback(logger, step, info, actor_loss, critic_loss, entropy):
-            if info["returned_episode"].any():
-                data = {
-                    "training/episodic_returns": info[
-                        "returned_episode_returns"
-                    ].mean(),
-                    "training/episodic_lengths": info[
-                        "returned_episode_lengths"
-                    ].mean(),
-                    "losses/actor_loss": actor_loss.mean(),
-                    "losses/critic_loss": critic_loss.mean(),
-                    "losses/entropy": entropy.mean(),
-                }
-                logger.log(data, step=step)
+        metrics = {
+            **transitions.info,
+            "losses/actor_loss": actor_loss,
+            "losses/critic_loss": critic_loss,
+            "losses/entropy": entropy,
+        }
 
-        jax.debug.callback(
-            callback,
-            self.logger,
-            state.step,
-            transitions.info,
-            actor_loss,
-            critic_loss,
-            entropy,
+        return (key, state), metrics
+
+    @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
+    def init(self, key):
+        key, env_key, actor_key, critic_key = jax.random.split(key, 4)
+
+        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
+        obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
+            env_keys, self.env_params
         )
 
-        return (key, state), transitions.info
+        actor_params = self.actor.init(actor_key, obs)
+        actor_optimizer_state = self.optimizer.init(actor_params)
 
+        critic_params = self.critic.init(critic_key, obs)
+        critic_optimizer_state = self.optimizer.init(critic_params)
+
+        return (
+            key,
+            PPOState(
+                step=0,  # type: ignore
+                obs=obs,  # type: ignore
+                env_state=env_state,  # type: ignore
+                actor_params=actor_params,  # type: ignore
+                actor_optimizer_state=actor_optimizer_state,  # type: ignore
+                critic_params=critic_params,  # type: ignore
+                critic_optimizer_state=critic_optimizer_state,  # type: ignore
+            ),
+        )
+
+    @partial(jax.jit, static_argnames=["self"], donate_argnames=["key", "state"])
+    def warmup(self, key, state, num_steps):
+        """No warmup needed for PPO"""
+        return key, state
+
+    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
     def train(self, key, state, num_steps):
 
         (key, state), info = jax.lax.scan(
@@ -263,38 +257,17 @@ class PPO:
 
         return key, state, info
 
+    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
     def evaluate(self, key, state, num_steps):
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
+        state = state.replace(obs=obs, env_state=env_state)
 
-        def step(carry, _):
-            key, obs, env_state = carry
-
-            probs = self.actor.apply(state.actor_params, obs)
-            action = jnp.argmax(probs.logits, axis=-1)
-
-            key, step_key = jax.random.split(key)
-            step_key = jax.random.split(step_key, self.cfg.algorithm.num_eval_envs)
-            next_obs, env_state, reward, done, info = jax.vmap(
-                self.env.step, in_axes=(0, 0, 0, None)
-            )(step_key, env_state, action, self.env_params)
-
-            transition = Transition(
-                obs=obs,  # type: ignore
-                action=action,  # type: ignore
-                reward=reward,  # type: ignore
-                done=done,  # type: ignore
-                next_obs=next_obs,  # type: ignore
-                info=info,  # type: ignore
-            )
-
-            return (key, next_obs, env_state), transition
-
-        (key, obs, env_state), transitions = jax.lax.scan(
-            step, (key, obs, env_state), length=num_steps
+        (key, *_), transitions = jax.lax.scan(
+            partial(self._step, policy=self._deterministic_action), (key, state), length=num_steps
         )
 
         return key, transitions
@@ -341,5 +314,4 @@ def make_ppo(cfg, env, env_params, logger):
         actor=actor,
         critic=critic,
         optimizer=optimizer,
-        logger=logger,
     )

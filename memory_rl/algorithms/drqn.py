@@ -106,19 +106,6 @@ class DRQN:
         )
         return (key, state), transition
 
-    def _loss_fn(self, params, td_target, mask, batch, memory_key):
-        hidden_state, q_value = self.q_network.apply(
-            params,
-            batch.experience.obs,
-            mask=batch.experience.done,
-            return_carry_history=self.cfg.algorithm.update_hidden_state,
-            rngs={"memory": memory_key},
-        )
-        action = jnp.expand_dims(batch.experience.action, axis=-1)
-        q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
-        td_error = q_value - td_target
-        loss = jnp.square(td_error).mean(where=mask.astype(jnp.bool_))
-        return loss, (q_value, hidden_state)
 
     def _update(
             self, key: chex.PRNGKey, state: DRQNState
@@ -162,14 +149,14 @@ class DRQN:
             else:
                 q_next_target = jnp.max(q_next_target, axis=-1)
 
-            next_q_value = (
+            td_target = (
                 batch.experience.reward
                 + (1 - batch.experience.next_done)
                 * self.cfg.algorithm.gamma
                 * q_next_target
             )
 
-            mask = jnp.ones_like(next_q_value)
+            mask = jnp.ones_like(td_target)
             if self.cfg.algorithm.mode.mask:
                 episode_idx = jnp.cumsum(batch.experience.done, axis=1)
                 terminal = (episode_idx == 1) & batch.experience.done
@@ -177,10 +164,23 @@ class DRQN:
 
             # if self.cfg.algorithm.burn_in:
             #     pass
+            def loss_fn(params):
+                hidden_state, q_value = self.q_network.apply(
+                    params,
+                    batch.experience.obs,
+                    mask=batch.experience.done,
+                    return_carry_history=self.cfg.algorithm.update_hidden_state,
+                    rngs={"memory": memory_key},
+                )
+                action = jnp.expand_dims(batch.experience.action, axis=-1)
+                q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
+                td_error = q_value - td_target
+                loss = jnp.square(td_error).mean(where=mask.astype(jnp.bool_))
+                return loss, (q_value, hidden_state)
 
             (loss, (q_value, hidden_state)), grads = jax.value_and_grad(
-                self._loss_fn, has_aux=True
-            )(state.params, next_q_value, mask, batch, memory_key)
+                loss_fn, has_aux=True
+            )(state.params)
             updates, optimizer_state = self.optimizer.update(
                 grads, state.optimizer_state, state.params
             )
@@ -346,7 +346,7 @@ class DRQN:
         return key, transitions
 
 
-def make_drqn(cfg, env, env_params, logger) -> DRQN:
+def make_drqn(cfg, env, env_params) -> DRQN:
 
     q_network = RecurrentNetwork(
         feature_extractor=instantiate(cfg.algorithm.feature_extractor),

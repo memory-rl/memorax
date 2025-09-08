@@ -11,7 +11,6 @@ from flax import core
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
-from memory_rl.loggers import Logger
 from memory_rl.networks import Network, heads
 from memory_rl.utils import Transition
 
@@ -100,58 +99,59 @@ class DQN:
         )
         return (key, state), transition
 
-    def _loss_fn(self, params, td_target, batch):
-        q_value = self.q_network.apply(
-            params,
-            batch.first.obs,
-        )
-        action = jnp.expand_dims(batch.first.action, axis=-1)
-        q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
-        loss = jnp.square(q_value - td_target).mean()
-        return loss, q_value
 
 
     def _update(
             self, key: chex.PRNGKey, state: DQNState
         ) -> tuple[DQNState, chex.Array, chex.Array]:
 
-            key, sample_key = jax.random.split(key)
-            batch = self.buffer.sample(state.buffer_state, sample_key).experience
+        key, sample_key = jax.random.split(key)
+        batch = self.buffer.sample(state.buffer_state, sample_key).experience
 
-            target_q_values = self.q_network.apply(
-                state.target_params,
-                batch.second.obs,
-            )
-            target_q_value = jnp.max(target_q_values, axis=-1)
+        target_q_values = self.q_network.apply(
+            state.target_params,
+            batch.second.obs,
+        )
+        target_q_value = jnp.max(target_q_values, axis=-1)
 
-            td_target = (
-                batch.first.reward
-                + (1 - batch.first.done) * self.cfg.algorithm.gamma * target_q_value
-            )
+        td_target = (
+            batch.first.reward
+            + (1 - batch.first.done) * self.cfg.algorithm.gamma * target_q_value
+        )
 
-            (loss, q_value), grads = jax.value_and_grad(self._loss_fn, has_aux=True)(
-                state.params, td_target, batch
+        def loss_fn(params):
+            q_value = self.q_network.apply(
+                params,
+                batch.first.obs,
             )
-            updates, optimizer_state = self.optimizer.update(
-                grads, state.optimizer_state, state.params
-            )
-            params = optax.apply_updates(state.params, updates)
-            target_params = optax.periodic_update(
-                optax.incremental_update(
-                    params, state.target_params, self.cfg.algorithm.tau
-                ),
-                state.target_params,
-                state.step,
-                self.cfg.algorithm.target_network_frequency,
-            )
+            action = jnp.expand_dims(batch.first.action, axis=-1)
+            q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
+            loss = jnp.square(q_value - td_target).mean()
+            return loss, q_value
 
-            state = state.replace(
-                params=params,
-                target_params=target_params,
-                optimizer_state=optimizer_state,
-            )
+        (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+            state.params
+        )
+        updates, optimizer_state = self.optimizer.update(
+            grads, state.optimizer_state, state.params
+        )
+        params = optax.apply_updates(state.params, updates)
+        target_params = optax.periodic_update(
+            optax.incremental_update(
+                params, state.target_params, self.cfg.algorithm.tau
+            ),
+            state.target_params,
+            state.step,
+            self.cfg.algorithm.target_network_frequency,
+        )
 
-            return key, state, loss, q_value.mean()
+        state = state.replace(
+            params=params,
+            target_params=target_params,
+            optimizer_state=optimizer_state,
+        )
+
+        return key, state, loss, q_value.mean()
 
     def _learn(
             self, carry: tuple[chex.PRNGKey, DQNState], _
@@ -251,7 +251,7 @@ class DQN:
         return key, transitions
 
 
-def make_dqn(cfg, env, env_params, logger) -> DQN:
+def make_dqn(cfg, env, env_params) -> DQN:
     """
     Factory function to construct a DQN agent from Args.
 

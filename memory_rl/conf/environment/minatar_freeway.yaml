@@ -1,0 +1,4 @@
+env_id: Freeway-MinAtar
+
+wrappers:
+ - _target_: gymnax.wrappers.FlattenObservationWrapper

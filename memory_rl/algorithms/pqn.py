@@ -325,7 +325,11 @@ def make_pqn(cfg, env, env_params) -> PQN:
         head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
 
-    optimizer = optax.adam(learning_rate=cfg.algorithm.learning_rate)
+    optimizer = optax.chain(
+        optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
+        optax.adam(learning_rate=cfg.algorithm.learning_rate),
+    )
+
     epsilon_schedule = optax.linear_schedule(
         cfg.algorithm.start_e,
         cfg.algorithm.end_e,

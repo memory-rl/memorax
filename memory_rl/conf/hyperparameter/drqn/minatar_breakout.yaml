@@ -1,14 +1,23 @@
-# @package algorithm
-batch_size: 128
-buffer_size: 10000
-cell_size: 128
-gamma: 0.99
-learning_rate: 0.0006080276003400391
-learning_starts: 10000
-tau: 1
-start_e: 1
-end_e: 0.01
-exploration_fraction: 0.5
-target_network_frequency: 2000
-train_frequency: 10
-update_hidden_state: false
+# @package _global_
+
+total_timesteps:     5_000_000
+num_train_steps:     100_000
+evaluate_every:      100_000
+
+algorithm:
+  learning_rate:       2.5e-4
+  num_envs:            4
+  num_eval_envs:       10
+  buffer_size:         100_000
+  gamma:               0.99
+  tau:                 1.0
+  target_network_frequency: 1000
+  batch_size:          32
+  double:              true
+
+  start_e:             1.0
+  end_e:               0.1
+  exploration_fraction: 0.02
+
+  learning_starts:     5000
+  train_frequency:     4

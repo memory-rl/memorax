@@ -1,15 +1,15 @@
 import time
-import hydra
-from omegaconf import DictConfig, OmegaConf
 
+import hydra
 from hydra.utils import instantiate
+from omegaconf import DictConfig, OmegaConf
 
 from memory_rl.loggers.logger import Logger
 
 OmegaConf.register_new_resolver("eval", eval)
 
 
-def log(logger, logger_state, state, transitions, gamma, *, prefix="evaluation", sps=0):
+def log(logger, logger_state, step, transitions, gamma, *, prefix="evaluation", sps=0):
     import jax
 
     losses = jax.vmap(Logger.get_losses)(transitions)
@@ -23,7 +23,6 @@ def log(logger, logger_state, state, transitions, gamma, *, prefix="evaluation",
     if sps:
         data["SPS"] = sps
 
-    step = jax.device_get(state.step).item()
     data = jax.device_get(data)
     logger_state = logger.log(logger_state, data, step=step)
 
@@ -34,6 +33,7 @@ def log(logger, logger_state, state, transitions, gamma, *, prefix="evaluation",
 def main(cfg: DictConfig):
 
     import jax
+
     from memory_rl import Algorithm, make
     from memory_rl.environments.environment import make as make_env
 
@@ -61,7 +61,7 @@ def main(cfg: DictConfig):
     log(
         logger,
         logger_state,
-        state,
+        0,
         transitions,
         cfg.algorithm.gamma,
         prefix="evaluation",
@@ -83,7 +83,7 @@ def main(cfg: DictConfig):
         logger_state = log(
             logger,
             logger_state,
-            state,
+            i,
             transitions,
             cfg.algorithm.gamma,
             prefix="training",
@@ -95,7 +95,7 @@ def main(cfg: DictConfig):
                 keys, state, max_steps_in_episode
             )
             logger_state = log(
-                logger, logger_state, state, transitions, cfg.algorithm.gamma
+                logger, logger_state, i, transitions, cfg.algorithm.gamma
             )
         logger_state = logger.emit(logger_state)
 

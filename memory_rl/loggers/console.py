@@ -94,9 +94,7 @@ class ConsoleLogger(BaseLogger[ConsoleLoggerState]):
 
     def emit(self, state: ConsoleLoggerState) -> ConsoleLoggerState:
         for step, data in sorted(state.buffer.items()):
-            state.stats["global_step"] = max(
-                state.stats["global_step"], step
-            )
+            state.stats["global_step"] = max(state.stats["global_step"], step)
 
             state.stats["SPS"] = data.get("SPS", state.stats["SPS"])
 
@@ -178,9 +176,9 @@ class ConsoleLogger(BaseLogger[ConsoleLoggerState]):
         statistics = Table(box=None, expand=True, pad_edge=False)
         left_stats = Table(box=None, expand=True)
         right_stats = Table(box=None, expand=True)
-        left_stats.add_column("Stats", justify="left", width=20, style="yellow")
+        left_stats.add_column("Training", justify="left", width=20, style="yellow")
         left_stats.add_column("Value", justify="right", width=10, style="green")
-        right_stats.add_column("Stats", justify="left", width=20, style="yellow")
+        right_stats.add_column("Evaluation", justify="left", width=20, style="yellow")
         right_stats.add_column("Value", justify="right", width=10, style="green")
         for i, (metric, value) in enumerate(stats["metrics"].items()):
             if metric.startswith("training/"):
@@ -190,7 +188,9 @@ class ConsoleLogger(BaseLogger[ConsoleLoggerState]):
             else:
                 print(f"Unknown metric: {metric}")
                 continue
-            table.add_row(metric, f"{value}")
+
+            name = metric.split("/")[-1]
+            table.add_row(name, f"{value}")
 
         statistics.add_row(left_stats, right_stats)
         dashboard.add_row(statistics)

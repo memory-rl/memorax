@@ -58,18 +58,24 @@ class SACD:
     alpha_optimizer: optax.GradientTransformation
     buffer: Any
 
-    def _deterministic_action(self, key: chex.PRNGKey, state: SACDState) -> tuple[chex.PRNGKey, SACDState, chex.Array, chex.Array]:
+    def _deterministic_action(
+        self, key: chex.PRNGKey, state: SACDState
+    ) -> tuple[chex.PRNGKey, SACDState, chex.Array, chex.Array]:
         dist = self.actor_network.apply(state.actor_params, state.obs)
         action = dist.mode()
         return key, action
 
-    def _stochastic_action(self, key: chex.PRNGKey, state: SACDState) -> tuple[chex.PRNGKey, SACDState, chex.Array, chex.Array]:
+    def _stochastic_action(
+        self, key: chex.PRNGKey, state: SACDState
+    ) -> tuple[chex.PRNGKey, SACDState, chex.Array, chex.Array]:
         key, sample_key = jax.random.split(key)
         dist = self.actor_network.apply(state.actor_params, state.obs)
         action = dist.sample(seed=sample_key)
         return key, action
 
-    def _random_action(self, key: chex.PRNGKey, state: SACDState) -> tuple[chex.PRNGKey, SACDState, chex.Array, chex.Array]:
+    def _random_action(
+        self, key: chex.PRNGKey, state: SACDState
+    ) -> tuple[chex.PRNGKey, SACDState, chex.Array, chex.Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
@@ -136,9 +142,7 @@ class SACD:
             log_probs = jax.nn.log_softmax(dist.logits)
             q1, q2 = self.critic_network.apply(state.critic_params, batch.first.obs)
             q = jnp.minimum(q1, q2)
-            actor_loss = (
-                (dist.probs * ((alpha * log_probs) - q)).sum(axis=-1).mean()
-            )
+            actor_loss = (dist.probs * ((alpha * log_probs) - q)).sum(axis=-1).mean()
             return actor_loss, {
                 "actor_loss": actor_loss,
                 "entropy": dist.entropy().mean(),
@@ -165,9 +169,9 @@ class SACD:
         next_q1, next_q2 = self.critic_network.apply(
             state.critic_target_params, batch.second.obs
         )
-        next_q = (
-            dist.probs * (jnp.minimum(next_q1, next_q2) - alpha * log_probs)
-        ).sum(axis=1)
+        next_q = (dist.probs * (jnp.minimum(next_q1, next_q2) - alpha * log_probs)).sum(
+            axis=1
+        )
 
         target_q = (
             batch.first.reward
@@ -246,17 +250,15 @@ class SACD:
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),
             carry,
-            length=self.cfg.algorithm.train_frequency
-            // self.cfg.algorithm.num_envs,
+            length=self.cfg.algorithm.train_frequency // self.cfg.algorithm.num_envs,
         )
 
-        info = transitions.info
         key, update_key = jax.random.split(key)
         state, update_info = self._update(update_key, state)
-        # info.update(update_info)
 
-        return (key, state), info
+        transitions.info.update(update_info)
 
+        return (key, state), transitions
 
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key):
@@ -306,28 +308,35 @@ class SACD:
             obs=obs,
         )
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def warmup(
         self, key, state: SACDState, num_steps: int
     ) -> tuple[chex.PRNGKey, SACDState]:
 
         (key, state), _ = jax.lax.scan(
-            partial(self._step, policy=self._random_action), (key, state), length=num_steps // self.cfg.algorithm.num_envs
+            partial(self._step, policy=self._random_action),
+            (key, state),
+            length=num_steps // self.cfg.algorithm.num_envs,
         )
         return key, state
 
-
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def train(self, key: chex.PRNGKey, state: SACDState, num_steps: int):
-        (key, state), info = jax.lax.scan(
+        (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
             length=(num_steps // self.cfg.algorithm.train_frequency),
         )
 
-        return key, state, info
+        return key, state, transitions
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def evaluate(self, key: chex.PRNGKey, state: SACDState, num_steps: int):
 
         key, reset_key = jax.random.split(key)
@@ -338,7 +347,9 @@ class SACD:
         state = state.replace(obs=obs, env_state=env_state)
 
         (key, _), transitions = jax.lax.scan(
-            partial(self._step, policy=self._deterministic_action), (key, state), length=num_steps
+            partial(self._step, policy=self._deterministic_action),
+            (key, state),
+            length=num_steps,
         )
 
         return key, transitions

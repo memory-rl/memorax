@@ -24,11 +24,11 @@ from flashbax.utils import add_dim_to_args
 
 
 def get_full_start_flags(experience: Experience) -> jnp.ndarray:
-    return jnp.ones_like(experience.done)
+    return jnp.ones_like(experience.prev_done)
 
 
 def get_start_flags_from_done(experience: Experience) -> jnp.ndarray:
-    start_flags = jnp.roll(experience.done, shift=1, axis=1)
+    start_flags = jnp.roll(experience.prev_done, shift=1, axis=1)
     return start_flags
 
 

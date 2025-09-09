@@ -118,7 +118,7 @@ class RPQN:
 
         target_bootstrap = (
             transition.reward
-            + self.cfg.algorithm.gamma * (1.0 - transition.prev_done) * next_q_value
+            + self.cfg.algorithm.gamma * (1.0 - transition.done) * next_q_value
         )
 
         delta = lambda_return - next_q_value
@@ -128,8 +128,8 @@ class RPQN:
         )
 
         lambda_return = (
-            1.0 - transition.prev_done
-        ) * lambda_return + transition.prev_done * transition.reward
+            1.0 - transition.one
+        ) * lambda_return + transition.done * transition.reward
 
         q_value = jnp.max(transition.value, axis=-1).squeeze(-1)
         return (lambda_return, q_value), lambda_return

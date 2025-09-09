@@ -206,7 +206,7 @@ class PQN:
         transitions.info["losses/q_value"] = q_value
 
         return (key, state), transitions
-    
+
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key) -> tuple[chex.PRNGKey, PQNState, chex.Array, gymnax.EnvState]:
         """

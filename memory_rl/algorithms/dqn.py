@@ -44,12 +44,16 @@ class DQN:
     buffer: fbx.trajectory_buffer.TrajectoryBuffer
     epsilon_schedule: optax.Schedule
 
-    def _greedy_action(self, key: chex.PRNGKey, state: DQNState) -> tuple[chex.PRNGKey, chex.Array]:
+    def _greedy_action(
+        self, key: chex.PRNGKey, state: DQNState
+    ) -> tuple[chex.PRNGKey, chex.Array]:
         q_values = self.q_network.apply(state.params, state.obs)
         action = jnp.argmax(q_values, axis=-1)
         return key, action
 
-    def _random_action(self, key: chex.PRNGKey, state: DQNState) -> tuple[chex.PRNGKey, chex.Array]:
+    def _random_action(
+        self, key: chex.PRNGKey, state: DQNState
+    ) -> tuple[chex.PRNGKey, chex.Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
@@ -99,11 +103,9 @@ class DQN:
         )
         return (key, state), transition
 
-
-
     def _update(
-            self, key: chex.PRNGKey, state: DQNState
-        ) -> tuple[DQNState, chex.Array, chex.Array]:
+        self, key: chex.PRNGKey, state: DQNState
+    ) -> tuple[DQNState, chex.Array, chex.Array]:
 
         key, sample_key = jax.random.split(key)
         batch = self.buffer.sample(state.buffer_state, sample_key).experience
@@ -129,9 +131,7 @@ class DQN:
             loss = jnp.square(q_value - td_target).mean()
             return loss, q_value
 
-        (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-            state.params
-        )
+        (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
         updates, optimizer_state = self.optimizer.update(
             grads, state.optimizer_state, state.params
         )
@@ -154,24 +154,21 @@ class DQN:
         return key, state, loss, q_value.mean()
 
     def _learn(
-            self, carry: tuple[chex.PRNGKey, DQNState], _
-        ) -> tuple[tuple[chex.PRNGKey, DQNState], dict]:
+        self, carry: tuple[chex.PRNGKey, DQNState], _
+    ) -> tuple[tuple[chex.PRNGKey, DQNState], dict]:
 
-            (key, state), transitions = jax.lax.scan(
-                partial(self._step, policy=self._epsilon_greedy_action),
-                carry,
-                length=self.cfg.algorithm.train_frequency
-                // self.cfg.algorithm.num_envs,
-            )
+        (key, state), transitions = jax.lax.scan(
+            partial(self._step, policy=self._epsilon_greedy_action),
+            carry,
+            length=self.cfg.algorithm.train_frequency // self.cfg.algorithm.num_envs,
+        )
 
-            key, state, loss, q_value = self._update(key, state)
+        key, state, loss, q_value = self._update(key, state)
 
-            transitions.info["losses/loss"] = loss
-            transitions.info["losses/q_value"] = q_value
+        transitions.info["losses/loss"] = loss
+        transitions.info["losses/q_value"] = q_value
 
-            return (key, state), transitions
-
-
+        return (key, state), transitions
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key) -> tuple[chex.PRNGKey, DQNState, chex.Array, gymnax.EnvState]:
@@ -211,9 +208,10 @@ class DQN:
         self, key: chex.PRNGKey, state: DQNState, num_steps: int
     ) -> tuple[chex.PRNGKey, DQNState]:
 
-
         (key, state), _ = jax.lax.scan(
-            partial(self._step, policy=self._random_action), (key, state), length=num_steps // self.cfg.algorithm.num_envs
+            partial(self._step, policy=self._random_action),
+            (key, state),
+            length=num_steps // self.cfg.algorithm.num_envs,
         )
         return key, state
 
@@ -231,8 +229,6 @@ class DQN:
         )
         return key, state, transitions
 
-
-
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(
         self, key: chex.PRNGKey, state: DQNState, num_steps: int
@@ -245,7 +241,11 @@ class DQN:
 
         state = state.replace(obs=obs, env_state=env_state)
 
-        (key, *_), transitions = jax.lax.scan(partial(self._step, policy=self._greedy_action), (key, state), length=num_steps)
+        (key, *_), transitions = jax.lax.scan(
+            partial(self._step, policy=self._greedy_action),
+            (key, state),
+            length=num_steps,
+        )
 
         return key, transitions
 

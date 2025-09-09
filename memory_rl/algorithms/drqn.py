@@ -38,7 +38,9 @@ class DRQN:
     buffer: fbx.trajectory_buffer.TrajectoryBuffer
     epsilon_schedule: optax.Schedule
 
-    def _greedy_action(self, key: chex.PRNGKey, state: DRQNState) -> tuple[chex.PRNGKey, DRQNState, chex.Array]:
+    def _greedy_action(
+        self, key: chex.PRNGKey, state: DRQNState
+    ) -> tuple[chex.PRNGKey, DRQNState, chex.Array]:
         key, memory_key = jax.random.split(key)
         hidden_state, q_values = self.q_network.apply(
             state.params,
@@ -51,7 +53,9 @@ class DRQN:
         state = state.replace(hidden_state=hidden_state)
         return key, state, action
 
-    def _random_action(self, key: chex.PRNGKey, state: DRQNState) -> tuple[chex.PRNGKey, DRQNState, chex.Array]:
+    def _random_action(
+        self, key: chex.PRNGKey, state: DRQNState
+    ) -> tuple[chex.PRNGKey, DRQNState, chex.Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
@@ -87,11 +91,11 @@ class DRQN:
 
         transition = Transition(
             obs=state.obs,  # type: ignore
-            done=state.done,  # type: ignore
+            prev_done=state.done,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             next_obs=next_obs,  # type: ignore
-            next_done=done,  # type: ignore
+            done=done,  # type: ignore
             info=info,  # type: ignore
         )
         transition = jax.tree.map(lambda x: jnp.expand_dims(x, 1), transition)
@@ -106,139 +110,131 @@ class DRQN:
         )
         return (key, state), transition
 
-
     def _update(
-            self, key: chex.PRNGKey, state: DRQNState
-        ) -> tuple[DRQNState, chex.Array, chex.Array]:
+        self, key: chex.PRNGKey, state: DRQNState
+    ) -> tuple[DRQNState, chex.Array, chex.Array]:
 
-            batch = self.buffer.sample(state.buffer_state, key)
+        batch = self.buffer.sample(state.buffer_state, key)
 
-            # # Burn-in
-            # burn_in_length = self.cfg.algorithm.mode.burn_in_length or 0
-            # burn_in_length = min(burn_in_length, batch.experience.obs.shape[1])
-            # initial_carry=jax.tree.map(
-            #     lambda x: jnp.take(x, 0, axis=1), batch.experience.hidden_state
-            # )
-            # next_initial_carry=jax.tree.map(
-            #     lambda x: jnp.take(x, 0, axis=1), batch.experience.next_hidden_state
-            # )
+        # # Burn-in
+        # burn_in_length = self.cfg.algorithm.mode.burn_in_length or 0
+        # burn_in_length = min(burn_in_length, batch.experience.obs.shape[1])
+        # initial_carry=jax.tree.map(
+        #     lambda x: jnp.take(x, 0, axis=1), batch.experience.hidden_state
+        # )
+        # next_initial_carry=jax.tree.map(
+        #     lambda x: jnp.take(x, 0, axis=1), batch.experience.next_hidden_state
+        # )
 
-            key, memory_key, next_memory_key = jax.random.split(key, 3)
+        key, memory_key, next_memory_key = jax.random.split(key, 3)
 
-            next_hidden_state, q_next_target = self.q_network.apply(
-                state.target_params,
+        next_hidden_state, q_next_target = self.q_network.apply(
+            state.target_params,
+            batch.experience.next_obs,
+            mask=batch.experience.done,
+            return_carry_history=self.cfg.algorithm.update_hidden_state,
+            rngs={"memory": next_memory_key},
+        )
+
+        if self.cfg.algorithm.double:
+            memory_key, double_memory_key = jax.random.split(memory_key)
+            _, q_next_online = self.q_network.apply(
+                state.params,
                 batch.experience.next_obs,
-                mask=batch.experience.next_done,
+                mask=batch.experience.done,
                 return_carry_history=self.cfg.algorithm.update_hidden_state,
-                rngs={"memory": next_memory_key},
+                rngs={"memory": double_memory_key},
             )
+            next_actions = jnp.argmax(q_next_online, axis=-1)
+            q_next_target = jnp.take_along_axis(
+                q_next_target, jnp.expand_dims(next_actions, -1), axis=-1
+            ).squeeze(-1)
+        else:
+            q_next_target = jnp.max(q_next_target, axis=-1)
 
-            if self.cfg.algorithm.double:
-                memory_key, double_memory_key = jax.random.split(memory_key)
-                _, q_next_online = self.q_network.apply(
-                    state.params,
-                    batch.experience.next_obs,
-                    mask=batch.experience.next_done,
-                    return_carry_history=self.cfg.algorithm.update_hidden_state,
-                    rngs={"memory": double_memory_key},
-                )
-                next_actions = jnp.argmax(q_next_online, axis=-1)
-                q_next_target = jnp.take_along_axis(
-                    q_next_target, jnp.expand_dims(next_actions, -1), axis=-1
-                ).squeeze(-1)
-            else:
-                q_next_target = jnp.max(q_next_target, axis=-1)
+        td_target = (
+            batch.experience.reward
+            + (1 - batch.experience.done) * self.cfg.algorithm.gamma * q_next_target
+        )
 
-            td_target = (
-                batch.experience.reward
-                + (1 - batch.experience.next_done)
-                * self.cfg.algorithm.gamma
-                * q_next_target
-            )
+        mask = jnp.ones_like(td_target)
+        if self.cfg.algorithm.mode.mask:
+            episode_idx = jnp.cumsum(batch.experience.prev_done, axis=1)
+            terminal = (episode_idx == 1) & batch.experience.prev_done
+            mask *= (episode_idx == 0) | terminal
 
-            mask = jnp.ones_like(td_target)
-            if self.cfg.algorithm.mode.mask:
-                episode_idx = jnp.cumsum(batch.experience.done, axis=1)
-                terminal = (episode_idx == 1) & batch.experience.done
-                mask *= (episode_idx == 0) | terminal
-
-            # if self.cfg.algorithm.burn_in:
-            #     pass
-            def loss_fn(params):
-                hidden_state, q_value = self.q_network.apply(
-                    params,
-                    batch.experience.obs,
-                    mask=batch.experience.done,
-                    return_carry_history=self.cfg.algorithm.update_hidden_state,
-                    rngs={"memory": memory_key},
-                )
-                action = jnp.expand_dims(batch.experience.action, axis=-1)
-                q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
-                td_error = q_value - td_target
-                loss = jnp.square(td_error).mean(where=mask.astype(jnp.bool_))
-                return loss, (q_value, hidden_state)
-
-            (loss, (q_value, hidden_state)), grads = jax.value_and_grad(
-                loss_fn, has_aux=True
-            )(state.params)
-            updates, optimizer_state = self.optimizer.update(
-                grads, state.optimizer_state, state.params
-            )
-            params = optax.apply_updates(state.params, updates)
-            target_params = periodic_incremental_update(
+        # if self.cfg.algorithm.burn_in:
+        #     pass
+        def loss_fn(params):
+            hidden_state, q_value = self.q_network.apply(
                 params,
-                state.target_params,
-                state.step,
-                self.cfg.algorithm.target_network_frequency,
-                self.cfg.algorithm.tau,
+                batch.experience.obs,
+                mask=batch.experience.prev_done,
+                return_carry_history=self.cfg.algorithm.update_hidden_state,
+                rngs={"memory": memory_key},
             )
+            action = jnp.expand_dims(batch.experience.action, axis=-1)
+            q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
+            td_error = q_value - td_target
+            loss = jnp.square(td_error).mean(where=mask.astype(jnp.bool_))
+            return loss, (q_value, hidden_state)
 
-            if self.cfg.algorithm.update_hidden_state:
-                hidden_state = jax.tree.map(
-                    lambda x: jnp.swapaxes(x, 0, 1), hidden_state
-                )
-                next_hidden_state = jax.tree.map(
-                    lambda x: jnp.swapaxes(x, 0, 1), next_hidden_state
-                )
-                experience = batch.experience.replace(
-                    hidden_state=hidden_state,
-                    next_hidden_state=next_hidden_state,
-                )
-                state = state.replace(
-                    buffer_state=self.buffer.update(
-                        state.buffer_state,
-                        experience,
-                        batch.sampled_batch_indices,
-                        batch.traj_time_indices,
-                    )
-                )
+        (loss, (q_value, hidden_state)), grads = jax.value_and_grad(
+            loss_fn, has_aux=True
+        )(state.params)
+        updates, optimizer_state = self.optimizer.update(
+            grads, state.optimizer_state, state.params
+        )
+        params = optax.apply_updates(state.params, updates)
+        target_params = periodic_incremental_update(
+            params,
+            state.target_params,
+            state.step,
+            self.cfg.algorithm.target_network_frequency,
+            self.cfg.algorithm.tau,
+        )
 
+        if self.cfg.algorithm.update_hidden_state:
+            hidden_state = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), hidden_state)
+            next_hidden_state = jax.tree.map(
+                lambda x: jnp.swapaxes(x, 0, 1), next_hidden_state
+            )
+            experience = batch.experience.replace(
+                hidden_state=hidden_state,
+                next_hidden_state=next_hidden_state,
+            )
             state = state.replace(
-                params=params,
-                target_params=target_params,
-                optimizer_state=optimizer_state,
+                buffer_state=self.buffer.update(
+                    state.buffer_state,
+                    experience,
+                    batch.sampled_batch_indices,
+                    batch.traj_time_indices,
+                )
             )
 
-            return state, loss, q_value.mean()
+        state = state.replace(
+            params=params,
+            target_params=target_params,
+            optimizer_state=optimizer_state,
+        )
+
+        return state, loss, q_value.mean()
 
     def _learn(self, carry, _):
 
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
             carry,
-            length=self.cfg.algorithm.train_frequency
-            // self.cfg.algorithm.num_envs,
+            length=self.cfg.algorithm.train_frequency // self.cfg.algorithm.num_envs,
         )
 
         key, update_key = jax.random.split(key)
         state, loss, q_value = self._update(update_key, state)
 
+        transitions.info["losses/loss"] = loss
+        transitions.info["losses/q_value"] = q_value
 
-        info = transitions.info
-        info["losses/loss"] = loss
-        info["losses/q_value"] = q_value
-
-        return (key, state), info
+        return (key, state), transitions
 
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key):
@@ -252,6 +248,7 @@ class DRQN:
         _, _, reward, done, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
+        done = jnp.zeros_like(done)
         carry = self.q_network.initialize_carry(obs.shape)
 
         params = self.q_network.init(
@@ -270,11 +267,11 @@ class DRQN:
 
         transition = Transition(
             obs=obs,
-            done=done,
+            prev_done=done,
             action=action,
             reward=reward,
             next_obs=obs,
-            next_done=done,
+            done=done,
             info=info,
         )  # type: ignore
         buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
@@ -294,17 +291,23 @@ class DRQN:
             ),
         )
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def warmup(
         self, key: chex.PRNGKey, state: DRQNState, num_steps: int
     ) -> tuple[chex.PRNGKey, DRQNState]:
 
         (key, state), _ = jax.lax.scan(
-            partial(self._step, policy=self._random_action), (key, state), length=num_steps // self.cfg.algorithm.num_envs
+            partial(self._step, policy=self._random_action),
+            (key, state),
+            length=num_steps // self.cfg.algorithm.num_envs,
         )
         return key, state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def train(
         self,
         key: chex.PRNGKey,
@@ -315,14 +318,16 @@ class DRQN:
         (
             key,
             state,
-        ), info = jax.lax.scan(
+        ), transitions = jax.lax.scan(
             self._learn,
             (key, state),
             length=(num_steps // self.cfg.algorithm.train_frequency),
         )
-        return key, state, info
+        return key, state, transitions
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def evaluate(
         self, key: chex.PRNGKey, state: DRQNState, num_steps: int
     ) -> tuple[chex.PRNGKey, dict]:

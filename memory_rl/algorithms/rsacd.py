@@ -64,7 +64,9 @@ class RSACD:
     alpha_optimizer: optax.GradientTransformation
     buffer: Any
 
-    def _deterministic_action(self, key: chex.PRNGKey, state: RSACDState) -> tuple[chex.PRNGKey, RSACDState]:
+    def _deterministic_action(
+        self, key: chex.PRNGKey, state: RSACDState
+    ) -> tuple[chex.PRNGKey, RSACDState]:
         actor_hidden_state, dist = self.actor_network.apply(
             state.actor_params,
             observation=jnp.expand_dims(state.obs, 1),
@@ -78,7 +80,9 @@ class RSACD:
         )
         return key, state, action
 
-    def _stochastic_action(self, key: chex.PRNGKey, state: RSACDState) -> tuple[chex.PRNGKey, RSACDState, chex.Array, chex.Array]:
+    def _stochastic_action(
+        self, key: chex.PRNGKey, state: RSACDState
+    ) -> tuple[chex.PRNGKey, RSACDState, chex.Array, chex.Array]:
         key, sample_key = jax.random.split(key)
         actor_hidden_state, dist = self.actor_network.apply(
             state.actor_params,
@@ -92,7 +96,9 @@ class RSACD:
         )
         return key, state, action
 
-    def _random_action(self, key: chex.PRNGKey, state: RSACDState) -> tuple[chex.PRNGKey, RSACDState, chex.Array, chex.Array]:
+    def _random_action(
+        self, key: chex.PRNGKey, state: RSACDState
+    ) -> tuple[chex.PRNGKey, RSACDState, chex.Array, chex.Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
@@ -176,9 +182,7 @@ class RSACD:
             )
             q = jnp.minimum(q1, q2)
             actor_loss = (
-                (dist.probs * (alpha * log_probs - q))
-                .sum(axis=-1)
-                .mean(where=mask)
+                (dist.probs * (alpha * log_probs - q)).sum(axis=-1).mean(where=mask)
             )
 
             return actor_loss, {"actor_loss": actor_loss, "entropy": -log_probs.mean()}
@@ -207,9 +211,9 @@ class RSACD:
         _, (next_q1, next_q2) = self.critic_network.apply(
             state.critic_target_params, batch.next_obs, batch.next_done
         )
-        next_q = (
-            dist.probs * (jnp.minimum(next_q1, next_q2) - alpha * log_probs)
-        ).sum(axis=-1)
+        next_q = (dist.probs * (jnp.minimum(next_q1, next_q2) - alpha * log_probs)).sum(
+            axis=-1
+        )
 
         target_q = (
             batch.reward + self.cfg.algorithm.gamma * (1 - batch.next_done) * next_q
@@ -217,10 +221,7 @@ class RSACD:
 
         if self.cfg.algorithm.backup_entropy:
             target_q -= (
-                self.cfg.algorithm.gamma
-                * (1 - batch.done)
-                * alpha
-                * next_log_probs
+                self.cfg.algorithm.gamma * (1 - batch.done) * alpha * next_log_probs
             )
 
         target_q = jax.lax.stop_gradient(target_q)
@@ -299,16 +300,14 @@ class RSACD:
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),
             carry,
-            length=self.cfg.algorithm.train_frequency
-            // self.cfg.algorithm.num_envs,
+            length=self.cfg.algorithm.train_frequency // self.cfg.algorithm.num_envs,
         )
 
-        info = transitions.info
         key, update_key = jax.random.split(key)
         state, update_info = self._update(update_key, state)
-        info.update(update_info)
+        transitions.info.update(update_info)
 
-        return (key, state), info
+        return (key, state), transitions
 
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key):
@@ -370,30 +369,36 @@ class RSACD:
             critic_hidden_state=critic_hidden_state,
         )
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def warmup(
         self, key, state: RSACDState, num_steps: int
     ) -> tuple[chex.PRNGKey, RSACDState]:
 
         (key, state), _ = jax.lax.scan(
-            partial(self._step, policy=self._random_action), (key, state), length=num_steps // self.cfg.algorithm.num_envs
+            partial(self._step, policy=self._random_action),
+            (key, state),
+            length=num_steps // self.cfg.algorithm.num_envs,
         )
         return key, state
 
-
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def train(self, key: chex.PRNGKey, state: RSACDState, num_steps: int):
 
-
-        (key, state), info = jax.lax.scan(
+        (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
             length=(num_steps // self.cfg.algorithm.train_frequency),
         )
 
-        return key, state, info
+        return key, state, transitions
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def evaluate(self, key: chex.PRNGKey, state: RSACDState, num_steps: int):
 
         key, reset_key = jax.random.split(key)
@@ -411,7 +416,9 @@ class RSACD:
         )
 
         (key, _), transitions = jax.lax.scan(
-            partial(self._step, policy=self._deterministic_action), (key, state), length=num_steps
+            partial(self._step, policy=self._deterministic_action),
+            (key, state),
+            length=num_steps,
         )
 
         return key, transitions

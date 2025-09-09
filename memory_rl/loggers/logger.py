@@ -18,6 +18,7 @@ class BaseLoggerState: ...
 
 StateT = TypeVar("StateT", bound=BaseLoggerState)
 
+
 @chex.dataclass(frozen=True)
 class BaseLogger(Generic[StateT], ABC):
 
@@ -80,6 +81,18 @@ class Logger(BaseLogger[LoggerState]):
         )
 
     @staticmethod
+    @partial(jax.jit, static_argnames=("prefix",))
+    def get_episode_statistics(transitions, gamma: float, prefix: str):
+        return {
+            f"{prefix}/num_episodes": Logger.get_num_episodes(transitions),
+            f"{prefix}/episodic_lengths": Logger.get_episodic_lengths(transitions),
+            f"{prefix}/episodic_returns": Logger.get_episodic_returns(transitions),
+            f"{prefix}/discounted_episodic_returns": Logger.get_discounted_episodic_returns(
+                transitions, gamma
+            ),
+        }
+
+    @staticmethod
     @jax.jit
     def get_num_episodes(transitions) -> int:
         return transitions.done.sum()
@@ -88,7 +101,6 @@ class Logger(BaseLogger[LoggerState]):
     @jax.jit
     def get_episodic_lengths(transitions):
         done = transitions.done
-        done = jnp.moveaxis(done, 1, 0)
 
         def step(carry_len, done_t):
             curr_len = carry_len + 1
@@ -104,9 +116,7 @@ class Logger(BaseLogger[LoggerState]):
     @jax.jit
     def get_episodic_returns(transitions):
         r = transitions.reward
-        r = jnp.moveaxis(r, 1, 0)
         done = transitions.done
-        done = jnp.moveaxis(done, 1, 0)
 
         def step(carry_sum, inp):
             r_t, d_t = inp
@@ -123,9 +133,7 @@ class Logger(BaseLogger[LoggerState]):
     @jax.jit
     def get_discounted_episodic_returns(transitions, gamma: float):
         r = transitions.reward
-        r = jnp.moveaxis(r, 1, 0)
         done = transitions.done
-        done = jnp.moveaxis(done, 1, 0)
 
         def step(carry, inp):
             gsum, pow_ = carry
@@ -139,3 +147,9 @@ class Logger(BaseLogger[LoggerState]):
         init = (jnp.zeros_like(r[0]), jnp.ones_like(r[0]))
         _, disc_returns_at_done = jax.lax.scan(step, init, (r, done))
         return disc_returns_at_done.sum() / Logger.get_num_episodes(transitions)
+
+    @staticmethod
+    def get_losses(transitions):
+        return {
+            k: v.mean() for k, v in transitions.info.items() if k.startswith("losses")
+        }

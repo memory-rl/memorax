@@ -29,7 +29,7 @@ class Batch:
     """Batch of rewards with shape [batch_size]"""
     next_obs: chex.Array
     """Batch of next obs with shape [batch_size, obs_dim]"""
-    next_done: chex.Array
+    done: chex.Array
     """Batch of next done flags with shape [batch_size]"""
 
 
@@ -116,11 +116,11 @@ class RSACD:
 
         transition = Transition(
             obs=state.obs,  # type: ignore
-            done=state.done,  # type: ignore
+            prev_done=state.done,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             next_obs=next_obs,  # type: ignore
-            next_done=done,  # type: ignore
+            done=done,  # type: ignore
             info=info,  # type: ignore
         )
         transition = jax.tree.map(lambda x: jnp.expand_dims(x, 1), transition)
@@ -144,7 +144,7 @@ class RSACD:
             alpha = self.alpha_network.apply(alpha_params)
             log_alpha = jnp.log(alpha + 1e-8)
             _, dist = self.actor_network.apply(
-                state.actor_params, batch.obs, batch.done
+                state.actor_params, batch.obs, batch.prev_done
             )
             entropy = dist.entropy().mean()
             alpha_loss = -log_alpha * (entropy - target_entropy)
@@ -170,15 +170,15 @@ class RSACD:
 
         mask = jnp.ones_like(batch.reward)
         if self.cfg.algorithm.mode.mask:
-            episode_idx = jnp.cumsum(batch.done, axis=1)
-            terminal = (episode_idx == 1) & batch.done
+            episode_idx = jnp.cumsum(batch.prev_done, axis=1)
+            terminal = (episode_idx == 1) & batch.prev_done
             mask = (episode_idx == 0) | terminal
 
         def actor_loss_fn(actor_params):
-            _, dist = self.actor_network.apply(actor_params, batch.obs, batch.done)
+            _, dist = self.actor_network.apply(actor_params, batch.obs, batch.prev_done)
             log_probs = jax.nn.log_softmax(dist.logits)
             _, (q1, q2) = self.critic_network.apply(
-                state.critic_params, batch.obs, batch.done
+                state.critic_params, batch.obs, batch.prev_done
             )
             q = jnp.minimum(q1, q2)
             actor_loss = (
@@ -204,37 +204,37 @@ class RSACD:
     def _update_critic(self, key, state: RSACDState, batch: Batch):
         alpha = self.alpha_network.apply(state.alpha_params)
         _, dist = self.actor_network.apply(
-            state.actor_params, batch.next_obs, batch.next_done
+            state.actor_params, batch.next_obs, batch.done
         )
         log_probs = jax.nn.log_softmax(dist.logits)
 
         _, (next_q1, next_q2) = self.critic_network.apply(
-            state.critic_target_params, batch.next_obs, batch.next_done
+            state.critic_target_params, batch.next_obs, batch.done
         )
         next_q = (dist.probs * (jnp.minimum(next_q1, next_q2) - alpha * log_probs)).sum(
             axis=-1
         )
 
         target_q = (
-            batch.reward + self.cfg.algorithm.gamma * (1 - batch.next_done) * next_q
+            batch.reward + self.cfg.algorithm.gamma * (1 - batch.done) * next_q
         )
 
         if self.cfg.algorithm.backup_entropy:
             target_q -= (
-                self.cfg.algorithm.gamma * (1 - batch.done) * alpha * next_log_probs
+                self.cfg.algorithm.gamma * (1 - batch.prev_done) * alpha * next_log_probs
             )
 
         target_q = jax.lax.stop_gradient(target_q)
 
         mask = jnp.ones_like(batch.reward)
         if self.cfg.algorithm.mode.mask:
-            episode_idx = jnp.cumsum(batch.done, axis=1)
-            terminal = (episode_idx == 1) & batch.done
+            episode_idx = jnp.cumsum(batch.prev_done, axis=1)
+            terminal = (episode_idx == 1) & batch.prev_done
             mask = (episode_idx == 0) | terminal
 
         def critic_loss_fn(critic_params):
             _, (q1, q2) = self.critic_network.apply(
-                critic_params, batch.obs, batch.done
+                critic_params, batch.obs, batch.prev_done
             )
             idx = batch.action[..., None]  # [B, T, 1]
             q1_a = jnp.take_along_axis(q1, idx, axis=-1).squeeze(-1)
@@ -347,7 +347,7 @@ class RSACD:
         alpha_params = self.alpha_network.init(alpha_key)
         alpha_optimizer_state = self.alpha_optimizer.init(alpha_params)
 
-        transition = Transition(obs=obs, done=done, action=action, reward=reward, next_obs=obs, next_done=done, info=info)  # type: ignore
+        transition = Transition(obs=obs, prev_done=done, action=action, reward=reward, next_obs=obs, done=done, info=info)  # type: ignore
         transition = jax.tree.map(lambda x: x[0], transition)
 
         buffer_state = self.buffer.init(transition)

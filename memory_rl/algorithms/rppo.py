@@ -11,7 +11,7 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig
 
 from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.utils import compute_recurrent_gae as compute_gae, Transition
+from memory_rl.utils import generalized_advantage_estimatation, Transition
 
 
 @chex.dataclass(frozen=True)
@@ -114,10 +114,10 @@ class RPPO:
 
         transition = Transition(
             obs=state.obs,  # type: ignore
-            done=state.done,  # type: ignore
+            prev_done=state.done,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
-            next_done=done,  # type: ignore
+            done=done,  # type: ignore
             info=info,  # type: ignore
             log_prob=log_prob,  # type: ignore
             value=value,  # type: ignore
@@ -140,7 +140,7 @@ class RPPO:
             _, probs = self.actor.apply(
                 params,
                 observation=transitions.obs,
-                mask=transitions.done,
+                mask=transitions.prev_done,
                 initial_carry=initial_actor_hidden_state,
                 rngs={"memory": actor_key},
             )
@@ -193,7 +193,7 @@ class RPPO:
             _, values = self.critic.apply(
                 params,
                 observation=transitions.obs,
-                mask=transitions.done,
+                mask=transitions.prev_done,
                 initial_carry=initial_critic_hidden_state,
                 rngs={"memory": critic_key},
             )
@@ -319,7 +319,7 @@ class RPPO:
         final_value = final_value.squeeze((1, -1))
 
         # Compute GAE on time-major data (T, B, ...)
-        advantages, returns = compute_gae(
+        advantages, returns = generalized_advantage_estimatation(
             self.cfg.algorithm.gamma,
             self.cfg.algorithm.gae_lambda,
             transitions,

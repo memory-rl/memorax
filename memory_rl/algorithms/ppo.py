@@ -13,7 +13,7 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig
 
 from memory_rl.networks import Network, heads
-from memory_rl.utils import compute_gae, Transition
+from memory_rl.utils import generalized_advantage_estimatation, Transition
 
 
 @chex.dataclass(frozen=True)
@@ -197,7 +197,7 @@ class PPO:
         )
         final_value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
 
-        advantages, returns = compute_gae(
+        advantages, returns = generalized_advantage_estimatation(
             self.cfg.algorithm.gamma,
             self.cfg.algorithm.gae_lambda,
             final_value,

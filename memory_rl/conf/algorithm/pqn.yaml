@@ -17,6 +17,8 @@ start_e:             0.5
 end_e:               0.005
 exploration_fraction: 0.2
 
+max_grad_norm:       0.5
+
 learning_starts:     0
 
 feature_extractor:

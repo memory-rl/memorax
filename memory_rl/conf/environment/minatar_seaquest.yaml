@@ -1,0 +1,4 @@
+env_id: Seaquest-MinAtar
+
+wrappers:
+ - _target_: gymnax.wrappers.FlattenObservationWrapper

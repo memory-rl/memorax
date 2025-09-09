@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from pathlib import Path
 from collections import defaultdict
 from dataclasses import field
-from typing import Any, DefaultDict, Mapping, Optional
 from datetime import datetime
+from pathlib import Path
+from typing import Any, DefaultDict, Mapping, Optional
 
-import numpy as np
-import jax
 import chex
+import jax
+import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
 from .logger import BaseLogger, BaseLoggerState, PyTree
@@ -37,22 +37,31 @@ class FileLogger(BaseLogger[FileLoggerState]):
             cell = cfg["algorithm"]["torso"]["_target_"]
         cell = cell.split(".")[-1]
 
-        params = ""
-        for key, param in cfg["environment"]["parameters"].items():
-            if key == "max_steps_in_episode":
-                continue
-            params += f"{param}/"
+        if "parameters" in cfg["environment"]:
+            params = ""
+            for key, param in cfg["environment"]["parameters"].items():
+                if key == "max_steps_in_episode":
+                    continue
+                params += f"{param}/"
 
-        if params:
-            params = params[:-1]
-        base_path = (
-            Path(self.directory)
-            / self.environment
-            / params
-            / self.algorithm
-            / cell
-            / f"{datetime.now():%Y%m%d-%H%M%S}"
-        )
+            if params:
+                params = params[:-1]
+            base_path = (
+                Path(self.directory)
+                / self.environment
+                / params
+                / self.algorithm
+                / cell
+                / f"{datetime.now():%Y%m%d-%H%M%S}"
+            )
+        else:
+            base_path = (
+                Path(self.directory)
+                / self.environment
+                / self.algorithm
+                / cell
+                / f"{datetime.now():%Y%m%d-%H%M%S}"
+            )
         base_path.mkdir(exist_ok=True, parents=True)
         OmegaConf.save(OmegaConf.create(cfg), base_path / "config.yaml")
 

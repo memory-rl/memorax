@@ -3,4 +3,4 @@ _target_: memory_rl.loggers.FileLogger
 algorithm: ${algorithm.name}
 environment: ${environment.env_id}
 seed: ${seed}
-directory: /work/scratch/nf52xehe
+directory: /home/farr/memory-rl/logs

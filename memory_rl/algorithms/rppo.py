@@ -13,6 +13,7 @@ from omegaconf import DictConfig
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import generalized_advantage_estimatation, Transition
 
+
 @chex.dataclass(frozen=True)
 class RPPOConfig:
     name: str
@@ -34,6 +35,7 @@ class RPPOConfig:
     actor: Any
     critic: Any
     mode: Any
+
 
 @chex.dataclass(frozen=True)
 class RPPOState:
@@ -128,7 +130,8 @@ class RPPO:
         key, action_key, step_key = jax.random.split(key, 3)
         key, state, action, log_prob, value = policy(action_key, state)
 
-        step_key = jax.random.split(step_key, self.cfg.num_envs)
+        num_envs = state.obs.shape[0]
+        step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
@@ -170,9 +173,7 @@ class RPPO:
             ratio = jnp.exp(log_probs - transitions.log_prob)
             approx_kl = jnp.mean(transitions.log_prob - log_probs)
             clipfrac = jnp.mean(
-                (jnp.abs(ratio - 1.0) > self.cfg.clip_coef).astype(
-                    jnp.float32
-                )
+                (jnp.abs(ratio - 1.0) > self.cfg.clip_coef).astype(jnp.float32)
             )
 
             actor_loss = -jnp.minimum(
@@ -280,9 +281,7 @@ class RPPO:
 
         key, permutation_key = jax.random.split(key)
 
-        permutation = jax.random.permutation(
-            permutation_key, self.cfg.num_envs
-        )
+        permutation = jax.random.permutation(permutation_key, self.cfg.num_envs)
 
         batch = (
             initial_actor_h_epoch,
@@ -442,8 +441,7 @@ class RPPO:
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
-            length=num_steps
-            // (self.cfg.num_envs * self.cfg.mode.length),
+            length=num_steps // (self.cfg.num_envs * self.cfg.mode.length),
         )
 
         return key, state, transitions
@@ -454,7 +452,7 @@ class RPPO:
     def evaluate(self, key, state, num_steps):
 
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.num_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )

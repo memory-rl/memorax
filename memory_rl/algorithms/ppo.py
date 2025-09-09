@@ -15,6 +15,7 @@ from omegaconf import DictConfig
 from memory_rl.networks import Network, heads
 from memory_rl.utils import generalized_advantage_estimatation, Transition
 
+
 @chex.dataclass(frozen=True)
 class PPOConfig:
     name: str
@@ -84,7 +85,8 @@ class PPO:
         key, action_key, step_key = jax.random.split(key, 3)
         key, action, log_prob, value = policy(action_key, state)
 
-        step_key = jax.random.split(step_key, self.cfg.num_envs)
+        num_envs = state.obs.shape[0]
+        step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
@@ -185,9 +187,7 @@ class PPO:
 
         key, permutation_key = jax.random.split(key)
 
-        permutation = jax.random.permutation(
-            permutation_key, self.cfg.batch_size
-        )
+        permutation = jax.random.permutation(permutation_key, self.cfg.batch_size)
         flattened_batch = jax.tree.map(lambda x: x.reshape(-1, *x.shape[2:]), batch)
         shuffled_batch = jax.tree.map(
             lambda x: jnp.take(x, permutation, axis=0), flattened_batch
@@ -286,9 +286,7 @@ class PPO:
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
-            length=num_steps
-            // self.cfg.num_envs
-            // self.cfg.num_steps,
+            length=num_steps // self.cfg.num_envs // self.cfg.num_steps,
         )
 
         return key, state, transitions

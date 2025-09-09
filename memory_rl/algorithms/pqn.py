@@ -41,12 +41,16 @@ class PQN:
     optimizer: optax.GradientTransformation
     epsilon_schedule: optax.Schedule
 
-    def _greedy_action(self, key: chex.PRNGKey, state: PQNState) -> tuple[chex.PRNGKey, chex.Array]:
+    def _greedy_action(
+        self, key: chex.PRNGKey, state: PQNState
+    ) -> tuple[chex.PRNGKey, chex.Array]:
         q_values = self.q_network.apply(state.params, state.obs)
         action = jnp.argmax(q_values, axis=-1)
         return key, action, q_values
 
-    def _random_action(self, key: chex.PRNGKey, state: PQNState) -> tuple[chex.PRNGKey, chex.Array]:
+    def _random_action(
+        self, key: chex.PRNGKey, state: PQNState
+    ) -> tuple[chex.PRNGKey, chex.Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
@@ -74,7 +78,8 @@ class PQN:
 
         key, action_key, step_key = jax.random.split(key, 3)
         key, action, q_values = policy(action_key, state)
-        step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
+        num_envs = state.obs.shape[0]
+        step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
@@ -151,9 +156,7 @@ class PQN:
             loss = 0.5 * jnp.square(q_value - target).mean()
             return loss, q_value
 
-        (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-            state.params
-        )
+        (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
         updates, optimizer_state = self.optimizer.update(
             grads, state.optimizer_state, state.params
         )
@@ -204,7 +207,7 @@ class PQN:
         info["losses/q_value"] = q_value
 
         return (key, state), info
-    
+
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key) -> tuple[chex.PRNGKey, PQNState, chex.Array, gymnax.EnvState]:
         """
@@ -245,7 +248,9 @@ class PQN:
     ) -> tuple[chex.PRNGKey, PQNState]:
         return key, state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def train(
         self,
         key: chex.PRNGKey,
@@ -279,7 +284,9 @@ class PQN:
         )
         return key, state, info
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def evaluate(
         self, key: chex.PRNGKey, state: PQNState, num_steps: int
     ) -> tuple[chex.PRNGKey, dict]:
@@ -296,14 +303,18 @@ class PQN:
             info: Evaluation metrics (rewards, episode lengths, etc.).
         """
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
 
         state = state.replace(obs=obs, env_state=env_state)
 
-        (key, *_), transitions = jax.lax.scan(partial(self._step, policy=self._greedy_action), (key, state), length=num_steps)
+        (key, *_), transitions = jax.lax.scan(
+            partial(self._step, policy=self._greedy_action),
+            (key, state),
+            length=num_steps,
+        )
 
         return key, transitions
 

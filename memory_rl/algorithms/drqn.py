@@ -14,6 +14,7 @@ from omegaconf import DictConfig
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import periodic_incremental_update, Transition
 
+
 @chex.dataclass(frozen=True)
 class DRQNConfig:
     name: str
@@ -35,7 +36,6 @@ class DRQNConfig:
     feature_extractor: Any
     torso: Any
     mode: Any
-
 
 
 @chex.dataclass(frozen=True)
@@ -101,13 +101,15 @@ class DRQN:
         )
         return key, state, action
 
-    def _step(self, carry, _, *, policy: Callable) -> tuple[chex.PRNGKey, DRQNState]:
+    def _step(
+        self, carry, _, *, policy: Callable, write_to_buffer: bool = True
+    ) -> tuple[chex.PRNGKey, DRQNState]:
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
         key, state, action = policy(action_key, state)
-        action = action
-        step_key = jax.random.split(step_key, self.cfg.num_envs)
+        num_envs = state.obs.shape[0]
+        step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
@@ -121,9 +123,12 @@ class DRQN:
             done=done,  # type: ignore
             info=info,  # type: ignore
         )
-        transition = jax.tree.map(lambda x: jnp.expand_dims(x, 1), transition)
 
-        buffer_state = self.buffer.add(state.buffer_state, transition)
+        buffer_state = state.buffer_state
+        if write_to_buffer:
+            transition = jax.tree.map(lambda x: jnp.expand_dims(x, 1), transition)
+            buffer_state = self.buffer.add(state.buffer_state, transition)
+
         state = state.replace(
             step=state.step + self.cfg.num_envs,
             obs=next_obs,  # type: ignore
@@ -335,7 +340,7 @@ class DRQN:
     ) -> tuple[chex.PRNGKey, dict]:
 
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.num_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
@@ -345,7 +350,7 @@ class DRQN:
         state = state.replace(obs=obs, done=done, hidden_state=hidden_state, env_state=env_state)  # type: ignore
 
         (key, _), transitions = jax.lax.scan(
-            partial(self._step, policy=self._greedy_action),
+            partial(self._step, policy=self._greedy_action, write_to_buffer=False),
             (key, state),
             length=num_steps,
         )

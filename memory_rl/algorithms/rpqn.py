@@ -43,7 +43,9 @@ class RPQN:
     optimizer: optax.GradientTransformation
     epsilon_schedule: optax.Schedule
 
-    def _greedy_action(self, key: chex.PRNGKey, state: RPQNState) -> tuple[chex.PRNGKey, RPQNState, chex.Array]:
+    def _greedy_action(
+        self, key: chex.PRNGKey, state: RPQNState
+    ) -> tuple[chex.PRNGKey, RPQNState, chex.Array]:
         key, memory_key = jax.random.split(key)
         hidden_state, q_values = self.q_network.apply(
             state.params,
@@ -56,7 +58,9 @@ class RPQN:
         state = state.replace(hidden_state=hidden_state)
         return key, state, action, q_values
 
-    def _random_action(self, key: chex.PRNGKey, state: RPQNState) -> tuple[chex.PRNGKey, RPQNState, chex.Array]:
+    def _random_action(
+        self, key: chex.PRNGKey, state: RPQNState
+    ) -> tuple[chex.PRNGKey, RPQNState, chex.Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
@@ -84,8 +88,8 @@ class RPQN:
 
         key, action_key, step_key = jax.random.split(key, 3)
         key, state, action, q_values = policy(action_key, state)
-        action = action
-        step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
+        num_envs = state.obs.shape[0]
+        step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
@@ -138,9 +142,7 @@ class RPQN:
             permutation_key, self.cfg.algorithm.num_envs
         )
         batch = (initial_hidden_state, transitions, lambda_targets)
-        shuffled_batch = jax.tree.map(
-            lambda x: jnp.take(x, permutation, axis=0), batch
-        )
+        shuffled_batch = jax.tree.map(lambda x: jnp.take(x, permutation, axis=0), batch)
         minibatches = jax.tree.map(
             lambda x: jnp.reshape(
                 x,
@@ -179,9 +181,7 @@ class RPQN:
             loss = 0.5 * jnp.square(q_value - target).mean()
             return loss, q_value
 
-        (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-            state.params
-        )
+        (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
         updates, optimizer_state = self.optimizer.update(
             grads, state.optimizer_state, state.params
         )
@@ -228,9 +228,7 @@ class RPQN:
             jax.tree_util.tree_map(lambda x: x[:-1], transitions),
             reverse=True,
         )
-        lambda_targets = jnp.concatenate(
-            (targets, initial_lambda_return[jnp.newaxis])
-        )
+        lambda_targets = jnp.concatenate((targets, initial_lambda_return[jnp.newaxis]))
 
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
         lambda_targets = jnp.swapaxes(lambda_targets, 0, 1)
@@ -297,7 +295,9 @@ class RPQN:
     ) -> tuple[chex.PRNGKey, RPQNState]:
         return key, state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def train(
         self,
         key: chex.PRNGKey,
@@ -322,7 +322,6 @@ class RPQN:
             info: Training statistics (loss, rewards, etc.).
         """
 
-
         (key, state), info = jax.lax.scan(
             self._update_step,
             (key, state),
@@ -333,7 +332,9 @@ class RPQN:
         )
         return key, state, info
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"])
+    @partial(
+        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
+    )
     def evaluate(
         self, key: chex.PRNGKey, state: RPQNState, num_steps: int
     ) -> tuple[chex.PRNGKey, dict]:
@@ -350,7 +351,7 @@ class RPQN:
             info: Evaluation metrics (rewards, episode lengths, etc.).
         """
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
@@ -361,7 +362,11 @@ class RPQN:
             obs=obs, done=done, hidden_state=hidden_state, env_state=env_state
         )
 
-        (key, *_), transitions = jax.lax.scan(partial(self._step, policy=self._greedy_action), (key, state), length=num_steps)
+        (key, *_), transitions = jax.lax.scan(
+            partial(self._step, policy=self._greedy_action),
+            (key, state),
+            length=num_steps,
+        )
 
         return key, transitions
 

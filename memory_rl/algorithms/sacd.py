@@ -29,6 +29,7 @@ class Batch:
     done: chex.Array
     """Batch of done flags with shape [batch_size]"""
 
+
 @chex.dataclass(frozen=True)
 class SACDConfig:
     name: str
@@ -49,6 +50,7 @@ class SACDConfig:
     actor: Any
     critic: Any
     buffer: Any
+
 
 @chex.dataclass(frozen=True)
 class SACDState:
@@ -101,12 +103,15 @@ class SACD:
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
         return key, action
 
-    def _step(self, carry, _, *, policy: Callable) -> tuple[chex.PRNGKey, SACDState]:
+    def _step(
+        self, carry, _, *, policy: Callable, write_to_buffer: bool = True
+    ) -> tuple[chex.PRNGKey, SACDState]:
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
         key, action = policy(action_key, state)
-        step_key = jax.random.split(step_key, self.cfg.num_envs)
+        num_envs = state.obs.shape[0]
+        step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
@@ -119,7 +124,10 @@ class SACD:
             info=info,  # type: ignore
         )
 
-        buffer_state = self.buffer.add(state.buffer_state, transition)
+        buffer_state = state.buffer_state
+        if write_to_buffer:
+            buffer_state = self.buffer.add(state.buffer_state, transition)
+
         state = state.replace(
             step=state.step + self.cfg.num_envs,
             obs=next_obs,  # type: ignore
@@ -193,11 +201,7 @@ class SACD:
             axis=1
         )
 
-        target_q = (
-            batch.first.reward
-            + self.cfg.gamma * (1 - batch.first.done) * next_q
-        )
-
+        target_q = batch.first.reward + self.cfg.gamma * (1 - batch.first.done) * next_q
 
         target_q = jax.lax.stop_gradient(target_q)
 
@@ -282,10 +286,7 @@ class SACD:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        action = jnp.zeros(
-            (self.cfg.num_envs,),
-            dtype=self.env.action_space(self.env_params).dtype,
-        )
+        action = jax.vmap(self.env.action_space(self.env_params).sample)(env_keys)
         _, _, reward, done, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
@@ -360,7 +361,9 @@ class SACD:
         state = state.replace(obs=obs, env_state=env_state)
 
         (key, _), transitions = jax.lax.scan(
-            partial(self._step, policy=self._deterministic_action),
+            partial(
+                self._step, policy=self._deterministic_action, write_to_buffer=False
+            ),
             (key, state),
             length=num_steps,
         )

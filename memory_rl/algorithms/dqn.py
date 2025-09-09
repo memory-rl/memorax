@@ -14,6 +14,27 @@ from omegaconf import DictConfig
 from memory_rl.networks import Network, heads
 from memory_rl.utils import Transition
 
+@chex.dataclass(frozen=True)
+class DQNConfig:
+    name: str
+    learning_rate: float
+    num_envs: int
+    num_eval_envs: int
+    buffer_size: int
+    gamma: float
+    tau: float
+    target_network_frequency: int
+    batch_size: int
+    start_e: float
+    end_e: float
+    exploration_fraction: float
+    learning_starts: int
+    train_frequency: int
+    buffer: Any
+    feature_extractor: Any
+    torso: Any
+    double: bool
+
 
 @chex.dataclass(frozen=True)
 class DQNState:
@@ -55,7 +76,7 @@ class DQN:
         self, key: chex.PRNGKey, state: DQNState
     ) -> tuple[chex.PRNGKey, chex.Array]:
         key, action_key = jax.random.split(key)
-        action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
+        action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
         return key, action
 
@@ -81,7 +102,7 @@ class DQN:
 
         key, action_key, step_key = jax.random.split(key, 3)
         key, action = policy(action_key, state)
-        step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
+        step_key = jax.random.split(step_key, self.cfg.num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
@@ -96,7 +117,7 @@ class DQN:
 
         buffer_state = self.buffer.add(state.buffer_state, transition)
         state = state.replace(
-            step=state.step + self.cfg.algorithm.num_envs,
+            step=state.step + self.cfg.num_envs,
             obs=next_obs,  # type: ignore
             env_state=env_state,  # type: ignore
             buffer_state=buffer_state,
@@ -110,15 +131,26 @@ class DQN:
         key, sample_key = jax.random.split(key)
         batch = self.buffer.sample(state.buffer_state, sample_key).experience
 
-        target_q_values = self.q_network.apply(
+        next_target_q_values = self.q_network.apply(
             state.target_params,
             batch.second.obs,
         )
-        target_q_value = jnp.max(target_q_values, axis=-1)
+
+        if self.cfg.double:
+            next_q_values = self.q_network.apply(
+                state.params,
+                batch.second.obs,
+            )
+            next_action = jnp.argmax(next_q_values, axis=-1)
+            next_target_q_value = jnp.take_along_axis(
+                next_target_q_values, jnp.expand_dims(next_action, -1), axis=-1
+            ).squeeze(-1)
+        else:
+            next_target_q_value = jnp.max(next_target_q_values, axis=-1)
 
         td_target = (
             batch.first.reward
-            + (1 - batch.first.done) * self.cfg.algorithm.gamma * target_q_value
+            + (1 - batch.first.done) * self.cfg.gamma * next_target_q_value
         )
 
         def loss_fn(params):
@@ -138,11 +170,11 @@ class DQN:
         params = optax.apply_updates(state.params, updates)
         target_params = optax.periodic_update(
             optax.incremental_update(
-                params, state.target_params, self.cfg.algorithm.tau
+                params, state.target_params, self.cfg.tau
             ),
             state.target_params,
             state.step,
-            self.cfg.algorithm.target_network_frequency,
+            self.cfg.target_network_frequency,
         )
 
         state = state.replace(
@@ -160,7 +192,7 @@ class DQN:
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
             carry,
-            length=self.cfg.algorithm.train_frequency // self.cfg.algorithm.num_envs,
+            length=self.cfg.train_frequency // self.cfg.num_envs,
         )
 
         key, state, loss, q_value = self._update(key, state)
@@ -173,7 +205,7 @@ class DQN:
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key) -> tuple[chex.PRNGKey, DQNState, chex.Array, gymnax.EnvState]:
         key, env_key, q_key = jax.random.split(key, 3)
-        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
@@ -211,7 +243,7 @@ class DQN:
         (key, state), _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
             (key, state),
-            length=num_steps // self.cfg.algorithm.num_envs,
+            length=num_steps // self.cfg.num_envs,
         )
         return key, state
 
@@ -225,7 +257,7 @@ class DQN:
         (key, state), transitions = jax.lax.scan(
             self._learn,
             (key, state),
-            length=(num_steps // self.cfg.algorithm.train_frequency),
+            length=(num_steps // self.cfg.train_frequency),
         )
         return key, state, transitions
 
@@ -234,7 +266,7 @@ class DQN:
         self, key: chex.PRNGKey, state: DQNState, num_steps: int
     ) -> tuple[chex.PRNGKey, Any]:
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
@@ -261,22 +293,24 @@ def make_dqn(cfg, env, env_params) -> DQN:
         An initialized DQN instance ready for training.
     """
 
+    dqn_config = DQNConfig(**cfg.algorithm)
+
     q_network = Network(
-        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        torso=instantiate(cfg.algorithm.torso),
+        feature_extractor=instantiate(dqn_config.feature_extractor),
+        torso=instantiate(dqn_config.torso),
         head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
     )
 
-    buffer = instantiate(cfg.algorithm.buffer)
-    optimizer = optax.adam(learning_rate=cfg.algorithm.learning_rate)
+    buffer = instantiate(dqn_config.buffer)
+    optimizer = optax.adam(learning_rate=dqn_config.learning_rate)
     epsilon_schedule = optax.linear_schedule(
-        cfg.algorithm.start_e,
-        cfg.algorithm.end_e,
-        int(cfg.algorithm.exploration_fraction * cfg.total_timesteps),
-        cfg.algorithm.learning_starts,
+        dqn_config.start_e,
+        dqn_config.end_e,
+        int(dqn_config.exploration_fraction * cfg.total_timesteps),
+        dqn_config.learning_starts,
     )
     return DQN(
-        cfg=cfg,  # type: ignore
+        cfg=dqn_config,  # type: ignore
         env=env,  # type: ignore
         env_params=env_params,  # type: ignore
         q_network=q_network,  # type: ignore

@@ -15,7 +15,7 @@ target_network_frequency: 1000
 batch_size:          16
 double: False
 
-update_hidden_state: false
+# update_hidden_state: false
 
 start_e:             1.0
 end_e:               0.01

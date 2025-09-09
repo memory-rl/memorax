@@ -13,6 +13,27 @@ from omegaconf import DictConfig
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import generalized_advantage_estimatation, Transition
 
+@chex.dataclass(frozen=True)
+class RPPOConfig:
+    name: str
+    learning_rate: float
+    num_envs: int
+    num_eval_envs: int
+    anneal_lr: bool
+    gamma: float
+    gae_lambda: float
+    num_minibatches: int
+    update_epochs: int
+    normalize_advantage: bool
+    clip_coef: float
+    clip_vloss: bool
+    ent_coef: float
+    vf_coef: float
+    max_grad_norm: float
+    learning_starts: int
+    actor: Any
+    critic: Any
+    mode: Any
 
 @chex.dataclass(frozen=True)
 class RPPOState:
@@ -107,7 +128,7 @@ class RPPO:
         key, action_key, step_key = jax.random.split(key, 3)
         key, state, action, log_prob, value = policy(action_key, state)
 
-        step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
+        step_key = jax.random.split(step_key, self.cfg.num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
@@ -124,7 +145,7 @@ class RPPO:
         )
 
         state = state.replace(
-            step=state.step + self.cfg.algorithm.num_envs,
+            step=state.step + self.cfg.num_envs,
             obs=next_obs,
             done=done,
             env_state=env_state,
@@ -149,7 +170,7 @@ class RPPO:
             ratio = jnp.exp(log_probs - transitions.log_prob)
             approx_kl = jnp.mean(transitions.log_prob - log_probs)
             clipfrac = jnp.mean(
-                (jnp.abs(ratio - 1.0) > self.cfg.algorithm.clip_coef).astype(
+                (jnp.abs(ratio - 1.0) > self.cfg.clip_coef).astype(
                     jnp.float32
                 )
             )
@@ -158,12 +179,12 @@ class RPPO:
                 ratio * advantages,
                 jnp.clip(
                     ratio,
-                    1.0 - self.cfg.algorithm.clip_coef,
-                    1.0 + self.cfg.algorithm.clip_coef,
+                    1.0 - self.cfg.clip_coef,
+                    1.0 + self.cfg.clip_coef,
                 )
                 * advantages,
             ).mean()
-            return actor_loss - self.cfg.algorithm.ent_coef * entropy, (
+            return actor_loss - self.cfg.ent_coef * entropy, (
                 entropy.mean(),  # type: ignore
                 approx_kl.mean(),  # type: ignore
                 clipfrac.mean(),  # type: ignore
@@ -199,12 +220,12 @@ class RPPO:
             )
             values = values.squeeze(-1)
 
-            if self.cfg.algorithm.clip_vloss:
+            if self.cfg.clip_vloss:
                 critic_loss = jnp.square(values - returns)
                 clipped_value = transitions.value + jnp.clip(
                     (values - transitions.value),
-                    -self.cfg.algorithm.clip_coef,
-                    self.cfg.algorithm.clip_coef,
+                    -self.cfg.clip_coef,
+                    self.cfg.clip_coef,
                 )
                 clipped_critic_loss = jnp.square(clipped_value - returns)
                 critic_loss = 0.5 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
@@ -260,7 +281,7 @@ class RPPO:
         key, permutation_key = jax.random.split(key)
 
         permutation = jax.random.permutation(
-            permutation_key, self.cfg.algorithm.num_envs
+            permutation_key, self.cfg.num_envs
         )
 
         batch = (
@@ -275,7 +296,7 @@ class RPPO:
         minibatches = jax.tree.map(
             lambda x: jnp.reshape(
                 x,
-                [self.cfg.algorithm.num_minibatches, -1] + list(x.shape[1:]),
+                [self.cfg.num_minibatches, -1] + list(x.shape[1:]),
             ),
             shuffled_batch,
         )
@@ -304,7 +325,7 @@ class RPPO:
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),
             (key, state),
-            length=self.cfg.algorithm.mode.length,
+            length=self.cfg.mode.length,
         )
 
         key, critic_key = jax.random.split(key)
@@ -320,11 +341,10 @@ class RPPO:
 
         # Compute GAE on time-major data (T, B, ...)
         advantages, returns = generalized_advantage_estimatation(
-            self.cfg.algorithm.gamma,
-            self.cfg.algorithm.gae_lambda,
-            transitions,
+            self.cfg.gamma,
+            self.cfg.gae_lambda,
             final_value,
-            state.done,
+            transitions,
         )
 
         # Convert from time_major=True format (T, B, ...) to time_major=False format (B, T, ...)
@@ -334,7 +354,7 @@ class RPPO:
         advantages = jnp.swapaxes(advantages, 0, 1)
         returns = jnp.swapaxes(returns, 0, 1)
 
-        if self.cfg.algorithm.normalize_advantage:
+        if self.cfg.normalize_advantage:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         (key, state, *_), (actor_loss, critic_loss, aux) = jax.lax.scan(
@@ -348,7 +368,7 @@ class RPPO:
                 advantages,
                 returns,
             ),
-            length=self.cfg.algorithm.update_epochs,
+            length=self.cfg.update_epochs,
         )
 
         entropy, approx_kl, clipfrac = aux
@@ -369,11 +389,11 @@ class RPPO:
             jax.random.split(key, 6)
         )
 
-        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
+        done = jnp.zeros(self.cfg.num_envs, dtype=bool)
         actor_hidden_state = self.actor.initialize_carry(obs.shape)
         critic_hidden_state = self.critic.initialize_carry(obs.shape)
 
@@ -423,7 +443,7 @@ class RPPO:
             self._update_step,
             (key, state),
             length=num_steps
-            // (self.cfg.algorithm.num_envs * self.cfg.algorithm.mode.length),
+            // (self.cfg.num_envs * self.cfg.mode.length),
         )
 
         return key, state, transitions
@@ -434,11 +454,11 @@ class RPPO:
     def evaluate(self, key, state, num_steps):
 
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
+        done = jnp.zeros(self.cfg.num_envs, dtype=bool)
         initial_actor_hidden_state = self.actor.initialize_carry(obs.shape)
         initial_critic_hidden_state = self.critic.initialize_carry(obs.shape)
         state = state.replace(
@@ -459,14 +479,12 @@ class RPPO:
 
 
 def make_rppo(cfg, env, env_params):
-    key = jax.random.key(cfg.seed)
-    key, reset_key = jax.random.split(key, 2)
 
-    reset_key = jax.random.split(reset_key, cfg.algorithm.num_envs)
+    rppo_config = RPPOConfig(**cfg.algorithm)
 
     actor = RecurrentNetwork(
-        feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        torso=instantiate(cfg.algorithm.actor.torso),
+        feature_extractor=instantiate(rppo_config.actor.feature_extractor),
+        torso=instantiate(rppo_config.actor.torso),
         head=heads.Categorical(
             action_dim=env.action_space(env_params).n,
             kernel_init=nn.initializers.orthogonal(scale=0.01),
@@ -474,39 +492,39 @@ def make_rppo(cfg, env, env_params):
     )
 
     critic = RecurrentNetwork(
-        feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        torso=instantiate(cfg.algorithm.critic.torso),
+        feature_extractor=instantiate(rppo_config.critic.feature_extractor),
+        torso=instantiate(rppo_config.critic.torso),
         head=heads.VNetwork(kernel_init=nn.initializers.orthogonal(scale=1.0)),
     )
 
-    if cfg.algorithm.anneal_lr:
+    if rppo_config.anneal_lr:
         num_updates_per_epoch = cfg.total_timesteps // (
-            cfg.algorithm.num_envs * cfg.algorithm.mode.length
+            rppo_config.num_envs * rppo_config.mode.length
         )
         num_updates = (
             num_updates_per_epoch
-            * cfg.algorithm.update_epochs
-            * cfg.algorithm.num_minibatches
+            * rppo_config.update_epochs
+            * rppo_config.num_minibatches
         )
         learning_rate = optax.linear_schedule(
-            init_value=cfg.algorithm.learning_rate,
+            init_value=rppo_config.learning_rate,
             end_value=0.0,
             transition_steps=num_updates,
         )
     else:
-        learning_rate = cfg.algorithm.learning_rate
+        learning_rate = rppo_config.learning_rate
 
     actor_optimizer = optax.chain(
-        optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
+        optax.clip_by_global_norm(rppo_config.max_grad_norm),
         optax.adam(learning_rate=learning_rate, eps=1e-5),
     )
     critic_optimizer = optax.chain(
-        optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
+        optax.clip_by_global_norm(rppo_config.max_grad_norm),
         optax.adam(learning_rate=learning_rate, eps=1e-5),
     )
 
     return RPPO(
-        cfg=cfg,
+        cfg=rppo_config,
         env=env,
         env_params=env_params,
         actor=actor,

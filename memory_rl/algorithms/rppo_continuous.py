@@ -11,7 +11,7 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig
 
 from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.utils import compute_recurrent_gae as compute_gae, Transition
+from memory_rl.utils import generalized_advantage_estimatation, Transition
 
 # Enable JAX debug mode for NaN detection
 jax.config.update("jax_debug_nans", True)
@@ -185,7 +185,7 @@ class RPPO:
             final_value = final_value.squeeze((1, -1))
 
             # Compute GAE on time-major data (T, B, ...)
-            advantages, returns = compute_gae(
+            advantages, returns = generalized_advantage_estimatation(
                 self.cfg.algorithm.gamma,
                 self.cfg.algorithm.gae_lambda,
                 transitions,

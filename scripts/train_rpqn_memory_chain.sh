@@ -5,7 +5,7 @@ python main.py -m \
   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
 seed=0,1,2,3,4 \
 logger=wandb \
-hydra/launcher=lichtenberg &
+hydra/launcher=julia2 &
 
 python main.py -m \
   algorithm=rpqn \
@@ -14,7 +14,7 @@ python main.py -m \
   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
 seed=0,1,2,3,4 \
 logger=wandb \
-hydra/launcher=lichtenberg &
+hydra/launcher=julia2 &
 
 python main.py -m \
   algorithm=rpqn \
@@ -23,7 +23,7 @@ python main.py -m \
   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
 seed=0,1,2,3,4 \
 logger=wandb \
-hydra/launcher=lichtenberg &
+hydra/launcher=julia2 &
 
 python main.py -m \
   algorithm=rpqn \
@@ -32,7 +32,7 @@ python main.py -m \
   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
 seed=0,1,2,3,4 \
 logger=wandb \
-hydra/launcher=lichtenberg &
+hydra/launcher=julia2 &
 
 python main.py -m \
   algorithm=rpqn \
@@ -41,7 +41,7 @@ python main.py -m \
   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
 seed=0,1,2,3,4 \
 logger=wandb \
-hydra/launcher=lichtenberg &
+hydra/launcher=julia2 &
 
 
 python main.py -m \
@@ -51,5 +51,5 @@ python main.py -m \
   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
 seed=0,1,2,3,4 \
 logger=wandb \
-hydra/launcher=lichtenberg &
+hydra/launcher=julia2 &
 

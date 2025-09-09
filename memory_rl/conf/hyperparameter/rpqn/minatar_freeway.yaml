@@ -12,7 +12,7 @@ algorithm:
   update_epochs:       4
   td_lambda:           0.95
   gamma:               0.99
-  batch_size:          ${eval:${.num_envs}*${.num_steps}}
+  batch_size: ${eval:${.num_envs}*${.mode.length}}
   max_grad_norm:       0.5
 
   start_e:             1.0

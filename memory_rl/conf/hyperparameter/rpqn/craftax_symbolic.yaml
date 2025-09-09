@@ -6,7 +6,7 @@ evaluate_every: 10_000_000
 
 algorithm:
   learning_rate:       3e-4
-  num_envs:            1024
+  num_envs:            512
   num_eval_envs:       2
   num_minibatches:     4
   update_epochs:       4
@@ -26,6 +26,6 @@ algorithm:
 
   feature_extractor:
     extractor:
-      features:        [512]
+      features:        [256]
       normalizer:
         _target_: flax.linen.LayerNorm

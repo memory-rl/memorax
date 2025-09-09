@@ -26,6 +26,7 @@ class RPPOConfig:
     num_minibatches: int
     update_epochs: int
     normalize_advantage: bool
+    batch_size: int
     clip_coef: float
     clip_vloss: bool
     ent_coef: float

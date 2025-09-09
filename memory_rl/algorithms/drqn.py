@@ -344,7 +344,7 @@ class DRQN:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        done = jnp.zeros(self.cfg.num_envs, dtype=jnp.bool_)
+        done = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.bool_)
         hidden_state = self.q_network.initialize_carry(obs.shape)
 
         state = state.replace(obs=obs, done=done, hidden_state=hidden_state, env_state=env_state)  # type: ignore

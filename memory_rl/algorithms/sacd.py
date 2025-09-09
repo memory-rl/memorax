@@ -29,6 +29,26 @@ class Batch:
     done: chex.Array
     """Batch of done flags with shape [batch_size]"""
 
+@chex.dataclass(frozen=True)
+class SACDConfig:
+    name: str
+    actor_lr: float
+    critic_lr: float
+    alpha_lr: float
+    num_envs: int
+    num_eval_envs: int
+    buffer_size: int
+    gamma: float
+    tau: float
+    train_frequency: int
+    target_update_frequency: int
+    batch_size: int
+    initial_alpha: float
+    target_entropy_scale: float
+    learning_starts: int
+    actor: Any
+    critic: Any
+    buffer: Any
 
 @chex.dataclass(frozen=True)
 class SACDState:
@@ -77,7 +97,7 @@ class SACD:
         self, key: chex.PRNGKey, state: SACDState
     ) -> tuple[chex.PRNGKey, SACDState, chex.Array, chex.Array]:
         key, action_key = jax.random.split(key)
-        action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
+        action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
         return key, action
 
@@ -86,7 +106,7 @@ class SACD:
 
         key, action_key, step_key = jax.random.split(key, 3)
         key, action = policy(action_key, state)
-        step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
+        step_key = jax.random.split(step_key, self.cfg.num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
@@ -101,7 +121,7 @@ class SACD:
 
         buffer_state = self.buffer.add(state.buffer_state, transition)
         state = state.replace(
-            step=state.step + self.cfg.algorithm.num_envs,
+            step=state.step + self.cfg.num_envs,
             obs=next_obs,  # type: ignore
             env_state=env_state,  # type: ignore
             buffer_state=buffer_state,
@@ -110,7 +130,7 @@ class SACD:
 
     def _update_alpha(self, state: SACDState, batch: Batch):
         action_dim = self.env.action_space(self.env_params).n
-        target_entropy = self.cfg.algorithm.target_entropy_scale * jnp.log(action_dim)
+        target_entropy = self.cfg.target_entropy_scale * jnp.log(action_dim)
 
         def alpha_loss_fn(alpha_params):
             alpha = self.alpha_network.apply(alpha_params)
@@ -175,23 +195,16 @@ class SACD:
 
         target_q = (
             batch.first.reward
-            + self.cfg.algorithm.gamma * (1 - batch.first.done) * next_q
+            + self.cfg.gamma * (1 - batch.first.done) * next_q
         )
 
-        # if self.cfg.algorithm.backup_entropy:
-        #     target_q -= (
-        #         self.cfg.algorithm.gamma
-        #         * (1 - batch.first.done)
-        #         * alpha
-        #         * next_log_probs
-        #     )
 
         target_q = jax.lax.stop_gradient(target_q)
 
         def critic_loss_fn(critic_params):
             q1, q2 = self.critic_network.apply(critic_params, batch.first.obs)
-            q1_a = q1[jnp.arange(self.cfg.algorithm.batch_size), batch.first.action]
-            q2_a = q2[jnp.arange(self.cfg.algorithm.batch_size), batch.first.action]
+            q1_a = q1[jnp.arange(self.cfg.batch_size), batch.first.action]
+            q2_a = q2[jnp.arange(self.cfg.batch_size), batch.first.action]
             critic_loss = ((q1_a - target_q) ** 2 + (q2_a - target_q) ** 2).mean()
             return critic_loss, {
                 "critic_loss": critic_loss,
@@ -212,8 +225,8 @@ class SACD:
             critic_params,
             state.critic_target_params,
             state.step,
-            self.cfg.algorithm.target_update_frequency,
-            self.cfg.algorithm.tau,
+            self.cfg.target_update_frequency,
+            self.cfg.tau,
         )
 
         state = state.replace(
@@ -250,7 +263,7 @@ class SACD:
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),
             carry,
-            length=self.cfg.algorithm.train_frequency // self.cfg.algorithm.num_envs,
+            length=self.cfg.train_frequency // self.cfg.num_envs,
         )
 
         key, update_key = jax.random.split(key)
@@ -263,14 +276,14 @@ class SACD:
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key):
         key, env_key, actor_key, critic_key, alpha_key = jax.random.split(key, 5)
-        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
         # Initialize environment
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
         action = jnp.zeros(
-            (self.cfg.algorithm.num_envs,),
+            (self.cfg.num_envs,),
             dtype=self.env.action_space(self.env_params).dtype,
         )
         _, _, reward, done, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
@@ -318,7 +331,7 @@ class SACD:
         (key, state), _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
             (key, state),
-            length=num_steps // self.cfg.algorithm.num_envs,
+            length=num_steps // self.cfg.num_envs,
         )
         return key, state
 
@@ -329,7 +342,7 @@ class SACD:
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
-            length=(num_steps // self.cfg.algorithm.train_frequency),
+            length=(num_steps // self.cfg.train_frequency),
         )
 
         return key, state, transitions
@@ -340,7 +353,7 @@ class SACD:
     def evaluate(self, key: chex.PRNGKey, state: SACDState, num_steps: int):
 
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_eval_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
@@ -357,12 +370,14 @@ class SACD:
 
 def make_sacd(cfg, env, env_params) -> SACD:
 
+    sacd_config = SACDConfig(**cfg.algorithm)
+
     action_dim = env.action_space(env_params).n
 
     # Define networks
     actor_network = Network(
-        feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        torso=instantiate(cfg.algorithm.actor.torso),
+        feature_extractor=instantiate(sacd_config.actor.feature_extractor),
+        torso=instantiate(sacd_config.actor.torso),
         head=heads.Categorical(
             action_dim=action_dim,
         ),
@@ -376,28 +391,28 @@ def make_sacd(cfg, env, env_params) -> SACD:
         out_axes=0,
         axis_size=2,
     )(
-        feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        torso=instantiate(cfg.algorithm.critic.torso),
+        feature_extractor=instantiate(sacd_config.critic.feature_extractor),
+        torso=instantiate(sacd_config.critic.torso),
         head=heads.DiscreteQNetwork(env.action_space(env_params).n),
     )
 
-    alpha_network = heads.Alpha(initial_alpha=cfg.algorithm.initial_alpha)
+    alpha_network = heads.Alpha(initial_alpha=sacd_config.initial_alpha)
 
     # Define optimizers
-    actor_optimizer = optax.adam(learning_rate=cfg.algorithm.actor_lr)
-    critic_optimizer = optax.adam(learning_rate=cfg.algorithm.critic_lr)
-    alpha_optimizer = optax.adam(learning_rate=cfg.algorithm.alpha_lr)
+    actor_optimizer = optax.adam(learning_rate=sacd_config.actor_lr)
+    critic_optimizer = optax.adam(learning_rate=sacd_config.critic_lr)
+    alpha_optimizer = optax.adam(learning_rate=sacd_config.alpha_lr)
 
     buffer = fbx.make_flat_buffer(
-        add_batch_size=cfg.algorithm.num_envs,
-        sample_batch_size=cfg.algorithm.batch_size,
-        min_length=cfg.algorithm.batch_size,
-        max_length=cfg.algorithm.buffer_size,
+        add_batch_size=sacd_config.num_envs,
+        sample_batch_size=sacd_config.batch_size,
+        min_length=sacd_config.batch_size,
+        max_length=sacd_config.buffer_size,
         add_sequences=False,
     )
 
     return SACD(
-        cfg=cfg,
+        cfg=sacd_config,
         env=env,
         env_params=env_params,
         actor_network=actor_network,

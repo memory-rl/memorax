@@ -21,7 +21,7 @@ class Batch:
 
     obs: chex.Array
     """Batch of obs with shape [batch_size, obs_dim]"""
-    done: chex.Array
+    prev_done: chex.Array
     """Batch of done flags with shape [batch_size]"""
     action: chex.Array
     """Batch of actions with shape [batch_size, action_dim]"""
@@ -32,6 +32,27 @@ class Batch:
     done: chex.Array
     """Batch of next done flags with shape [batch_size]"""
 
+@chex.dataclass(frozen=True)
+class RSACDConfig:
+    name: str
+    actor_lr: float
+    critic_lr: float
+    alpha_lr: float
+    num_envs: int
+    num_eval_envs: int
+    buffer_size: int
+    gamma: float
+    tau: float
+    train_frequency: int
+    target_update_frequency: int
+    batch_size: int
+    initial_alpha: float
+    target_entropy_scale: float
+    learning_starts: int
+    actor: Any
+    critic: Any
+    buffer: Any
+    mode: Any
 
 @chex.dataclass(frozen=True)
 class RSACDState:
@@ -100,7 +121,7 @@ class RSACD:
         self, key: chex.PRNGKey, state: RSACDState
     ) -> tuple[chex.PRNGKey, RSACDState, chex.Array, chex.Array]:
         key, action_key = jax.random.split(key)
-        action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
+        action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
         return key, state, action
 
@@ -109,7 +130,7 @@ class RSACD:
 
         key, action_key, step_key = jax.random.split(key, 3)
         key, state, action = policy(action_key, state)
-        step_key = jax.random.split(step_key, self.cfg.algorithm.num_envs)
+        step_key = jax.random.split(step_key, self.cfg.num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
@@ -127,7 +148,7 @@ class RSACD:
 
         buffer_state = self.buffer.add(state.buffer_state, transition)
         state = state.replace(
-            step=state.step + self.cfg.algorithm.num_envs,
+            step=state.step + self.cfg.num_envs,
             obs=next_obs,  # type: ignore
             done=done,  # type: ignore
             env_state=env_state,  # type: ignore
@@ -138,7 +159,7 @@ class RSACD:
     @partial(jax.jit, static_argnames=["self"])
     def _update_alpha(self, state: RSACDState, batch: Batch):
         action_dim = self.env.action_space(self.env_params).n
-        target_entropy = self.cfg.algorithm.target_entropy_scale * jnp.log(action_dim)
+        target_entropy = self.cfg.target_entropy_scale * jnp.log(action_dim)
 
         def alpha_loss_fn(alpha_params):
             alpha = self.alpha_network.apply(alpha_params)
@@ -169,7 +190,7 @@ class RSACD:
         alpha = self.alpha_network.apply(state.alpha_params)
 
         mask = jnp.ones_like(batch.reward)
-        if self.cfg.algorithm.mode.mask:
+        if self.cfg.mode.mask:
             episode_idx = jnp.cumsum(batch.prev_done, axis=1)
             terminal = (episode_idx == 1) & batch.prev_done
             mask = (episode_idx == 0) | terminal
@@ -216,18 +237,13 @@ class RSACD:
         )
 
         target_q = (
-            batch.reward + self.cfg.algorithm.gamma * (1 - batch.done) * next_q
+            batch.reward + self.cfg.gamma * (1 - batch.done) * next_q
         )
-
-        if self.cfg.algorithm.backup_entropy:
-            target_q -= (
-                self.cfg.algorithm.gamma * (1 - batch.prev_done) * alpha * next_log_probs
-            )
 
         target_q = jax.lax.stop_gradient(target_q)
 
         mask = jnp.ones_like(batch.reward)
-        if self.cfg.algorithm.mode.mask:
+        if self.cfg.mode.mask:
             episode_idx = jnp.cumsum(batch.prev_done, axis=1)
             terminal = (episode_idx == 1) & batch.prev_done
             mask = (episode_idx == 0) | terminal
@@ -262,8 +278,8 @@ class RSACD:
             critic_params,
             state.critic_target_params,
             state.step,
-            self.cfg.algorithm.target_update_frequency,
-            self.cfg.algorithm.tau,
+            self.cfg.target_update_frequency,
+            self.cfg.tau,
         )
 
         state = state.replace(
@@ -300,7 +316,7 @@ class RSACD:
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),
             carry,
-            length=self.cfg.algorithm.train_frequency // self.cfg.algorithm.num_envs,
+            length=self.cfg.train_frequency // self.cfg.num_envs,
         )
 
         key, update_key = jax.random.split(key)
@@ -312,14 +328,14 @@ class RSACD:
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key):
         key, env_key, actor_key, critic_key, alpha_key = jax.random.split(key, 5)
-        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
         # Initialize environment
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
         action = jnp.zeros(
-            (self.cfg.algorithm.num_envs,),
+            (self.cfg.num_envs,),
             dtype=self.env.action_space(self.env_params).dtype,
         )
         _, _, reward, done, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
@@ -379,7 +395,7 @@ class RSACD:
         (key, state), _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
             (key, state),
-            length=num_steps // self.cfg.algorithm.num_envs,
+            length=num_steps // self.cfg.num_envs,
         )
         return key, state
 
@@ -391,7 +407,7 @@ class RSACD:
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
-            length=(num_steps // self.cfg.algorithm.train_frequency),
+            length=(num_steps // self.cfg.train_frequency),
         )
 
         return key, state, transitions
@@ -402,11 +418,11 @@ class RSACD:
     def evaluate(self, key: chex.PRNGKey, state: RSACDState, num_steps: int):
 
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_eval_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        done = jnp.zeros(self.cfg.algorithm.num_eval_envs, dtype=jnp.bool)
+        done = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.bool)
         actor_hidden_state = self.actor_network.initialize_carry(obs.shape)
         state = state.replace(
             obs=obs,
@@ -426,12 +442,14 @@ class RSACD:
 
 def make_rsacd(cfg, env, env_params) -> RSACD:
 
+    rsacd_config = RSACDConfig(**cfg.algorithm)
+
     action_dim = env.action_space(env_params).n
 
     # Define networks
     actor_network = RecurrentNetwork(
-        feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        torso=instantiate(cfg.algorithm.actor.torso),
+        feature_extractor=instantiate(rsacd_config.actor.feature_extractor),
+        torso=instantiate(rsacd_config.actor.torso),
         head=heads.Categorical(
             action_dim=action_dim,
         ),
@@ -445,37 +463,37 @@ def make_rsacd(cfg, env, env_params) -> RSACD:
         out_axes=0,
         axis_size=2,
     )(
-        feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        torso=instantiate(cfg.algorithm.critic.torso),
+        feature_extractor=instantiate(rsacd_config.critic.feature_extractor),
+        torso=instantiate(rsacd_config.critic.torso),
         head=heads.DiscreteQNetwork(env.action_space(env_params).n),
     )
 
-    alpha_network = heads.Alpha(initial_alpha=cfg.algorithm.initial_alpha)
+    alpha_network = heads.Alpha(initial_alpha=rsacd_config.initial_alpha)
 
     # Define optimizers
     actor_optimizer = optax.chain(
         optax.clip_by_global_norm(10.0),
-        optax.adam(learning_rate=cfg.algorithm.actor_lr),
+        optax.adam(learning_rate=rsacd_config.actor_lr),
     )
     critic_optimizer = optax.chain(
         optax.clip_by_global_norm(10.0),
-        optax.adam(learning_rate=cfg.algorithm.critic_lr),
+        optax.adam(learning_rate=rsacd_config.critic_lr),
     )
     alpha_optimizer = optax.chain(
         optax.clip_by_global_norm(10.0),
-        optax.adam(learning_rate=cfg.algorithm.alpha_lr),
+        optax.adam(learning_rate=rsacd_config.alpha_lr),
     )
 
     sample_sequence_length = (
-        cfg.algorithm.mode.length or env_params.max_steps_in_episode
+        rsacd_config.mode.length or env_params.max_steps_in_episode
     )
     buffer = instantiate(
-        cfg.algorithm.buffer,
+        rsacd_config.buffer,
         sample_sequence_length=sample_sequence_length,
     )
 
     return RSACD(
-        cfg=cfg,
+        cfg=rsacd_config,
         env=env,
         env_params=env_params,
         actor_network=actor_network,

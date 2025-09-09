@@ -12,7 +12,7 @@ for t in "${TORSOS[@]}"; do
     seed=0 \
     num_seeds=5 \
     logger=[wandb,file] \
-    hydra/launcher=lichtenberg &
+    hydra/launcher=julia2 &
 done
 
 wait

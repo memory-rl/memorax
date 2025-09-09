@@ -1,5 +1,4 @@
 # @package _global_
-
 total_timesteps: 1_000_000_000
 num_train_steps: 1_000_000
 evaluate_every: 10_000_000

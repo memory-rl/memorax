@@ -202,12 +202,11 @@ class PQN:
             self.cfg.algorithm.update_epochs,
         )
 
-        info = transitions.info
-        info["losses/loss"] = loss
-        info["losses/q_value"] = q_value
+        transitions.info["losses/loss"] = loss
+        transitions.info["losses/q_value"] = q_value
 
-        return (key, state), info
-
+        return (key, state), transitions
+    
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key) -> tuple[chex.PRNGKey, PQNState, chex.Array, gymnax.EnvState]:
         """
@@ -274,7 +273,7 @@ class PQN:
             env_state: Latest env state.
             info: Training statistics (loss, rewards, etc.).
         """
-        (key, state), info = jax.lax.scan(
+        (key, state), transitions = jax.lax.scan(
             self._learn,
             (key, state),
             length=(
@@ -282,7 +281,7 @@ class PQN:
                 // (self.cfg.algorithm.num_steps * self.cfg.algorithm.num_envs)
             ),
         )
-        return key, state, info
+        return key, state, transitions
 
     @partial(
         jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]

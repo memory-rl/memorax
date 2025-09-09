@@ -5,5 +5,5 @@ python main.py -m \
   seed=0 \
   num_seeds=5 \
   logger=[wandb,file] \
-  hydra/launcher=lichtenberg &
+  hydra/launcher=julia2 &
 

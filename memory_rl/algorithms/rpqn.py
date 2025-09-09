@@ -96,11 +96,11 @@ class RPQN:
 
         transition = Transition(
             obs=state.obs,  # type: ignore
-            done=state.done,  # type: ignore
+            prev_done=state.done,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             next_obs=next_obs,  # type: ignore
-            next_done=done,  # type: ignore
+            done=done,  # type: ignore
             info=info,  # type: ignore
             value=q_values,  # type: ignore
         )
@@ -118,7 +118,7 @@ class RPQN:
 
         target_bootstrap = (
             transition.reward
-            + self.cfg.algorithm.gamma * (1.0 - transition.done) * next_q_value
+            + self.cfg.algorithm.gamma * (1.0 - transition.prev_done) * next_q_value
         )
 
         delta = lambda_return - next_q_value
@@ -128,8 +128,8 @@ class RPQN:
         )
 
         lambda_return = (
-            1.0 - transition.done
-        ) * lambda_return + transition.done * transition.reward
+            1.0 - transition.prev_done
+        ) * lambda_return + transition.prev_done * transition.reward
 
         q_value = jnp.max(transition.value, axis=-1).squeeze(-1)
         return (lambda_return, q_value), lambda_return
@@ -172,7 +172,7 @@ class RPQN:
             _, q_value = self.q_network.apply(
                 params,
                 observation=transitions.obs,
-                mask=transitions.done,
+                mask=transitions.prev_done,
                 initial_carry=hidden_state,
                 rngs={"memory": memory_key},
             )
@@ -354,7 +354,7 @@ class RPQN:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
+        done = jnp.zeros(self.cfg.algorithm.num_eval_envs, dtype=bool)
         hidden_state = self.q_network.initialize_carry(obs.shape)
 
         state = state.replace(

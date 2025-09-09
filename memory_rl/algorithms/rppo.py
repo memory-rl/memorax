@@ -457,7 +457,7 @@ class RPPO:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        done = jnp.zeros(self.cfg.num_envs, dtype=bool)
+        done = jnp.zeros(self.cfg.num_eval_envs, dtype=bool)
         initial_actor_hidden_state = self.actor.initialize_carry(obs.shape)
         initial_critic_hidden_state = self.critic.initialize_carry(obs.shape)
         state = state.replace(

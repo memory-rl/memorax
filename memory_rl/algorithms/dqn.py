@@ -14,6 +14,7 @@ from omegaconf import DictConfig
 from memory_rl.networks import Network, heads
 from memory_rl.utils import Transition
 
+
 @chex.dataclass(frozen=True)
 class DQNConfig:
     name: str
@@ -97,12 +98,16 @@ class DQN:
         )
         return key, action
 
-    def _step(self, carry, _, *, policy: Callable) -> tuple[chex.PRNGKey, DQNState]:
+    def _step(
+        self, carry, _, *, policy: Callable, write_to_buffer: bool = True
+    ) -> tuple[chex.PRNGKey, DQNState]:
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
         key, action = policy(action_key, state)
-        step_key = jax.random.split(step_key, self.cfg.num_envs)
+
+        num_envs = state.obs.shape[0]
+        step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
@@ -115,7 +120,11 @@ class DQN:
             info=info,  # type: ignore
         )
 
-        buffer_state = self.buffer.add(state.buffer_state, transition)
+        buffer_state = state.buffer_state
+
+        if write_to_buffer:
+            buffer_state = self.buffer.add(state.buffer_state, transition)
+
         state = state.replace(
             step=state.step + self.cfg.num_envs,
             obs=next_obs,  # type: ignore
@@ -169,9 +178,7 @@ class DQN:
         )
         params = optax.apply_updates(state.params, updates)
         target_params = optax.periodic_update(
-            optax.incremental_update(
-                params, state.target_params, self.cfg.tau
-            ),
+            optax.incremental_update(params, state.target_params, self.cfg.tau),
             state.target_params,
             state.step,
             self.cfg.target_network_frequency,
@@ -266,7 +273,7 @@ class DQN:
         self, key: chex.PRNGKey, state: DQNState, num_steps: int
     ) -> tuple[chex.PRNGKey, Any]:
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.num_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
@@ -274,7 +281,7 @@ class DQN:
         state = state.replace(obs=obs, env_state=env_state)
 
         (key, *_), transitions = jax.lax.scan(
-            partial(self._step, policy=self._greedy_action),
+            partial(self._step, policy=self._greedy_action, write_to_buffer=False),
             (key, state),
             length=num_steps,
         )

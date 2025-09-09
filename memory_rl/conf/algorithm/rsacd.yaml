@@ -19,7 +19,6 @@ tau:                 5e-3
 train_frequency:     10
 target_update_frequency: 10
 batch_size:          128
-backup_entropy:      False
 initial_alpha:    0.1
 target_entropy_scale: 0.98
 learning_starts:     10_000

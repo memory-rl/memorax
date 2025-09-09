@@ -32,6 +32,7 @@ class Batch:
     done: chex.Array
     """Batch of next done flags with shape [batch_size]"""
 
+
 @chex.dataclass(frozen=True)
 class RSACDConfig:
     name: str
@@ -53,6 +54,7 @@ class RSACDConfig:
     critic: Any
     buffer: Any
     mode: Any
+
 
 @chex.dataclass(frozen=True)
 class RSACDState:
@@ -125,12 +127,15 @@ class RSACD:
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
         return key, state, action
 
-    def _step(self, carry, _, *, policy: Callable) -> tuple[chex.PRNGKey, RSACDState]:
+    def _step(
+        self, carry, _, *, policy: Callable, write_to_buffer: bool = True
+    ) -> tuple[chex.PRNGKey, RSACDState]:
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
         key, state, action = policy(action_key, state)
-        step_key = jax.random.split(step_key, self.cfg.num_envs)
+        num_envs = state.obs.shape[0]
+        step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
@@ -144,9 +149,11 @@ class RSACD:
             done=done,  # type: ignore
             info=info,  # type: ignore
         )
-        transition = jax.tree.map(lambda x: jnp.expand_dims(x, 1), transition)
 
-        buffer_state = self.buffer.add(state.buffer_state, transition)
+        buffer_state = state.buffer_state
+        if write_to_buffer:
+            transition = jax.tree.map(lambda x: jnp.expand_dims(x, 1), transition)
+            buffer_state = self.buffer.add(state.buffer_state, transition)
         state = state.replace(
             step=state.step + self.cfg.num_envs,
             obs=next_obs,  # type: ignore
@@ -236,9 +243,7 @@ class RSACD:
             axis=-1
         )
 
-        target_q = (
-            batch.reward + self.cfg.gamma * (1 - batch.done) * next_q
-        )
+        target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * next_q
 
         target_q = jax.lax.stop_gradient(target_q)
 
@@ -334,10 +339,7 @@ class RSACD:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        action = jnp.zeros(
-            (self.cfg.num_envs,),
-            dtype=self.env.action_space(self.env_params).dtype,
-        )
+        action = jax.vmap(self.env.action_space(self.env_params).sample)(env_keys)
         _, _, reward, done, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
@@ -432,7 +434,9 @@ class RSACD:
         )
 
         (key, _), transitions = jax.lax.scan(
-            partial(self._step, policy=self._deterministic_action),
+            partial(
+                self._step, policy=self._deterministic_action, write_to_buffer=False
+            ),
             (key, state),
             length=num_steps,
         )
@@ -484,9 +488,7 @@ def make_rsacd(cfg, env, env_params) -> RSACD:
         optax.adam(learning_rate=rsacd_config.alpha_lr),
     )
 
-    sample_sequence_length = (
-        rsacd_config.mode.length or env_params.max_steps_in_episode
-    )
+    sample_sequence_length = rsacd_config.mode.length or env_params.max_steps_in_episode
     buffer = instantiate(
         rsacd_config.buffer,
         sample_sequence_length=sample_sequence_length,

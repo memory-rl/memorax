@@ -41,6 +41,7 @@ def main(cfg: DictConfig):
     logger_state = logger.init(OmegaConf.to_container(cfg, resolve=True))
 
     key = jax.random.key(cfg.seed)
+
     keys = jax.random.split(key, cfg.num_seeds)
 
     env, env_params = make_env(cfg.environment)

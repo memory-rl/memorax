@@ -31,10 +31,11 @@ class FileLogger(BaseLogger[FileLoggerState]):
     directory: str = "logs"
 
     def init(self, cfg: dict) -> FileLoggerState:
-        try:
-            cell = cfg["algorithm"]["actor"]["torso"]["_target_"].split(".")[-1]
-        except KeyError:
-            cell = cfg["algorithm"]["torso"]["_target_"].split(".")[-1]
+        if "actor" in cfg["algorithm"]:
+            cell = cfg["algorithm"]["actor"]["torso"]["_target_"]
+        else:
+            cell = cfg["algorithm"]["torso"]["_target_"]
+        cell = cell.split(".")[-1]
 
         params = ""
         for key, param in cfg["environment"]["parameters"].items():

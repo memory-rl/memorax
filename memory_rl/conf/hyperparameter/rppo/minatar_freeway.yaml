@@ -6,13 +6,13 @@ evaluate_every:      100_000
 
 algorithm:
   learning_rate: 2.5e-4
-  num_envs: 32
+  num_envs: 64
   num_eval_envs: 10
   anneal_lr: True
   gamma: 0.99
   gae_lambda: 0.95
   num_minibatches: 4
-  update_epochs: 4
+  update_epochs: 8
   batch_size: ${eval:${.num_envs}*${.mode.length}}
   normalize_advantage: True
   clip_coef: 0.2

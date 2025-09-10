@@ -9,7 +9,7 @@ import jax
 class MLP(nn.Module):
 
     features: Sequence[int]
-    activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh
+    activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     normalizer: Optional[Union[nn.LayerNorm, nn.BatchNorm]] = None
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()

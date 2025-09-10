@@ -147,15 +147,13 @@ class SACD:
 
         def alpha_loss_fn(alpha_params):
             log_alpha = self.alpha_network.apply(alpha_params)
-            alpha = jnp.exp(log_alpha)
-            alpha_loss = log_alpha * jax.lax.stop_gradient(entropy - target_entropy)
+            alpha_loss = -log_alpha * jax.lax.stop_gradient(entropy - target_entropy)
 
             return alpha_loss, {
-                "losses/log_alpha": log_alpha, 
-                "losses/alpha": alpha,
-                "losses/alpha_loss": alpha_loss, 
-                "losses/entropy": entropy, 
-                "losses/target_entropy": target_entropy
+                "losses/log_alpha": log_alpha,
+                "losses/alpha_loss": alpha_loss,
+                "losses/entropy": entropy,
+                "losses/target_entropy": target_entropy,
             }
 
         (_, info), grads = jax.value_and_grad(alpha_loss_fn, has_aux=True)(
@@ -185,7 +183,9 @@ class SACD:
             dist = self.actor_network.apply(actor_params, batch.first.obs)
             # log_probs = jax.nn.log_softmax(dist.logits)
             # actor_loss = jnp.sum(dist.probs * ((alpha * log_probs) - q), axis=-1).mean()
-            actor_loss = -(jnp.sum(dist.probs * q, axis=-1) + alpha * dist.entropy()).mean()
+            actor_loss = -(
+                jnp.sum(dist.probs * q, axis=-1) + alpha * dist.entropy()
+            ).mean()
             return actor_loss, {
                 "losses/actor_loss": actor_loss,
                 "losses/entropy": dist.entropy().mean(),
@@ -198,7 +198,6 @@ class SACD:
             grads, state.actor_optimizer_state, state.actor_params
         )
         actor_params = optax.apply_updates(state.actor_params, updates)
-
 
         state = state.replace(
             actor_params=actor_params, actor_optimizer_state=actor_optimizer_state
@@ -215,11 +214,18 @@ class SACD:
             state.critic_target_params, batch.second.obs
         )
         next_q = jnp.minimum(next_q1, next_q2)
-        soft_state_values = jnp.sum(dist.probs * next_q, axis=-1) + alpha * dist.entropy()
-        target_q = batch.first.reward + self.cfg.gamma * (1 - batch.first.done) * soft_state_values
+        soft_state_values = (
+            jnp.sum(dist.probs * next_q, axis=-1) + alpha * dist.entropy()
+        )
+        target_q = (
+            batch.first.reward
+            + self.cfg.gamma * (1 - batch.first.done) * soft_state_values
+        )
 
         def critic_loss_fn(critic_params):
-            q1_values, q2_values = self.critic_network.apply(critic_params, batch.first.obs)
+            q1_values, q2_values = self.critic_network.apply(
+                critic_params, batch.first.obs
+            )
 
             action = batch.first.action[:, None]
             q1_value = jnp.take_along_axis(q1_values, action, axis=-1).squeeze(-1)
@@ -235,7 +241,6 @@ class SACD:
                 "losses/critic_loss": critic_loss,
                 "losses/q1_values": q1_values.mean(),
                 "losses/q2_values": q2_values.mean(),
-
             }
 
         (_, info), grads = jax.value_and_grad(critic_loss_fn, has_aux=True)(
@@ -265,12 +270,8 @@ class SACD:
         key, batch_key = jax.random.split(key)
         batch = self.buffer.sample(state.buffer_state, batch_key).experience
 
-        state, critic_info = self._update_critic(
-            state, batch
-        ) 
-        state, actor_info = self._update_actor(
-            state, batch
-        ) 
+        state, critic_info = self._update_critic(state, batch)
+        state, actor_info = self._update_actor(state, batch)
         state, alpha_info = self._update_alpha(state, batch)
 
         info = {**critic_info, **actor_info, **alpha_info}

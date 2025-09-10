@@ -47,6 +47,7 @@ class SACDConfig:
     initial_alpha: float
     target_entropy_scale: float
     learning_starts: int
+    max_grad_norm: float
     actor: Any
     critic: Any
     buffer: Any
@@ -125,6 +126,7 @@ class SACD:
         )
 
         buffer_state = state.buffer_state
+
         if write_to_buffer:
             buffer_state = self.buffer.add(state.buffer_state, transition)
 
@@ -140,13 +142,21 @@ class SACD:
         action_dim = self.env.action_space(self.env_params).n
         target_entropy = self.cfg.target_entropy_scale * jnp.log(action_dim)
 
+        dist = self.actor_network.apply(state.actor_params, batch.first.obs)
+        entropy = dist.entropy().mean()
+
         def alpha_loss_fn(alpha_params):
-            alpha = self.alpha_network.apply(alpha_params)
-            log_alpha = jnp.log(alpha + 1e-8)
-            dist = self.actor_network.apply(state.actor_params, batch.first.obs)
-            entropy = dist.entropy().mean()
-            alpha_loss = -log_alpha * (entropy - target_entropy)
-            return alpha_loss, {"alpha": alpha, "alpha_loss": alpha_loss}
+            log_alpha = self.alpha_network.apply(alpha_params)
+            alpha = jnp.exp(log_alpha)
+            alpha_loss = log_alpha * jax.lax.stop_gradient(entropy - target_entropy)
+
+            return alpha_loss, {
+                "losses/log_alpha": log_alpha, 
+                "losses/alpha": alpha,
+                "losses/alpha_loss": alpha_loss, 
+                "losses/entropy": entropy, 
+                "losses/target_entropy": target_entropy
+            }
 
         (_, info), grads = jax.value_and_grad(alpha_loss_fn, has_aux=True)(
             state.alpha_params
@@ -162,18 +172,23 @@ class SACD:
 
         return state, info
 
-    def _update_actor(self, key, state: SACDState, batch: Batch):
-        alpha = self.alpha_network.apply(state.alpha_params)
+    def _update_actor(self, state: SACDState, batch: Batch):
+        log_alpha = self.alpha_network.apply(state.alpha_params)
+        alpha = jnp.exp(log_alpha)
+
+        q1, q2 = self.critic_network.apply(state.critic_params, batch.first.obs)
+        q = jnp.minimum(q1, q2)
+
+        q = jax.lax.stop_gradient(q)
 
         def actor_loss_fn(actor_params):
             dist = self.actor_network.apply(actor_params, batch.first.obs)
-            log_probs = jax.nn.log_softmax(dist.logits)
-            q1, q2 = self.critic_network.apply(state.critic_params, batch.first.obs)
-            q = jnp.minimum(q1, q2)
-            actor_loss = (dist.probs * ((alpha * log_probs) - q)).sum(axis=-1).mean()
+            # log_probs = jax.nn.log_softmax(dist.logits)
+            # actor_loss = jnp.sum(dist.probs * ((alpha * log_probs) - q), axis=-1).mean()
+            actor_loss = -(jnp.sum(dist.probs * q, axis=-1) + alpha * dist.entropy()).mean()
             return actor_loss, {
-                "actor_loss": actor_loss,
-                "entropy": dist.entropy().mean(),
+                "losses/actor_loss": actor_loss,
+                "losses/entropy": dist.entropy().mean(),
             }
 
         (_, info), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
@@ -184,36 +199,43 @@ class SACD:
         )
         actor_params = optax.apply_updates(state.actor_params, updates)
 
+
         state = state.replace(
             actor_params=actor_params, actor_optimizer_state=actor_optimizer_state
         )
         return state, info
 
-    def _update_critic(self, key, state: SACDState, batch: Batch):
-        alpha = self.alpha_network.apply(state.alpha_params)
+    def _update_critic(self, state: SACDState, batch: Batch):
+        log_alpha = self.alpha_network.apply(state.alpha_params)
+        alpha = jnp.exp(log_alpha)
+
         dist = self.actor_network.apply(state.actor_params, batch.second.obs)
-        log_probs = jax.nn.log_softmax(dist.logits)
 
         next_q1, next_q2 = self.critic_network.apply(
             state.critic_target_params, batch.second.obs
         )
-        next_q = (dist.probs * (jnp.minimum(next_q1, next_q2) - alpha * log_probs)).sum(
-            axis=1
-        )
-
-        target_q = batch.first.reward + self.cfg.gamma * (1 - batch.first.done) * next_q
-
-        target_q = jax.lax.stop_gradient(target_q)
+        next_q = jnp.minimum(next_q1, next_q2)
+        soft_state_values = jnp.sum(dist.probs * next_q, axis=-1) + alpha * dist.entropy()
+        target_q = batch.first.reward + self.cfg.gamma * (1 - batch.first.done) * soft_state_values
 
         def critic_loss_fn(critic_params):
-            q1, q2 = self.critic_network.apply(critic_params, batch.first.obs)
-            q1_a = q1[jnp.arange(self.cfg.batch_size), batch.first.action]
-            q2_a = q2[jnp.arange(self.cfg.batch_size), batch.first.action]
-            critic_loss = ((q1_a - target_q) ** 2 + (q2_a - target_q) ** 2).mean()
+            q1_values, q2_values = self.critic_network.apply(critic_params, batch.first.obs)
+
+            action = batch.first.action[:, None]
+            q1_value = jnp.take_along_axis(q1_values, action, axis=-1).squeeze(-1)
+            q2_value = jnp.take_along_axis(q2_values, action, axis=-1).squeeze(-1)
+
+            q1_loss = optax.huber_loss(q1_value, target_q).mean()
+            q2_loss = optax.huber_loss(q2_value, target_q).mean()
+            critic_loss = q1_loss + q2_loss
+
             return critic_loss, {
-                "critic_loss": critic_loss,
-                "q1": q1.mean(),
-                "q2": q2.mean(),
+                "losses/q1_loss": q1_loss,
+                "losses/q2_loss": q2_loss,
+                "losses/critic_loss": critic_loss,
+                "losses/q1_values": q1_values.mean(),
+                "losses/q2_values": q2_values.mean(),
+
             }
 
         (_, info), grads = jax.value_and_grad(critic_loss_fn, has_aux=True)(
@@ -224,7 +246,6 @@ class SACD:
         )
         critic_params = optax.apply_updates(state.critic_params, updates)
 
-        # Update target network periodically
         critic_target_params = periodic_incremental_update(
             critic_params,
             state.critic_target_params,
@@ -241,24 +262,16 @@ class SACD:
         return state, info
 
     def _update(self, key, state):
-        # Sample from buffer
         key, batch_key = jax.random.split(key)
-        batch = self.buffer.sample(state.buffer_state, batch_key)
+        batch = self.buffer.sample(state.buffer_state, batch_key).experience
 
-        # Update critic
-        key, critic_key = jax.random.split(key)
         state, critic_info = self._update_critic(
-            critic_key, state, batch.experience
-        )  ### Because fbx has weird way of storing transitions
-
-        # Update actor using updated critic
-        key, actor_key = jax.random.split(key)
+            state, batch
+        ) 
         state, actor_info = self._update_actor(
-            actor_key, state, batch.experience
-        )  ### Because fbx has weird way of storing transitions
-
-        # Update alpha using updated actor and critic
-        state, alpha_info = self._update_alpha(state, batch.experience)
+            state, batch
+        ) 
+        state, alpha_info = self._update_alpha(state, batch)
 
         info = {**critic_info, **actor_info, **alpha_info}
         return state, info
@@ -282,7 +295,6 @@ class SACD:
         key, env_key, actor_key, critic_key, alpha_key = jax.random.split(key, 5)
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
-        # Initialize environment
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
@@ -291,16 +303,13 @@ class SACD:
             env_keys, env_state, action, self.env_params
         )
 
-        # Initialize actor
         actor_params = self.actor_network.init(actor_key, obs)
         actor_optimizer_state = self.actor_optimizer.init(actor_params)
 
-        # Initialize critic
         critic_params = self.critic_network.init(critic_key, obs)
         critic_target_params = self.critic_network.init(critic_key, obs)
         critic_optimizer_state = self.critic_optimizer.init(critic_params)
 
-        # Initialize alpha
         alpha_params = self.alpha_network.init(alpha_key)
         alpha_optimizer_state = self.alpha_optimizer.init(alpha_params)
 
@@ -402,9 +411,18 @@ def make_sacd(cfg, env, env_params) -> SACD:
     alpha_network = heads.Alpha(initial_alpha=sacd_config.initial_alpha)
 
     # Define optimizers
-    actor_optimizer = optax.adam(learning_rate=sacd_config.actor_lr)
-    critic_optimizer = optax.adam(learning_rate=sacd_config.critic_lr)
-    alpha_optimizer = optax.adam(learning_rate=sacd_config.alpha_lr)
+    actor_optimizer = optax.chain(
+        optax.clip_by_global_norm(sacd_config.max_grad_norm),
+        optax.adam(learning_rate=sacd_config.actor_lr),
+    )
+    critic_optimizer = optax.chain(
+        optax.clip_by_global_norm(sacd_config.max_grad_norm),
+        optax.adam(learning_rate=sacd_config.critic_lr),
+    )
+    alpha_optimizer = optax.chain(
+        optax.clip_by_global_norm(sacd_config.max_grad_norm),
+        optax.adam(learning_rate=sacd_config.alpha_lr),
+    )
 
     buffer = fbx.make_flat_buffer(
         add_batch_size=sacd_config.num_envs,

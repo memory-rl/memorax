@@ -2,7 +2,7 @@
 set -euo pipefail
 
 TORSOS=(gru ffm slstm mlstm xlstm gtrxl shm)
-ENVS=minatar_breakout,minatar_asterix,minatar_spaceinvaders,minatar_freeway,minatar_seaquest
+ENVS=minatar_breakout,minatar_asterix,minatar_spaceinvaders,minatar_freeway
 
 for t in "${TORSOS[@]}"; do
   python main.py -m \

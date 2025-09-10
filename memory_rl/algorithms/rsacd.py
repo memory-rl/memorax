@@ -168,15 +168,20 @@ class RSACD:
         action_dim = self.env.action_space(self.env_params).n
         target_entropy = self.cfg.target_entropy_scale * jnp.log(action_dim)
 
+        _, dist = self.actor_network.apply(
+            state.actor_params, batch.obs, batch.prev_done
+        )
+        entropy = dist.entropy().mean()
+
         def alpha_loss_fn(alpha_params):
-            alpha = self.alpha_network.apply(alpha_params)
-            log_alpha = jnp.log(alpha + 1e-8)
-            _, dist = self.actor_network.apply(
-                state.actor_params, batch.obs, batch.prev_done
-            )
-            entropy = dist.entropy().mean()
-            alpha_loss = -log_alpha * (entropy - target_entropy)
-            return alpha_loss, {"alpha": alpha, "alpha_loss": alpha_loss}
+            log_alpha = self.alpha_network.apply(alpha_params)
+            alpha_loss = -log_alpha * jax.lax.stop_gradient(entropy - target_entropy)
+            return alpha_loss, {
+                "losses/log_alpha": log_alpha,
+                "losses/alpha_loss": alpha_loss,
+                "losses/entropy": entropy,
+                "losses/target_entropy": target_entropy,
+            }
 
         (_, info), grads = jax.value_and_grad(alpha_loss_fn, has_aux=True)(
             state.alpha_params
@@ -194,7 +199,8 @@ class RSACD:
 
     @partial(jax.jit, static_argnames=["self"])
     def _update_actor(self, key, state: RSACDState, batch: Batch):
-        alpha = self.alpha_network.apply(state.alpha_params)
+        log_alpha = self.alpha_network.apply(state.alpha_params)
+        alpha = jnp.exp(log_alpha)
 
         mask = jnp.ones_like(batch.reward)
         if self.cfg.mode.mask:
@@ -202,18 +208,21 @@ class RSACD:
             terminal = (episode_idx == 1) & batch.prev_done
             mask = (episode_idx == 0) | terminal
 
+        _, (q1, q2) = self.critic_network.apply(
+            state.critic_params, batch.obs, batch.prev_done
+        )
+        q = jnp.minimum(q1, q2)
+
         def actor_loss_fn(actor_params):
             _, dist = self.actor_network.apply(actor_params, batch.obs, batch.prev_done)
-            log_probs = jax.nn.log_softmax(dist.logits)
-            _, (q1, q2) = self.critic_network.apply(
-                state.critic_params, batch.obs, batch.prev_done
-            )
-            q = jnp.minimum(q1, q2)
-            actor_loss = (
-                (dist.probs * (alpha * log_probs - q)).sum(axis=-1).mean(where=mask)
-            )
 
-            return actor_loss, {"actor_loss": actor_loss, "entropy": -log_probs.mean()}
+            actor_loss = -(
+                jnp.sum(dist.probs * q, axis=-1) + alpha * dist.entropy()
+            ).mean()
+            return actor_loss, {
+                "losses/actor_loss": actor_loss,
+                "losses/entropy": dist.entropy().mean(),
+            }
 
         (_, info), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
             state.actor_params
@@ -230,22 +239,22 @@ class RSACD:
 
     @partial(jax.jit, static_argnames=["self"])
     def _update_critic(self, key, state: RSACDState, batch: Batch):
-        alpha = self.alpha_network.apply(state.alpha_params)
+        log_alpha = self.alpha_network.apply(state.alpha_params)
+        alpha = jnp.exp(log_alpha)
+
         _, dist = self.actor_network.apply(
             state.actor_params, batch.next_obs, batch.done
         )
-        log_probs = jax.nn.log_softmax(dist.logits)
 
         _, (next_q1, next_q2) = self.critic_network.apply(
             state.critic_target_params, batch.next_obs, batch.done
         )
-        next_q = (dist.probs * (jnp.minimum(next_q1, next_q2) - alpha * log_probs)).sum(
-            axis=-1
+
+        next_q = jnp.minimum(next_q1, next_q2)
+        soft_state_values = (
+            jnp.sum(dist.probs * next_q, axis=-1) + alpha * dist.entropy()
         )
-
-        target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * next_q
-
-        target_q = jax.lax.stop_gradient(target_q)
+        target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * soft_state_values
 
         mask = jnp.ones_like(batch.reward)
         if self.cfg.mode.mask:
@@ -254,20 +263,24 @@ class RSACD:
             mask = (episode_idx == 0) | terminal
 
         def critic_loss_fn(critic_params):
-            _, (q1, q2) = self.critic_network.apply(
+            _, (q1_values, q2_values) = self.critic_network.apply(
                 critic_params, batch.obs, batch.prev_done
             )
-            idx = batch.action[..., None]  # [B, T, 1]
-            q1_a = jnp.take_along_axis(q1, idx, axis=-1).squeeze(-1)
-            q2_a = jnp.take_along_axis(q2, idx, axis=-1).squeeze(-1)
-            critic_loss = ((q1_a - target_q) ** 2 + (q2_a - target_q) ** 2).mean(
-                where=mask
-            )
+
+            action = jnp.expand_dims(batch.action, -1)
+            q1_value = jnp.take_along_axis(q1_values, action, axis=-1).squeeze(-1)
+            q2_value = jnp.take_along_axis(q2_values, action, axis=-1).squeeze(-1)
+
+            q1_loss = optax.huber_loss(q1_value, target_q).mean()
+            q2_loss = optax.huber_loss(q2_value, target_q).mean()
+            critic_loss = q1_loss + q2_loss
 
             return critic_loss, {
-                "critic_loss": critic_loss,
-                "q1": q1.mean(),
-                "q2": q2.mean(),
+                "losses/q1_loss": q1_loss,
+                "losses/q2_loss": q2_loss,
+                "losses/critic_loss": critic_loss,
+                "losses/q1_values": q1_values.mean(),
+                "losses/q2_values": q2_values.mean(),
             }
 
         (_, info), grads = jax.value_and_grad(critic_loss_fn, has_aux=True)(

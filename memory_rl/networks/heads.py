@@ -105,4 +105,4 @@ class Alpha(nn.Module):
             constant(jnp.log(self.initial_alpha)),
             (),
         )
-        return jnp.exp(log_alpha)
+        return log_alpha

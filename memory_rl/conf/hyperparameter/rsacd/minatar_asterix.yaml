@@ -14,7 +14,7 @@ algorithm:
   gamma:                 0.99
   tau:                   0.005
   train_frequency:       4
-  target_update_frequency: 1
+  target_update_frequency: 4
   batch_size:            32
   initial_alpha:         0.1
   target_entropy_scale:  0.98

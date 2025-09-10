@@ -166,7 +166,7 @@ class ConsoleLogger(BaseLogger[ConsoleLoggerState]):
         losses_table.add_column("Losses", justify="left", width=16, style="white")
         losses_table.add_column("Value", justify="right", width=8, style="white")
         for metric, value in stats["losses"].items():
-            losses_table.add_row(str(metric), f"{value}")
+            losses_table.add_row(str(metric), f"{value:.{3}f}")
 
         monitor = Table(box=None, expand=True, pad_edge=False)
         monitor.add_row(summary_table, losses_table)
@@ -190,7 +190,7 @@ class ConsoleLogger(BaseLogger[ConsoleLoggerState]):
                 continue
 
             name = metric.split("/")[-1]
-            table.add_row(name, f"{value}")
+            table.add_row(name, f"{value:.{3}f}")
 
         statistics.add_row(left_stats, right_stats)
         dashboard.add_row(statistics)

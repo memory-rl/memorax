@@ -6,10 +6,10 @@ evaluate_every:      100_000
 
 algorithm:
   learning_rate:       3e-4
-  num_envs:            32
+  num_envs:            64
   num_eval_envs:       10
   num_minibatches:     4
-  update_epochs:       4
+  update_epochs:       8
   td_lambda:           0.95
   gamma:               0.99
   batch_size: ${eval:${.num_envs}*${.mode.length}}

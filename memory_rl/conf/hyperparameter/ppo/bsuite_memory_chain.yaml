@@ -8,6 +8,7 @@ algorithm:
   learning_rate: 3e-4
   num_envs: 64
   num_eval_envs: 10
+  num_steps: 64
   anneal_lr: True
   gamma: 0.999
   gae_lambda: 0.95

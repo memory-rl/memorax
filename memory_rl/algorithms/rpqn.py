@@ -128,7 +128,7 @@ class RPQN:
         )
 
         lambda_return = (
-            1.0 - transition.one
+            1.0 - transition.done
         ) * lambda_return + transition.done * transition.reward
 
         q_value = jnp.max(transition.value, axis=-1).squeeze(-1)

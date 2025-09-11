@@ -1,55 +1,80 @@
-python main.py -m \
-  algorithm=rpqn \
-  algorithm/torso=gru \
-  environment=bsuite_memory_chain \
-  environment.parameters.memory_length=16,32,64,128,256,512,1024 \
-seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
+# python main.py -m \
+#   algorithm=rpqn \
+#   algorithm/torso=gru \
+#   environment=bsuite_memory_chain \
+#   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
+# seed=0,1,2,3,4 \
+# logger=wandb \
+# hydra/launcher=julia2 &
+#
+# python main.py -m \
+#   algorithm=rpqn \
+#   algorithm/torso=slstm \
+#   environment=bsuite_memory_chain \
+#   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
+# seed=0,1,2,3,4 \
+# logger=wandb \
+# hydra/launcher=julia2 &
+#
+# python main.py -m \
+#   algorithm=rpqn \
+#   algorithm/torso=mlstm \
+#   environment=bsuite_memory_chain \
+#   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
+# seed=0,1,2,3,4 \
+# logger=wandb \
+# hydra/launcher=julia2 &
+#
+# python main.py -m \
+#   algorithm=rpqn \
+#   algorithm/torso=xlstm \
+#   environment=bsuite_memory_chain \
+#   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
+# seed=0,1,2,3,4 \
+# logger=wandb \
+# hydra/launcher=julia2 &
+#
+# python main.py -m \
+#   algorithm=rpqn \
+#   algorithm/torso=ffm \
+#   environment=bsuite_memory_chain \
+#   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
+# seed=0,1,2,3,4 \
+# logger=wandb \
+# hydra/launcher=julia2 &
+#
+#
+# python main.py -m \
+#   algorithm=rpqn \
+#   algorithm/torso=gtrxl \
+#   environment=bsuite_memory_chain \
+#   environment.parameters.memory_length=16,32,64,128,256,512,1024 \
+# seed=0,1,2,3,4 \
+# logger=wandb \
+# hydra/launcher=julia2 &
+#
 
-python main.py -m \
-  algorithm=rpqn \
-  algorithm/torso=slstm \
-  environment=bsuite_memory_chain \
-  environment.parameters.memory_length=16,32,64,128,256,512,1024 \
-seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
 
-python main.py -m \
-  algorithm=rpqn \
-  algorithm/torso=mlstm \
-  environment=bsuite_memory_chain \
-  environment.parameters.memory_length=16,32,64,128,256,512,1024 \
-seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
+#!/usr/bin/env bash
+set -euo pipefail
 
-python main.py -m \
-  algorithm=rpqn \
-  algorithm/torso=xlstm \
-  environment=bsuite_memory_chain \
-  environment.parameters.memory_length=16,32,64,128,256,512,1024 \
-seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
+TORSOS=(optimized_lstm gru ffm slstm mlstm xlstm gtrxl shm)
+LENGTHS=(16 32 64 128 256 512 1024)
 
-python main.py -m \
-  algorithm=rpqn \
-  algorithm/torso=ffm \
-  environment=bsuite_memory_chain \
-  environment.parameters.memory_length=16,32,64,128,256,512,1024 \
-seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
+for t in "${TORSOS[@]}"; do
+  for l in "${LENGTHS[@]}"; do
+    python main.py -m \
+      algorithm=rpqn \
+      algorithm/torso@algorithm.{actor,critic}.torso="$t" \
+      environment=bsuite_memory_chain \
+      environment.parameters.memory_length="$l" \
+      seed=0 \
+      num_seeds=5 \
+      logger=[wandb,file] \
+      hydra/launcher=julia2 &
+    done
+done
 
+wait
 
-python main.py -m \
-  algorithm=rpqn \
-  algorithm/torso=gtrxl \
-  environment=bsuite_memory_chain \
-  environment.parameters.memory_length=16,32,64,128,256,512,1024 \
-seed=0,1,2,3,4 \
-logger=wandb \
-hydra/launcher=julia2 &
 

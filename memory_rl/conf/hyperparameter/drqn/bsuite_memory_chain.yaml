@@ -1,0 +1,24 @@
+# @package _global_
+
+total_timesteps:     1_000_000
+num_train_steps:     50_000
+evaluate_every:      100_000
+
+algorithm:
+  learning_rate:       3e-4
+  num_envs:            4
+  num_eval_envs:       10
+  buffer_size:         100_000
+  gamma:               0.999
+  tau:                 1.0
+  target_network_frequency: 1000
+  batch_size:          128
+  double:              True
+
+  start_e:             1.0
+  end_e:               0.01
+  exploration_fraction: 0.2
+
+  learning_starts:     10000
+  train_frequency:     4
+

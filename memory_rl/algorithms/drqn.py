@@ -241,7 +241,7 @@ class DRQN:
         transitions.info["losses/loss"] = loss
         transitions.info["losses/q_value"] = q_value
 
-        return (key, state), transitions
+        return (key, state), transitions.replace(obs=None, next_obs=None)
 
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key):
@@ -355,7 +355,7 @@ class DRQN:
             length=num_steps,
         )
 
-        return key, transitions
+        return key, transitions.replace(obs=None, next_obs=None)
 
 
 def make_drqn(cfg, env, env_params) -> DRQN:

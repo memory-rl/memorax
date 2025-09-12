@@ -243,7 +243,7 @@ class PPO:
         transitions.info["losses/critic_loss"] = critic_loss
         transitions.info["losses/entropy"] = entropy
 
-        return (key, state), transitions
+        return (key, state), transitions.replace(obs=None, next_obs=None)
 
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key):
@@ -308,7 +308,7 @@ class PPO:
             length=num_steps,
         )
 
-        return key, transitions
+        return key, transitions.replace(obs=None, next_obs=None)
 
 
 def make_ppo(cfg, env, env_params):

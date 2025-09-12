@@ -205,7 +205,7 @@ class PQN:
         transitions.info["losses/loss"] = loss
         transitions.info["losses/q_value"] = q_value
 
-        return (key, state), transitions
+        return (key, state), transitions.replace(obs=None, next_obs=None)
 
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key) -> tuple[chex.PRNGKey, PQNState, chex.Array, gymnax.EnvState]:
@@ -315,7 +315,7 @@ class PQN:
             length=num_steps,
         )
 
-        return key, transitions
+        return key, transitions.replace(obs=None, next_obs=None)
 
 
 def make_pqn(cfg, env, env_params) -> PQN:

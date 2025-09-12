@@ -194,7 +194,7 @@ class RPQN:
 
         return (key, state), (loss, q_value.mean())
 
-    def _update_step(
+    def _learn(
         self, carry: tuple[chex.PRNGKey, RPQNState], _
     ) -> tuple[tuple[chex.PRNGKey, RPQNState], dict]:
         key, state = carry
@@ -243,7 +243,7 @@ class RPQN:
         transitions.info["losses/loss"] = loss
         transitions.info["losses/q_value"] = q_value
 
-        return (key, state), transitions
+        return (key, state), transitions.replace(obs=None, next_obs=None)
 
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key) -> tuple[chex.PRNGKey, RPQNState, chex.Array, gymnax.EnvState]:
@@ -322,7 +322,7 @@ class RPQN:
         """
 
         (key, state), transitions = jax.lax.scan(
-            self._update_step,
+            self._learn,
             (key, state),
             length=(
                 num_steps
@@ -367,7 +367,7 @@ class RPQN:
             length=num_steps,
         )
 
-        return key, transitions
+        return key, transitions.replace(obs=None, next_obs=None)
 
 
 def make_rpqn(cfg, env, env_params) -> RPQN:

@@ -381,7 +381,7 @@ class RPPO:
         return (
             key,
             state,
-        ), transitions
+        ), transitions.replace(obs=None, next_obs=None)
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -474,7 +474,7 @@ class RPPO:
             length=num_steps,
         )
 
-        return key, transitions
+        return key, transitions.replace(obs=None, next_obs=None)
 
 
 def make_rppo(cfg, env, env_params):

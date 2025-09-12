@@ -289,7 +289,7 @@ class SACD:
 
         transitions.info.update(update_info)
 
-        return (key, state), transitions
+        return (key, state), transitions.replace(obs=None, next_obs=None)
 
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key):
@@ -378,7 +378,7 @@ class SACD:
             length=num_steps,
         )
 
-        return key, transitions
+        return key, transitions.replace(obs=None, next_obs=None)
 
 
 def make_sacd(cfg, env, env_params) -> SACD:

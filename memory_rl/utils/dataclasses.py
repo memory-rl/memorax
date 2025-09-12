@@ -13,3 +13,4 @@ class Transition:
     next_obs: Optional[chex.Array] = None
     log_prob: Optional[chex.Array] = None
     value: Optional[chex.Array] = None
+    env_state: Optional[chex.Array] = None

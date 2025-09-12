@@ -1,0 +1,4 @@
+env_id: "Envpool/Breakout-v5"
+
+wrappers:
+ - _target_: gymnax.wrappers.FlattenObservationWrapper

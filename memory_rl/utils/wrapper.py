@@ -6,6 +6,7 @@ from typing import Any, Optional, Tuple, Union
 import chex
 import jax
 import jax.numpy as jnp
+from flax import struct
 import navix as nx
 import numpy as np
 from brax import envs
@@ -378,3 +379,34 @@ class PixelCraftaxEnvWrapper(GymnaxWrapper):
                 3,
             ),
         )
+
+@chex.dataclass
+class GxmActionSpace:
+    n: int
+
+    def sample(self, seed):
+        return jax.random.randint(seed, shape=(), minval=0, maxval=self.n)
+
+
+@struct.dataclass
+class GxmParams:
+    max_steps_in_episode: int
+
+class GxmGymnaxWrapper(GymnaxWrapper):
+    def __init__(self, env, key):
+        super().__init__(env)
+
+    def reset(self, key, params=None):
+        state = self._env.init(key)
+        return state.obs, state
+
+    def step(self, key, state, action, params=None):
+        next_state = self._env.step(key, state, action)
+        return next_state.obs, next_state, next_state.reward, next_state.done, next_state.info
+
+    def action_space(self, params=None):
+        return GxmActionSpace(n=self._env.num_actions)
+
+    @property
+    def default_params(self) -> GxmParams:
+        return GxmParams(max_steps_in_episode=27_000)

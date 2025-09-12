@@ -207,7 +207,7 @@ class DQN:
         transitions.info["losses/loss"] = loss
         transitions.info["losses/q_value"] = q_value
 
-        return (key, state), transitions
+        return (key, state), transitions.replace(obs=None, next_obs=None)
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key) -> tuple[chex.PRNGKey, DQNState, chex.Array, gymnax.EnvState]:
@@ -286,7 +286,7 @@ class DQN:
             length=num_steps,
         )
 
-        return key, transitions
+        return key, transitions.replace(obs=None, next_obs=None)
 
 
 def make_dqn(cfg, env, env_params) -> DQN:

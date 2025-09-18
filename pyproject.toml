@@ -30,6 +30,7 @@ dependencies = [
     "craftax>=1.5.0",
     "tqdx>=0.1.3",
     "orbax>=0.1.9",
+    "jaxmarl>=0.0.2",
 ]
 
 [project.optional-dependencies]

@@ -9,5 +9,8 @@ from memory_rl.algorithms.sacd import make_sacd
 from memory_rl.algorithms.rsacd import make_rsacd
 from memory_rl.algorithms.pqn import make_pqn
 from memory_rl.algorithms.rpqn import make_rpqn
+from memory_rl.algorithms.soft_pqn import make_soft_pqn
+from memory_rl.algorithms.ippo import make_ippo
+from memory_rl.algorithms.rippo import make_rippo
 
 from memory_rl.algorithms.algorithm import Algorithm, State, make

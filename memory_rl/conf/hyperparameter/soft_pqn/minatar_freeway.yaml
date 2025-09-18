@@ -1,0 +1,23 @@
+# @package _global_
+
+total_timesteps:     5_000_000
+num_train_steps:     100_000
+evaluate_every:      100_000
+
+algorithm:
+  learning_rate:       3e-4
+  num_envs:            64
+  num_eval_envs:       10
+  num_steps:           64
+  num_minibatches:     4
+  update_epochs:       8
+  td_lambda:           0.95
+  gamma:               0.99
+  batch_size:          ${eval:${.num_envs}*${.num_steps}}
+  max_grad_norm:       0.5
+
+  start_e:             1.0
+  end_e:               0.01
+  exploration_fraction: 0.1
+
+  learning_starts:     0

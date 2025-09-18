@@ -106,3 +106,16 @@ class Alpha(nn.Module):
             (),
         )
         return log_alpha
+
+
+class Beta(nn.Module):
+    initial_beta: float
+
+    @nn.compact
+    def __call__(self) -> jnp.ndarray:
+        log_beta = self.param(
+            "log_temp",
+            constant(jnp.log(self.initial_beta)),
+            (),
+        )
+        return log_beta

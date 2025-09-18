@@ -14,6 +14,9 @@ from memory_rl.algorithms import (
     make_sacd,
     make_pqn,
     make_rpqn,
+    make_soft_pqn,
+    make_ippo,
+    make_rippo,
 )
 
 register = {
@@ -28,6 +31,9 @@ register = {
     "rsacd": make_rsacd,
     "pqn": make_pqn,
     "rpqn": make_rpqn,
+    "soft_pqn": make_soft_pqn,
+    "ippo": make_ippo,
+    "rippo": make_rippo,
 }
 
 

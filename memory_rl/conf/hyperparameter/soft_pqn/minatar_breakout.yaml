@@ -6,6 +6,8 @@ evaluate_every:      1_000_000
 
 algorithm:
   learning_rate:       5e-4
+  alpha_lr:            3e-4
+  beta_lr:             1e-3
   num_envs:            128
   num_eval_envs:       10
   num_steps:           32
@@ -15,11 +17,9 @@ algorithm:
   gamma:               0.99
   batch_size:          ${eval:${.num_envs}*${.num_steps}}
   max_grad_norm:       10.0
-
-  start_e:             1.0
-  end_e:               0.05
-  exploration_fraction: 0.1
-
+  initial_alpha:       -1.0
+  initial_beta:        0.0
+  kl_target:           0.02
 
   learning_starts:     0
 

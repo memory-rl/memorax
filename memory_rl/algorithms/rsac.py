@@ -7,10 +7,8 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from flax.training import train_state
 from hydra.utils import instantiate
 
-from memory_rl.buffers import make_trajectory_buffer
 from memory_rl.networks import RecurrentNetwork, heads
 from memory_rl.utils import periodic_incremental_update, Transition
 
@@ -389,7 +387,6 @@ class RSAC:
 
             state, update_info = update(update_key, state)
             info.update(update_info)
-
 
             return (key, state), info
 

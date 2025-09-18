@@ -1,4 +1,4 @@
-_target_: memory_rl.buffers.make_trajectory_buffer
+_target_: fbx.make_trajectory_buffer
 add_batch_size: ${algorithm.num_envs}
 sample_batch_size: ${algorithm.batch_size}
 period: 1

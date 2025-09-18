@@ -15,4 +15,3 @@ logger:
   _target_: memory_rl.loggers.Logger
   _convert_: all
   loggers:
-

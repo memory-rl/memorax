@@ -8,19 +8,20 @@ defaults:
   - buffer: flat_buffer
 
 name: sacd
-actor_lr:           3e-4
-critic_lr:                3e-4
-alpha_lr:             3e-4
-num_envs:            10
+actor_lr:           5e-3
+critic_lr:            5e-3
+alpha_lr:             1e-4
+num_envs:            4
 num_eval_envs:       10
-buffer_size:         10_000
+buffer_size:         100_000
 gamma:               0.99
-tau:                 0.005
-train_frequency:     10
-target_update_frequency: 10
-batch_size:          128
+tau:                 1.0
+train_frequency:     4
+target_update_frequency: 32
+batch_size:          64
 initial_alpha:    0.1
 target_entropy_scale: 0.98
-learning_starts:     10_000
+learning_starts:     50_000
+max_grad_norm:       10
 
 max_grad_norm:       5

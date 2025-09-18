@@ -13,7 +13,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = "==3.10.18"
 dependencies = [
-    "jax==0.6.0",
+    "jax===0.6.0",
     "brax>=0.12.4",
     "distrax>=0.1.5",
     "flashbax>=0.1.3",
@@ -30,7 +30,9 @@ dependencies = [
     "craftax>=1.5.0",
     "tqdx>=0.1.3",
     "orbax>=0.1.9",
-    "jaxmarl>=0.0.2",
+    "envpool>=0.8.4",
+    "pgx>=2.6.0",
+    "gxm",
 ]
 
 [project.optional-dependencies]
@@ -46,4 +48,7 @@ commit = [
 
 [tool.uv]
 package = true
+
+[tool.uv.sources]
+gxm = { git = "https://github.com/huterguier/gxm", rev = "dev" }
 

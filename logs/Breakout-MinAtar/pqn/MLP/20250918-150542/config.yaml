@@ -1,0 +1,56 @@
+total_timesteps: 5000000
+num_train_steps: 100000
+evaluate_every: 100000
+seed: 0
+num_seeds: 5
+logger:
+  _target_: memory_rl.loggers.Logger
+  _convert_: all
+  loggers:
+    console:
+      _target_: memory_rl.loggers.ConsoleLogger
+      title: Memory RL
+      name: pqn
+      total_timesteps: 5000000
+      refresh_per_second: 1
+      env_id: Breakout-MinAtar
+    file:
+      _target_: memory_rl.loggers.FileLogger
+      algorithm: pqn
+      environment: Breakout-MinAtar
+      seed: 0
+      directory: /home/farr/memory-rl/logs
+algorithm:
+  feature_extractor:
+    _target_: memory_rl.networks.SharedFeatureExtractor
+    extractor:
+      _target_: memory_rl.networks.MLP
+      features:
+      - 128
+      normalizer:
+        _target_: flax.linen.LayerNorm
+  torso:
+    _target_: memory_rl.networks.MLP
+    features:
+    - 128
+    normalizer:
+      _target_: flax.linen.LayerNorm
+  name: pqn
+  learning_rate: 0.0003
+  num_envs: 64
+  num_eval_envs: 10
+  num_steps: 64
+  num_minibatches: 4
+  update_epochs: 8
+  td_lambda: 0.95
+  gamma: 0.99
+  batch_size: 4096
+  start_e: 1.0
+  end_e: 0.01
+  exploration_fraction: 0.1
+  max_grad_norm: 0.5
+  learning_starts: 0
+environment:
+  env_id: Breakout-MinAtar
+  wrappers:
+  - _target_: gymnax.wrappers.FlattenObservationWrapper

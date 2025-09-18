@@ -28,7 +28,6 @@ class PPOConfig:
     gae_lambda: float
     num_minibatches: int
     update_epochs: int
-    batch_size: int
     normalize_advantage: bool
     clip_coef: float
     clip_vloss: bool
@@ -38,6 +37,10 @@ class PPOConfig:
     learning_starts: int
     actor: Any
     critic: Any
+
+    @property
+    def batch_size(self):
+        return self.num_envs * self.num_steps
 
 
 @chex.dataclass(frozen=True)

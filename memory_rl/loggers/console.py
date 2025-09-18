@@ -154,12 +154,12 @@ class ConsoleLogger(BaseLogger[ConsoleLoggerState]):
         )
         summary_table.add_row("Environment", f"{self.env_id}", style="white")
         summary_table.add_row(
-            "Total Timesteps", f"{self.total_timesteps}", style="white"
+            "Total Timesteps", f"{self.total_timesteps:_}", style="white"
         )
         summary_table.add_row(
-            "Global Step", f"{int(stats['global_step'])}", style="white"
+            "Global Step", f"{int(stats['global_step']):_}", style="white"
         )
-        summary_table.add_row("SPS", f"{int(stats['SPS'])}", style="white")
+        summary_table.add_row("SPS", f"{int(stats['SPS']):_}", style="white")
 
         # losses (right)
         losses_table = Table(box=None, expand=True)

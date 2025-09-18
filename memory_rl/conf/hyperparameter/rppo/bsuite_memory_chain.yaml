@@ -13,7 +13,6 @@ algorithm:
   gae_lambda: 0.95
   num_minibatches: 8
   update_epochs: 4
-  batch_size: ${eval:${.num_envs}*${.num_steps}}
   normalize_advantage: True
   clip_coef: 0.2
   clip_vloss: True

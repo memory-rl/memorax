@@ -88,12 +88,18 @@ class Logger(BaseLogger[LoggerState]):
             f"{prefix}/discounted_episodic_returns": Logger.get_discounted_episodic_returns(
                 transitions, gamma
             ),
-            f"{prefix}/episodic_returns_auc": Logger.get_episodic_returns_auc(transitions),
-            f"{prefix}/iqm_episodic_returns": Logger.get_iqm_episodic_returns(transitions),
+            f"{prefix}/episodic_returns_auc": Logger.get_episodic_returns_auc(
+                transitions
+            ),
+            f"{prefix}/iqm_episodic_returns": Logger.get_iqm_episodic_returns(
+                transitions
+            ),
             f"{prefix}/iqm_discounted_episodic_returns": Logger.get_iqm_discounted_episodic_returns(
                 transitions, gamma
             ),
-            f"{prefix}/iqm_episodic_lengths": Logger.get_iqm_episodic_lengths(transitions),
+            f"{prefix}/iqm_episodic_lengths": Logger.get_iqm_episodic_lengths(
+                transitions
+            ),
         }
 
     @staticmethod
@@ -284,5 +290,3 @@ class Logger(BaseLogger[LoggerState]):
         count = in_iqr.sum()
         total = jnp.where(in_iqr, vals, 0.0).sum()
         return jnp.where(count > 0, total / count, jnp.array(0.0, dtype=vals.dtype))
-
-

@@ -44,7 +44,7 @@ def main(cfg: DictConfig):
 
     keys = jax.random.split(key, cfg.num_seeds)
 
-    env, env_params = make_env(cfg.environment)
+    env, env_params = make_env(cfg.environment, keys)
 
     algorithm: Algorithm = make(cfg.algorithm.name, cfg, env, env_params)
 
@@ -84,7 +84,7 @@ def main(cfg: DictConfig):
         logger_state = log(
             logger,
             logger_state,
-            i,
+            i + cfg.num_train_steps,
             transitions,
             cfg.algorithm.gamma,
             prefix="training",
@@ -96,7 +96,11 @@ def main(cfg: DictConfig):
                 keys, state, max_steps_in_episode
             )
             logger_state = log(
-                logger, logger_state, i, transitions, cfg.algorithm.gamma
+                logger,
+                logger_state,
+                i + cfg.num_train_steps,
+                transitions,
+                cfg.algorithm.gamma,
             )
         logger_state = logger.emit(logger_state)
 

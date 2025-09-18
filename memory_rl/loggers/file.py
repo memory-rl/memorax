@@ -86,6 +86,10 @@ class FileLogger(BaseLogger[FileLoggerState]):
                     metric_path = (path / f"{metric}.csv").resolve()
                     metric_path.parent.mkdir(exist_ok=True, parents=True)
 
+                    if not metric_path.exists():
+                        with metric_path.open("a") as f:
+                            f.write(f"step,{metric}\n")
+
                     with metric_path.open("a") as f:
                         f.write(f"{step},{value}\n")
 

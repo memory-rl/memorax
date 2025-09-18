@@ -3,10 +3,12 @@ import glob
 import numpy as np
 import pandas as pd
 from collections import defaultdict
+
 import matplotlib.pyplot as plt
 from rliable import library as rly
 from rliable import metrics
 from rliable import plot_utils
+
 
 
 def _read_series(csv_path: str) -> np.ndarray:
@@ -119,6 +121,10 @@ def mean_over_time(x):
 def median_over_time(x):
     return np.array([metrics.aggregate_median(x[..., t]) for t in range(x.shape[-1])])
 
+def save_fig(fig, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fig.savefig(path)
+    plt.close(fig)
 
 def aggregate(score):
     return np.array(
@@ -130,21 +136,21 @@ def aggregate(score):
         ]
     )
 
-
 def plot_aggregates(algorithms, scores):
     final_scores = {a: v[..., -1] for a, v in scores.items()}
 
     aggregate_scores, aggregate_score_cis = rly.get_interval_estimates(
         final_scores, aggregate, reps=50_000
     )
-    plot_utils.plot_interval_estimates(
+    fig, ax = plot_utils.plot_interval_estimates(
         aggregate_scores,
         aggregate_score_cis,
         metric_names=["Median", "IQM", "Mean", "Optimality Gap"],
         algorithms=algorithms,
         xlabel="Return",
     )
-    plt.show()
+    save_fig(fig, "plots/aggregate.png")
+
 
 
 def plot_sample_efficiency(algorithms, scores):
@@ -166,42 +172,42 @@ def plot_sample_efficiency(algorithms, scores):
     )
     steps = np.arange(scores[algorithms[0]].shape[-1])  # 0..T-1
 
-    plot_utils.plot_sample_efficiency_curve(
+    ax = plot_utils.plot_sample_efficiency_curve(
         steps,
         iqm_scores,
         iqm_cis,
         algorithms=algorithms,
         xlabel="Environment Steps",
         ylabel="IQM Episodic Return",
+        legend=True
     )
-    plt.show()
+    save_fig(ax.figure, "plots/sample_efficiency_iqm.png")
 
-    plot_utils.plot_sample_efficiency_curve(
+    ax = plot_utils.plot_sample_efficiency_curve(
         steps,
         median_scores,
         median_cis,
         algorithms=algorithms,
         xlabel="Environment Steps",
         ylabel="Median Episodic Return",
+        legend=True
     )
-    plt.show()
+    save_fig(ax.figure, "plots/sample_efficiency_median.png")
 
-    plot_utils.plot_sample_efficiency_curve(
+    ax = plot_utils.plot_sample_efficiency_curve(
         steps,
         mean_scores,
         mean_cis,
         algorithms=algorithms,
         xlabel="Environment Steps",
         ylabel="Mean Episodic Return",
+        legend=True
     )
-
-    plt.show()
-
+    save_fig(ax.figure, "plots/sample_efficiency_mean.png")
 
 if __name__ == "__main__":
     algorithms, tasks, scores, seeds = load_scores(
         root="logs", metric="evaluation/episodic_returns.csv"
     )
-    print(algorithms)
     plot_aggregates(algorithms, scores)
     plot_sample_efficiency(algorithms, scores)

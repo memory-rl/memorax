@@ -318,7 +318,7 @@ class PQN:
         return key, transitions.replace(obs=None, next_obs=None)
 
 
-def make_pqn(cfg, env, env_params) -> PQN:
+def make(cfg, env, env_params) -> PQN:
     """
     Factory function to construct a PQN agent from Args.
 

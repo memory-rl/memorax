@@ -326,7 +326,6 @@ class SAC:
             state, update_info = update(update_key, state)
             info.update(update_info)
 
-
             return (key, state), info
 
         (key, state), info = jax.lax.scan(
@@ -382,7 +381,7 @@ class SAC:
         return key, transitions
 
 
-def make_sac(cfg, env, env_params) -> SAC:
+def make(cfg, env, env_params) -> SAC:
 
     action_dim = env.action_space(env_params).shape[0]
 

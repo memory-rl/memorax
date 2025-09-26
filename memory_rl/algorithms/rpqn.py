@@ -370,7 +370,7 @@ class RPQN:
         return key, transitions.replace(obs=None, next_obs=None)
 
 
-def make_rpqn(cfg, env, env_params) -> RPQN:
+def make(cfg, env, env_params) -> RPQN:
     """
     Factory function to construct a RPQN agent from Args.
 

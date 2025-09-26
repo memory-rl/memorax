@@ -468,7 +468,7 @@ class RSAC:
         return key, transitions
 
 
-def make_rsac(cfg, env, env_params) -> RSAC:
+def make(cfg, env, env_params) -> RSAC:
 
     action_dim = env.action_space(env_params).shape[0]
 

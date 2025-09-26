@@ -480,7 +480,7 @@ class RPPO:
         return key, transitions.replace(obs=None, next_obs=None)
 
 
-def make_rppo(cfg, env, env_params):
+def make(cfg, env, env_params):
 
     rppo_config = RPPOConfig(**cfg.algorithm)
 

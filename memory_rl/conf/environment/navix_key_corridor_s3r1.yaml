@@ -1,1 +1,2 @@
+_target_: memory_rl.environments.navix.make
 env_id: Navix-KeyCorridorS3R1-v0

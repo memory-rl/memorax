@@ -1,1 +1,2 @@
+_target_: memory_rl.environments.gymnax.make
 env_id: CartPole-v1

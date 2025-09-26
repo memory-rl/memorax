@@ -1,1 +1,2 @@
+_target_: memory_rl.environments.craftax.make
 env_id: Craftax-Symbolic-v1

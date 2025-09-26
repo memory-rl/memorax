@@ -147,7 +147,9 @@ class SACD:
 
         def alpha_loss_fn(alpha_params):
             log_alpha = self.alpha_network.apply(alpha_params)
-            alpha_loss = -log_alpha * jax.lax.stop_gradient(entropy - target_entropy)
+            alpha = jnp.exp(log_alpha)
+
+            alpha_loss = alpha * jax.lax.stop_gradient(entropy - target_entropy)
 
             return alpha_loss, {
                 "losses/log_alpha": log_alpha,
@@ -214,6 +216,7 @@ class SACD:
             state.critic_target_params, batch.second.obs
         )
         next_q = jnp.minimum(next_q1, next_q2)
+
         soft_state_values = (
             jnp.sum(dist.probs * next_q, axis=-1) + alpha * dist.entropy()
         )
@@ -227,9 +230,9 @@ class SACD:
                 critic_params, batch.first.obs
             )
 
-            action = batch.first.action[:, None]
-            q1_value = jnp.take_along_axis(q1_values, action, axis=-1).squeeze(-1)
-            q2_value = jnp.take_along_axis(q2_values, action, axis=-1).squeeze(-1)
+            batch_id = jnp.arange(self.cfg.batch_size)
+            q1_value = q1_values[batch_id, batch.first.action]
+            q2_value = q2_values[batch_id, batch.first.action]
 
             q1_loss = optax.huber_loss(q1_value, target_q).mean()
             q2_loss = optax.huber_loss(q2_value, target_q).mean()
@@ -381,7 +384,7 @@ class SACD:
         return key, transitions.replace(obs=None, next_obs=None)
 
 
-def make_sacd(cfg, env, env_params) -> SACD:
+def make(cfg, env, env_params) -> SACD:
 
     sacd_config = SACDConfig(**cfg.algorithm)
 

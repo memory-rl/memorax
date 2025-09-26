@@ -406,7 +406,7 @@ class SoftPQN:
         return key, transitions
 
 
-def make_soft_pqn(cfg, env, env_params) -> SoftPQN:
+def make(cfg, env, env_params) -> SoftPQN:
     """
     Factory function to construct a SoftPQN agent from Args.
 

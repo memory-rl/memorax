@@ -289,7 +289,7 @@ class DQN:
         return key, transitions.replace(obs=None, next_obs=None)
 
 
-def make_dqn(cfg, env, env_params) -> DQN:
+def make(cfg, env, env_params) -> DQN:
     """
     Factory function to construct a DQN agent from Args.
 

@@ -1,1 +1,2 @@
-env_id: hopper
+_target_: memory_rl.environments.brax.make
+env_id: hopper-F

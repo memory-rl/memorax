@@ -457,7 +457,7 @@ class RSACD:
         return key, transitions.replace(obs=None, next_obs=None)
 
 
-def make_rsacd(cfg, env, env_params) -> RSACD:
+def make(cfg, env, env_params) -> RSACD:
 
     rsacd_config = RSACDConfig(**cfg.algorithm)
 

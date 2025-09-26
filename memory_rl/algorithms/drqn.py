@@ -358,7 +358,7 @@ class DRQN:
         return key, transitions.replace(obs=None, next_obs=None)
 
 
-def make_drqn(cfg, env, env_params) -> DRQN:
+def make(cfg, env, env_params) -> DRQN:
 
     drqn_config = DRQNConfig(**cfg.algorithm)
 

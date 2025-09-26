@@ -314,7 +314,7 @@ class PPO:
         return key, transitions.replace(obs=None, next_obs=None)
 
 
-def make_ppo(cfg, env, env_params):
+def make(cfg, env, env_params):
 
     ppo_config = PPOConfig(**cfg.algorithm)
 

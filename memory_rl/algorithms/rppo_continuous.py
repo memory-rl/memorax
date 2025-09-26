@@ -387,7 +387,6 @@ class RPPO:
                 length=self.cfg.algorithm.update_epochs,
             )
 
-
             return (
                 key,
                 state,
@@ -451,7 +450,7 @@ class RPPO:
         return key, transitions
 
 
-def make_rppo_continuous(cfg, env, env_params):
+def make(cfg, env, env_params):
 
     action_dim = env.action_space(env_params).shape[0]
 

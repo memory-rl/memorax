@@ -181,5 +181,6 @@ wandb/
 multirun/
 popjaxrl/
 logs/
+plots/
 *.png
 outputs/

@@ -18,7 +18,7 @@ class WandbLoggerState(BaseLoggerState):
 
 
 @chex.dataclass(frozen=True)
-class WandbLogger(BaseLogger):
+class WandbLogger(BaseLogger[WandbLoggerState]):
     entity: Optional[str] = None
     project: Optional[str] = None
     name: Optional[str] = None

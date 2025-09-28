@@ -1,0 +1,59 @@
+total_timesteps: 1000000
+num_train_steps: 50000
+evaluate_every: 100000
+seed: 0
+num_seeds: 5
+logger:
+  _target_: memory_rl.loggers.Logger
+  _convert_: all
+  loggers:
+    wandb:
+      _target_: memory_rl.loggers.WandbLogger
+      entity: noahfarr
+      project: memory-rl
+      name: pqn_MemoryChain-bsuite_0_20250916_124808
+      group: pqn_MemoryChain-bsuite
+      mode: online
+    file:
+      _target_: memory_rl.loggers.FileLogger
+      algorithm: pqn
+      environment: MemoryChain-bsuite
+      seed: 0
+      directory: /home/mak72ze/memory-rl/logs
+algorithm:
+  feature_extractor:
+    _target_: memory_rl.networks.SharedFeatureExtractor
+    extractor:
+      _target_: memory_rl.networks.MLP
+      features:
+      - 128
+      normalizer:
+        _target_: flax.linen.LayerNorm
+  torso:
+    _target_: memory_rl.networks.MLP
+    features:
+    - 128
+    normalizer:
+      _target_: flax.linen.LayerNorm
+  name: pqn
+  learning_rate: 0.0003
+  num_envs: 64
+  num_eval_envs: 10
+  num_steps: 64
+  num_minibatches: 8
+  update_epochs: 4
+  td_lambda: 0.95
+  gamma: 0.999
+  batch_size: 4096
+  start_e: 1.0
+  end_e: 0.01
+  exploration_fraction: 0.1
+  max_grad_norm: 0.5
+  learning_starts: 0
+environment:
+  env_id: MemoryChain-bsuite
+  wrappers:
+  - _target_: memory_rl.utils.wrapper.BSuiteWrapper
+  parameters:
+    memory_length: 16
+    max_steps_in_episode: 17

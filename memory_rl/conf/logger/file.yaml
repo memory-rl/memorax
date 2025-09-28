@@ -2,5 +2,4 @@
 _target_: memory_rl.loggers.FileLogger
 algorithm: ${algorithm.name}
 environment: ${environment.env_id}
-seed: ${seed}
-directory: /home/farr/memory-rl/logs
+directory: /Users/noahfarr/memory-rl/logs

@@ -27,7 +27,6 @@ class FileLoggerState(BaseLoggerState):
 class FileLogger(BaseLogger[FileLoggerState]):
     algorithm: str
     environment: str
-    seed: int
     directory: str = "logs"
 
     def init(self, cfg: dict) -> FileLoggerState:

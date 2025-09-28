@@ -4,3 +4,4 @@ from memory_rl.loggers.wandb import WandbLogger
 from memory_rl.loggers.file import FileLogger
 from memory_rl.loggers.tensorboard import TensorBoardLogger
 from memory_rl.loggers.neptune import NeptuneLogger
+from memory_rl.loggers.dashboard import DashboardLogger

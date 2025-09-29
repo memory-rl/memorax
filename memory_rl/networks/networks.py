@@ -50,6 +50,7 @@ class RecurrentNetwork(nn.Module):
             unroll=16,
             return_carry=True,
             split_rngs={"params": False, "memory": True},
+            variable_broadcast={"params", "constants"},
         )(
             x,
             mask,

@@ -58,7 +58,6 @@ def main(cfg: DictConfig):
     keys, transitions = jax.vmap(algorithm.evaluate, in_axes=(0, 0, None))(
         keys, state, max_steps_in_episode
     )
-
     log(
         logger,
         logger_state,

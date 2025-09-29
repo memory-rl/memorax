@@ -63,7 +63,7 @@ class SelfAttention(nn.Module):
 
         max_seq = prev_k.shape[1]
         # Build mask: (B, 1, max_seq)
-        mask = jnp.arange(max_seq)[None, None, :] <= pos[..., None, None] # (B, 1, T)
+        mask = jnp.arange(max_seq)[None, None, :] <= pos[..., None, None]  # (B, 1, T)
         # query is current, keys/values are all cached
         scale = 1.0 / jnp.sqrt(head_dim).astype(self.dtype)
         attn = jnp.einsum("bhd,bthd->bht", q, full_k) * scale
@@ -233,7 +233,6 @@ class GPTRNNCell(nn.recurrent.RNNCellBase):
             prev_k_i = kv_cache_k[:, i]
             prev_v_i = kv_cache_v[:, i]
 
-
             x_out, k_new, v_new = Block(self.config, name=f"block_{i}")(
                 x, deterministic, prev_k_i, prev_v_i, pos
             )
@@ -292,4 +291,3 @@ if __name__ == "__main__":
     y, variables = cell.init_with_output(jax.random.PRNGKey(0), x)
     print("Output shape:", y.shape)
     # print("Output:", y)
-

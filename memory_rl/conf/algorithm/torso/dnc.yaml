@@ -1,0 +1,2 @@
+_target_: memory_rl.networks.recurrent.DNCCell
+features: 64

@@ -8,7 +8,7 @@ import jax
 from jax import numpy as jnp
 from jax import random
 
-from flax.linen import initializers, LayerNorm, Dropout
+from flax.linen import initializers, LayerNorm
 from flax.linen.activation import sigmoid, tanh, softmax
 from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.module import Module, compact, nowrap
@@ -84,10 +84,10 @@ class GRUGating(Module):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
+        r = sigmoid(dense_y(name="r_y")(y) + dense_x(name="r_x")(x))
         z = sigmoid(
             dense_y(name="z_y")(y) + dense_x(name="z_x")(x) - self.gate_init_bias
         )
-        r = sigmoid(dense_y(name="r_y")(y) + dense_x(name="r_x")(x))
         h_tilde = tanh(dense_y(name="h_y")(y) + dense_x(name="h_x")(r * x))
         return (1.0 - z) * x + z * h_tilde
 
@@ -96,7 +96,6 @@ class RelativeMultiHeadAttention(Module):
     d_model: int
     n_heads: int
     d_head: int | None = None
-    attn_dropout_rate: float = 0.0
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
     kernel_init: Initializer = default_kernel_init
@@ -108,8 +107,6 @@ class RelativeMultiHeadAttention(Module):
         h: Array,
         mem: Array,
         r: Array,
-        *,
-        deterministic: bool,
         k_cache: Array | None = None,
         v_cache: Array | None = None,
     ) -> tuple[Array, Array, Array]:
@@ -200,13 +197,6 @@ class RelativeMultiHeadAttention(Module):
             jnp.array(d_head, dtype=self.dtype or jnp.float32)
         )
         attn_prob = softmax(attn_score, axis=-1)
-        if self.attn_dropout_rate > 0:
-            attn_prob = Dropout(
-                rate=self.attn_dropout_rate,
-                deterministic=deterministic,
-                name="attn_dropout",
-                rng_collection="memory",
-            )(attn_prob)
 
         attn_vec = jnp.einsum("bhqk,bhkd->bhqd", attn_prob, v_all)
         attn_vec = _merge_heads(attn_vec)
@@ -226,14 +216,13 @@ class RelativeMultiHeadAttention(Module):
 class PositionwiseFF(Module):
     d_model: int
     d_inner: int
-    dropout_rate: float = 0.0
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
     kernel_init: Initializer = default_kernel_init
     bias_init: Initializer = initializers.zeros_init()
 
     @compact
-    def __call__(self, x: Array, *, deterministic: bool) -> Array:
+    def __call__(self, x: Array) -> Array:
         x = Dense(
             self.d_inner,
             kernel_init=self.kernel_init,
@@ -243,13 +232,6 @@ class PositionwiseFF(Module):
             name="ff1",
         )(x)
         x = jax.nn.relu(x)
-        if self.dropout_rate > 0:
-            x = Dropout(
-                rate=self.dropout_rate,
-                deterministic=deterministic,
-                name="ff_dropout",
-                rng_collection="memory",
-            )(x)
         x = Dense(
             self.d_model,
             kernel_init=self.kernel_init,
@@ -266,8 +248,6 @@ class GTrXLBlock(Module):
     n_heads: int
     d_head: int | None
     d_inner: int
-    attn_dropout_rate: float
-    dropout_rate: float
     dtype: Dtype | None
     param_dtype: Dtype
     kernel_init: Initializer
@@ -279,20 +259,17 @@ class GTrXLBlock(Module):
         x: Array,
         mem: Array,
         r: Array,
-        *,
-        deterministic: bool,
         k_cache: Array | None = None,
         v_cache: Array | None = None,
     ) -> tuple[Array, Array, Array]:
-        ln_attn = LayerNorm(dtype=self.dtype, name="ln_attn")
-        mem_norm = ln_attn(mem)
-        x_norm = ln_attn(x)
+        mem_x = jnp.concatenate([mem, x], axis=1)
+        mem_x_norm = LayerNorm(dtype=self.dtype, name="ln_attn")(mem_x)
+        mem_norm, x_norm = mem_x_norm[:, :-1, :], mem_x_norm[:, -1:, :]
 
         y, new_k_cache, new_v_cache = RelativeMultiHeadAttention(
             d_model=self.d_model,
             n_heads=self.n_heads,
             d_head=self.d_head,
-            attn_dropout_rate=self.attn_dropout_rate,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             kernel_init=self.kernel_init,
@@ -302,17 +279,10 @@ class GTrXLBlock(Module):
             x_norm,
             mem_norm,
             r,
-            deterministic=deterministic,
             k_cache=k_cache,
             v_cache=v_cache,
         )
-        if self.dropout_rate > 0:
-            y = Dropout(
-                rate=self.dropout_rate,
-                deterministic=deterministic,
-                name="attn_out_drop",
-                rng_collection="memory",
-            )(y)
+        y = jax.nn.relu(y)
         x = GRUGating(
             self.d_model,
             dtype=self.dtype,
@@ -327,20 +297,13 @@ class GTrXLBlock(Module):
         y2 = PositionwiseFF(
             self.d_model,
             self.d_inner,
-            self.dropout_rate,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
             name="ff",
-        )(y2, deterministic=deterministic)
-        if self.dropout_rate > 0:
-            y2 = Dropout(
-                rate=self.dropout_rate,
-                deterministic=deterministic,
-                name="ff_out_drop",
-                rng_collection="memory",
-            )(y2)
+        )(y2)
+        y2 = jax.nn.relu(y2)
         x = GRUGating(
             self.d_model,
             dtype=self.dtype,
@@ -361,8 +324,6 @@ class GTrXLCell(RNNCellBase):
     d_inner: int | None = None
     mem_len: int = 128
     input_adapter: bool = True
-    dropout_rate: float = 0.0
-    attn_dropout_rate: float = 0.0
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
     carry_dtype: Dtype = jnp.float32
@@ -381,7 +342,7 @@ class GTrXLCell(RNNCellBase):
 
     @compact
     def __call__(
-        self, carry: tuple[Any, ...], inputs: Array, deterministic: bool = True
+        self, carry: tuple[Any, ...], inputs: Array
     ) -> tuple[tuple[Any, ...], Array]:
         d_model = self.features
         if self.input_adapter and (inputs.shape[-1] != d_model):
@@ -419,8 +380,6 @@ class GTrXLCell(RNNCellBase):
                 n_heads=self.n_heads,
                 d_head=d_head,
                 d_inner=d_inner,
-                attn_dropout_rate=self.attn_dropout_rate,
-                dropout_rate=self.dropout_rate,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,
                 kernel_init=self.kernel_init,
@@ -431,7 +390,6 @@ class GTrXLCell(RNNCellBase):
                 h,
                 mems[layer_idx],
                 r,
-                deterministic=deterministic,
                 k_cache=k_caches[layer_idx],
                 v_cache=v_caches[layer_idx],
             )

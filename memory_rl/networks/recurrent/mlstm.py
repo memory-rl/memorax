@@ -5,7 +5,6 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
-from .utils import BlockLinear, CausalConv1D
 
 from functools import partial  # pylint: disable=g-importing-member
 from typing import (

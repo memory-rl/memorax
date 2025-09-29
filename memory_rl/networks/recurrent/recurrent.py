@@ -280,13 +280,13 @@ class MaskedRNN(nn.RNN):
 
                 inputs_learn = self._slice_time(inputs, burn_in_length, None, time_axis)
                 mask_learn = self._slice_time(mask, burn_in_length, None, time_axis)
-                x_t, y_learn = self.cell.apply_parallel(
+                carries_learn, outputs_learn = self.cell.apply_parallel(
                     carry_learn,
                     _move_time_front(inputs_learn),
                     _move_time_front(mask_learn),
                 )
-                outputs_learn = _move_time_back(y_learn)
-                carry_learn_final = x_t
+                outputs_learn = _move_time_back(outputs_learn)
+                carry_learn_final = carries_learn
             else:
                 learn_out = scan(
                     self.cell,

@@ -1,4 +1,4 @@
-from functools import partial  # pylint: disable=g-importing-member
+from functools import partial
 from typing import (
     Any,
     TypeVar,
@@ -30,7 +30,7 @@ def _split_heads(x: Array, n_heads: int) -> Array:
     b, t, d = x.shape
     d_head = d // n_heads
     x = x.reshape(b, t, n_heads, d_head)
-    return jnp.transpose(x, (0, 2, 1, 3))  # (b, h, t, d_head)
+    return jnp.transpose(x, (0, 2, 1, 3))
 
 
 def _merge_heads(x: Array) -> Array:
@@ -38,31 +38,25 @@ def _merge_heads(x: Array) -> Array:
     return jnp.transpose(x, (0, 2, 1, 3)).reshape(b, t, h * d_head)
 
 
-def _rel_shift(x: Array) -> Array:
-    # x: (b, h, q_len, k_len) where k_len == r_len
+def _relative_shift(x: Array) -> Array:
     b, h, q_len, k_len = x.shape
-    x = jnp.pad(x, ((0, 0), (0, 0), (0, 0), (1, 0)))  # (b, h, q, k+1)
+    x = jnp.pad(x, ((0, 0), (0, 0), (0, 0), (1, 0)))
     x = x.reshape(b, h, k_len + 1, q_len)
     x = x[:, :, 1:, :]
     x = x.reshape(b, h, q_len, k_len)
     return x
 
 
-def sinusoidal_pos_emb(pos_seq: Array, dim: int) -> Array:
-    # pos_seq: (L,) non-negative positions (e.g., distances), largest first.
+def sinusoidal_positional_embedding(pos_seq: Array, dim: int) -> Array:
     inv_freq = 1.0 / (10000 ** (jnp.arange(0, dim, 2, dtype=jnp.float32) / dim))
-    sinusoid = jnp.einsum(
-        "l,d->ld", pos_seq.astype(jnp.float32), inv_freq
-    )  # (L, dim/2)
-    pos_emb = jnp.concatenate(
+    sinusoid = jnp.einsum("l,d->ld", pos_seq.astype(jnp.float32), inv_freq)
+    positional_embedding = jnp.concatenate(
         [jnp.sin(sinusoid), jnp.cos(sinusoid)], axis=-1
-    )  # (L, dim)
-    return pos_emb
+    )
+    return positional_embedding
 
 
 class GRUGating(Module):
-    """GRU-style gating used in GTrXL to replace residual connections."""
-
     features: int
     gate_init_bias: float = 2.0
     kernel_init: Initializer = default_kernel_init
@@ -73,7 +67,6 @@ class GRUGating(Module):
 
     @compact
     def __call__(self, x: Array, y: Array) -> Array:
-        # x: residual stream (b, d); y: sublayer output (b, d)
         dense_y = partial(
             Dense,
             features=self.features,
@@ -100,11 +93,6 @@ class GRUGating(Module):
 
 
 class RelativeMultiHeadAttention(Module):
-    """Transformer-XL relative MHA (single-step query with memory) with KV cache.
-
-    KV cache format: k_cache, v_cache in split-head form (b, h, mem_len, d_head).
-    """
-
     d_model: int
     n_heads: int
     d_head: int | None = None
@@ -125,9 +113,6 @@ class RelativeMultiHeadAttention(Module):
         k_cache: Array | None = None,
         v_cache: Array | None = None,
     ) -> tuple[Array, Array, Array]:
-        # h: (b, 1, d_model) query
-        # mem: (b, mem_len, d_model) keys/values memory (semantic; not reprojected if cache provided)
-        # r: (k_len, d_model) relative positional enc (k_len = mem_len + 1)
         d_model = self.d_model
         n_heads = self.n_heads
         d_head = self.d_head or (d_model // n_heads)
@@ -179,7 +164,6 @@ class RelativeMultiHeadAttention(Module):
             name="o",
         )
 
-        # Content and position biases (u, v) per head.
         r_w_bias = self.param(
             "r_w_bias", self.bias_init, (n_heads, d_head), self.param_dtype
         )
@@ -187,37 +171,30 @@ class RelativeMultiHeadAttention(Module):
             "r_r_bias", self.bias_init, (n_heads, d_head), self.param_dtype
         )
 
-        # Query
-        q = _split_heads(proj_q(h), n_heads)  # (b, h, 1, d_head)
+        q = _split_heads(proj_q(h), n_heads)
 
-        # Use provided caches for mem part; otherwise compute from mem once.
         if (k_cache is None) or (v_cache is None):
-            k_mem = _split_heads(proj_k(mem), n_heads)  # (b, h, mem_len, d_head)
-            v_mem = _split_heads(proj_v(mem), n_heads)  # (b, h, mem_len, d_head)
+            k_mem = _split_heads(proj_k(mem), n_heads)
+            v_mem = _split_heads(proj_v(mem), n_heads)
         else:
             k_mem = k_cache
             v_mem = v_cache
 
-        # Current token projections.
-        k_t = _split_heads(proj_k(h), n_heads)  # (b, h, 1, d_head)
-        v_t = _split_heads(proj_v(h), n_heads)  # (b, h, 1, d_head)
+        k_t = _split_heads(proj_k(h), n_heads)
+        v_t = _split_heads(proj_v(h), n_heads)
 
-        # Concatenate mem and current step for attention.
-        k_all = jnp.concatenate([k_mem, k_t], axis=2)  # (b, h, k_len, d_head)
-        v_all = jnp.concatenate([v_mem, v_t], axis=2)  # (b, h, k_len, d_head)
+        k_all = jnp.concatenate([k_mem, k_t], axis=2)
+        v_all = jnp.concatenate([v_mem, v_t], axis=2)
 
-        # Project relative positions once to heads.
-        r_head = proj_r(r).reshape(k_len, n_heads, d_head)  # (k_len, h, d_head)
-        r_head = jnp.transpose(r_head, (1, 0, 2))  # (h, k_len, d_head)
+        r_head = proj_r(r).reshape(k_len, n_heads, d_head)
+        r_head = jnp.transpose(r_head, (1, 0, 2))
 
-        # Content-based term: (q + u) @ k^T
-        qw = q + r_w_bias[None, :, None, :]  # (b, h, 1, d_head)
-        ac = jnp.einsum("bhqd,bhkd->bhqk", qw, k_all)  # (b, h, 1, k_len)
+        qw = q + r_w_bias[None, :, None, :]
+        ac = jnp.einsum("bhqd,bhkd->bhqk", qw, k_all)
 
-        # Position-based term: (q + v) @ r^T then relative shift
         qr = q + r_r_bias[None, :, None, :]
-        bd = jnp.einsum("bhqd,hkd->bhqk", qr, r_head)  # (b, h, 1, k_len)
-        bd = _rel_shift(bd)
+        bd = jnp.einsum("bhqd,hkd->bhqk", qr, r_head)
+        bd = _relative_shift(bd)
 
         attn_score = (ac + bd) / jnp.sqrt(
             jnp.array(d_head, dtype=self.dtype or jnp.float32)
@@ -228,19 +205,18 @@ class RelativeMultiHeadAttention(Module):
                 rate=self.attn_dropout_rate,
                 deterministic=deterministic,
                 name="attn_dropout",
+                rng_collection="memory",
             )(attn_prob)
 
-        attn_vec = jnp.einsum("bhqk,bhkd->bhqd", attn_prob, v_all)  # (b, h, 1, d_head)
-        attn_vec = _merge_heads(attn_vec)  # (b, 1, d_model)
+        attn_vec = jnp.einsum("bhqk,bhkd->bhqd", attn_prob, v_all)
+        attn_vec = _merge_heads(attn_vec)
 
-        out = proj_o(attn_vec)  # (b, 1, d_model)
+        out = proj_o(attn_vec)
 
-        # Update caches: shift-left + append current, keep most recent mem_len.
         if mem_len > 0:
-            new_k_cache = k_all[:, :, -mem_len:, :]  # (b, h, mem_len, d_head)
-            new_v_cache = v_all[:, :, -mem_len:, :]  # (b, h, mem_len, d_head)
+            new_k_cache = k_all[:, :, -mem_len:, :]
+            new_v_cache = v_all[:, :, -mem_len:, :]
         else:
-            # Keep empty caches with correct trailing dims.
             new_k_cache = k_all[:, :, 0:0, :]
             new_v_cache = v_all[:, :, 0:0, :]
 
@@ -269,7 +245,10 @@ class PositionwiseFF(Module):
         x = jax.nn.relu(x)
         if self.dropout_rate > 0:
             x = Dropout(
-                rate=self.dropout_rate, deterministic=deterministic, name="ff_dropout"
+                rate=self.dropout_rate,
+                deterministic=deterministic,
+                name="ff_dropout",
+                rng_collection="memory",
             )(x)
         x = Dense(
             self.d_model,
@@ -305,11 +284,10 @@ class GTrXLBlock(Module):
         k_cache: Array | None = None,
         v_cache: Array | None = None,
     ) -> tuple[Array, Array, Array]:
-        # Pre-LN -> Rel-MHA (with KV cache) -> GRU-gated residual
+        ln_attn = LayerNorm(dtype=self.dtype, name="ln_attn")
+        mem_norm = ln_attn(mem)
+        x_norm = ln_attn(x)
 
-        mem_x = jnp.concatenate([jax.lax.stop_gradient(mem), x], axis=1)
-        mem_x_norm = LayerNorm(dtype=self.dtype, name="ln_attn")(mem_x)
-        mem_norm, x_norm = mem_x_norm[:, :-1, :], mem_x_norm[:, -1:, :]
         y, new_k_cache, new_v_cache = RelativeMultiHeadAttention(
             d_model=self.d_model,
             n_heads=self.n_heads,
@@ -333,8 +311,8 @@ class GTrXLBlock(Module):
                 rate=self.dropout_rate,
                 deterministic=deterministic,
                 name="attn_out_drop",
+                rng_collection="memory",
             )(y)
-        y = jax.nn.relu(y)
         x = GRUGating(
             self.d_model,
             dtype=self.dtype,
@@ -345,7 +323,6 @@ class GTrXLBlock(Module):
         )(x.squeeze(axis=1), y.squeeze(axis=1))
         x = x[:, None, :]
 
-        # Pre-LN -> FF -> GRU-gated residual
         y2 = LayerNorm(dtype=self.dtype, name="ln_ff")(x)
         y2 = PositionwiseFF(
             self.d_model,
@@ -359,9 +336,11 @@ class GTrXLBlock(Module):
         )(y2, deterministic=deterministic)
         if self.dropout_rate > 0:
             y2 = Dropout(
-                rate=self.dropout_rate, deterministic=deterministic, name="ff_out_drop"
+                rate=self.dropout_rate,
+                deterministic=deterministic,
+                name="ff_out_drop",
+                rng_collection="memory",
             )(y2)
-        y2 = jax.nn.relu(y2)
         x = GRUGating(
             self.d_model,
             dtype=self.dtype,
@@ -375,9 +354,7 @@ class GTrXLBlock(Module):
 
 
 class GTrXLCell(RNNCellBase):
-    """Gated Transformer-XL cell (single-token step with segment-level recurrence + KV cache)."""
-
-    features: int  # == d_model
+    features: int
     n_layers: int
     n_heads: int
     d_head: int | None = None
@@ -388,7 +365,7 @@ class GTrXLCell(RNNCellBase):
     attn_dropout_rate: float = 0.0
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
-    carry_dtype: Dtype = jnp.bfloat16
+    carry_dtype: Dtype = jnp.float32
     kernel_init: Initializer = default_kernel_init
     bias_init: Initializer = initializers.zeros_init()
     carry_init: Initializer = initializers.zeros_init()
@@ -397,17 +374,15 @@ class GTrXLCell(RNNCellBase):
     def num_feature_axes(self) -> int:
         return 1
 
-    def _build_pos_emb(self, mem_len: int, q_len: int, dim: int) -> Array:
+    def _build_positional_embedding(self, mem_len: int, q_len: int, dim: int) -> Array:
         k_len = mem_len + q_len
-        pos_seq = jnp.arange(k_len - 1, -1, -1)  # distances: [k_len-1 ... 0]
-        return sinusoidal_pos_emb(pos_seq, dim)  # (k_len, dim)
+        pos_seq = jnp.arange(k_len - 1, -1, -1)
+        return sinusoidal_positional_embedding(pos_seq, dim)
 
     @compact
     def __call__(
         self, carry: tuple[Any, ...], inputs: Array, deterministic: bool = True
     ) -> tuple[tuple[Any, ...], Array]:
-        # inputs: (b, d_model)
-
         d_model = self.features
         if self.input_adapter and (inputs.shape[-1] != d_model):
             inputs = Dense(
@@ -421,7 +396,6 @@ class GTrXLCell(RNNCellBase):
 
         assert inputs.shape[-1] == self.features, "inputs last dim must equal d_model"
 
-
         b = inputs.shape[0]
         d_inner = self.d_inner or (4 * d_model)
         d_head = self.d_head or (d_model // self.n_heads)
@@ -432,9 +406,8 @@ class GTrXLCell(RNNCellBase):
         k_caches = list(k_caches)
         v_caches = list(v_caches)
 
-        h = inputs[:, None, :]  # (b, 1, d_model)
-        # r length is mem_len + 1; mem tensors are always of length mem_len.
-        r = self._build_pos_emb(self.mem_len, 1, d_model)  # (mem_len+1, d_model)
+        h = inputs[:, None, :]
+        r = self._build_positional_embedding(self.mem_len, 1, d_model)
 
         new_mems = []
         new_k_caches = []
@@ -461,15 +434,12 @@ class GTrXLCell(RNNCellBase):
                 deterministic=deterministic,
                 k_cache=k_caches[layer_idx],
                 v_cache=v_caches[layer_idx],
-            )  # h: (b, 1, d_model)
+            )
 
-            # Update memory with the post-block hidden state (Transformer-XL stores layer outputs).
             if self.mem_len > 0:
-                cur = h  # (b, 1, d_model)
-                mem_cat = jnp.concatenate(
-                    [mems[layer_idx], cur], axis=1
-                )  # (b, mem_len+1, d_model)
-                new_mem = mem_cat[:, -self.mem_len :, :].astype(self.carry_dtype)  # keep most recent mem_len
+                cur = h
+                mem_cat = jnp.concatenate([mems[layer_idx], cur], axis=1)
+                new_mem = mem_cat[:, -self.mem_len :, :].astype(self.carry_dtype)
             else:
                 new_mem = jnp.zeros((b, 0, d_model), dtype=self.carry_dtype)
 
@@ -477,14 +447,13 @@ class GTrXLCell(RNNCellBase):
             new_k_caches.append(k_cache_upd.astype(self.carry_dtype))
             new_v_caches.append(v_cache_upd.astype(self.carry_dtype))
 
-        y = h.squeeze(axis=1)  # (b, d_model)
+        y = h.squeeze(axis=1)
         return (tuple(new_mems), tuple(new_k_caches), tuple(new_v_caches)), y
 
     @nowrap
     def initialize_carry(
         self, rng: PRNGKey, input_shape: tuple[int, ...]
     ) -> tuple[Any, ...]:
-        # input_shape: (*batch, d_model)
         batch_dims = input_shape[:-1]
         mem_shape = batch_dims + (self.mem_len, self.features)
         mems = tuple(
@@ -492,7 +461,6 @@ class GTrXLCell(RNNCellBase):
             for i in range(self.n_layers)
         )
 
-        # KV caches live in split-head space: (b, h, mem_len, d_head)
         d_model = self.features
         d_head = self.d_head or (d_model // self.n_heads)
         k_cache_shape = batch_dims + (self.n_heads, self.mem_len, d_head)

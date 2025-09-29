@@ -1,212 +1,108 @@
-import math
-from typing import Tuple
-import jax
-from jax import numpy as jnp
-import flax
-import flax.linen as nn
+from functools import partial
+import jax.numpy as jnp
+from flax.linen.module import compact, nowrap
+from flax.linen import initializers
+from flax.linen.linear import Dense, default_kernel_init
+from flax.linen.activation import sigmoid
+from flax.linen.normalization import LayerNorm
+from flax.typing import Array, PRNGKey, Dtype, Initializer
+
+from flax.linen.recurrent import RNNCellBase
 
 
-@flax.struct.dataclass
-class FFMCarry:
-    memory_state: (
-        jnp.ndarray
-    )  # Complex-valued memory state [batch_size, memory_size, context_size]
+class FFMCell(RNNCellBase):
+    """Fast & Forgetful Memory (FFM) cell."""
 
-
-class FFMCell(nn.RNNCellBase):
-    input_size: int
-    output_size: int
+    features: int
     memory_size: int
     context_size: int
+
     min_period: int = 1
     max_period: int = 1024
 
-    kernel_init: nn.initializers.Initializer = None
-    bias_init: nn.initializers.Initializer = None
+    kernel_init: Initializer = default_kernel_init
+    bias_init: Initializer = initializers.zeros_init()
+    dtype: Dtype | None = None
+    param_dtype: Dtype = jnp.float32
+
+    @nowrap
+    def initialize_carry(self, rng: PRNGKey, input_shape: tuple[int, ...]) -> Array:
+        batch_dims = input_shape[:-1]
+        mem_shape = batch_dims + (self.memory_size, self.context_size)
+        complex_dtype = (
+            jnp.complex64 if self.param_dtype == jnp.float32 else jnp.complex128
+        )
+        return jnp.zeros(mem_shape, dtype=complex_dtype)
 
     @property
     def num_feature_axes(self) -> int:
         return 1
 
-    def initialize_carry(
-        self, rng: jax.random.PRNGKey, input_shape: tuple[int, ...]
-    ) -> FFMCarry:
-        batch_size = input_shape[0]
-        memory_state = jnp.zeros(
-            (batch_size, self.memory_size, self.context_size), dtype=jnp.complex64
+    def _ab_constants(self) -> tuple[Array, Array]:
+        a_var = self.variable(
+            "constants",
+            "a",
+            lambda: jnp.linspace(
+                -jnp.e, -1e-6, self.memory_size, dtype=self.param_dtype
+            ),
         )
-        # return FFMCarry(memory_state=memory_state)
-        return memory_state
-
-    def setup(self):
-        a_low = -math.e
-        a_high = -1e-6
-        a = jnp.linspace(a_low, a_high, self.memory_size)
-        b = (
-            2
-            * jnp.pi
-            / jnp.linspace(self.min_period, self.max_period, self.context_size)
+        b_var = self.variable(
+            "constants",
+            "b",
+            lambda: (2 * jnp.pi)
+            / jnp.linspace(
+                float(self.min_period),
+                float(self.max_period),
+                self.context_size,
+                dtype=self.param_dtype,
+            ),
         )
+        a = jnp.clip(a_var.value, a_max=jnp.array(-1e-6, dtype=self.param_dtype))
+        b = b_var.value
+        return a, b
 
-        # Store as non-trainable parameters
-        self.ffa_a = self.param("ffa_a", lambda key: a)
-        self.ffa_b = self.param("ffa_b", lambda key: b)
+    @compact
+    def __call__(self, carry: Array, inputs: Array) -> tuple[Array, Array]:
+        dense = partial(
+            Dense,
+            use_bias=True,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
+        pre = dense(features=self.memory_size, name="pre")
+        gate_in_f = dense(features=self.memory_size, name="gate_in")
+        gate_out_f = dense(features=self.features, name="gate_out")
+        skip = dense(features=self.features, name="skip")
+        mix = dense(features=self.features, name="mix")
+        ln = LayerNorm(use_scale=False, use_bias=False, dtype=self.dtype, name="ln")
 
-    @nn.compact
-    def __call__(
-        self,
-        carry: FFMCarry,
-        inputs: jnp.ndarray,  # shape (batch_size, input_size)
-    ) -> Tuple[jnp.ndarray, FFMCarry]:  # output shape (batch_size, output_size)
-        """Process one timestep of FFM.
+        gate_in = sigmoid(gate_in_f(inputs))
+        x_mem = pre(inputs) * gate_in
 
-        Args:
-            carry: Previous carry state containing memory_state and timestep
-            inputs: Input tensor of shape (batch_size, input_size)
+        x_rep = jnp.repeat(x_mem[..., None], self.context_size, axis=-1)
+        complex_dtype = (
+            jnp.complex64 if self.param_dtype == jnp.float32 else jnp.complex128
+        )
+        x_c = x_rep.astype(complex_dtype)
 
-        Returns:
-            Tuple of (output, new_carry)
-            - output: shape (batch_size, output_size)
-            - new_carry: Updated FFMCarry state
-        """
-        carry = FFMCarry(memory_state=carry)
-        assert (
-            inputs.ndim == 2
-        ), f"Input must be 2D (batch_size, input_size), got {inputs.ndim}D"
-        assert (
-            inputs.shape[1] == self.input_size
-        ), f"Input size must be {self.input_size}, got {inputs.shape[1]}"
-
-        batch_size = inputs.shape[0]
-
-        pre_linear = nn.Dense(
-            self.memory_size,
-            name="pre_linear",
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
+        a, b = self._ab_constants()
+        ab = a[:, None].astype(complex_dtype) + 1j * b[None, :].astype(complex_dtype)
+        gamma_mc = jnp.exp(ab)
+        gamma = gamma_mc.reshape(
+            (1,) * (carry.ndim - 2) + (self.memory_size, self.context_size)
         )
 
-        gate_in_linear = nn.Dense(
-            self.memory_size,
-            name="gate_in_linear",
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
+        new_carry = carry * gamma + x_c
+
+        z_in = jnp.concatenate([jnp.real(new_carry), jnp.imag(new_carry)], axis=-1)
+        z_in = z_in.reshape(
+            z_in.shape[:-2] + (self.memory_size * 2 * self.context_size,)
         )
+        z = mix(z_in)
 
-        gate_out_linear = nn.Dense(
-            self.output_size,
-            name="gate_out_linear",
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )
+        g_out = sigmoid(gate_out_f(inputs))
+        y = ln(z * g_out) + skip(inputs) * (1.0 - g_out)
 
-        skip_linear = nn.Dense(
-            self.output_size,
-            name="skip_linear",
-            kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
-            bias_init=nn.initializers.constant(0.0),
-        )
-
-        mix_linear = nn.Dense(
-            self.output_size,
-            name="mix_linear",
-            kernel_init=nn.initializers.orthogonal(scale=0.01),
-            bias_init=nn.initializers.constant(0.0),
-        )
-
-        layer_norm = nn.LayerNorm(use_bias=False, use_scale=False, name="layer_norm")
-
-        ffa_params = (self.ffa_a, self.ffa_b)
-
-        gate_in = jax.nn.sigmoid(gate_in_linear(inputs))  # [batch_size, memory_size]
-        gated_x = pre_linear(inputs) * gate_in  # [batch_size, memory_size]
-
-        new_memory_state = self._apply_ffa_single_step(
-            ffa_params, gated_x, carry.memory_state
-        )
-
-        # Process memory state for output
-        # Concatenate real and imaginary parts: [batch_size, memory_size, context_size] -> [batch_size, 2*memory_size*context_size]
-        z_in = jnp.concatenate(
-            [jnp.real(new_memory_state), jnp.imag(new_memory_state)], axis=-1
-        )
-        z_in = z_in.reshape(batch_size, -1)  # [batch_size, 2*memory_size*context_size]
-
-        # Mix memory representation
-        z = mix_linear(z_in)  # [batch_size, output_size]
-
-        # Output gating and skip connection
-        gate_out = jax.nn.sigmoid(gate_out_linear(inputs))  # [batch_size, output_size]
-        skip = skip_linear(inputs)  # [batch_size, output_size]
-
-        out = layer_norm(z * gate_out) + skip * (1 - gate_out)
-
-        return new_memory_state, out
-
-    def _apply_ffa_single_step(
-        self,
-        ffa_params: Tuple[jnp.ndarray, jnp.ndarray],
-        x: jnp.ndarray,  # [batch_size, memory_size]
-        prev_state: jnp.ndarray,  # [batch_size, memory_size, context_size]
-    ) -> jnp.ndarray:
-        """
-        Args:
-            ffa_params: Tuple of (a, b) parameters for FFA
-            x: Input to memory [batch_size, memory_size]
-            prev_state: Previous memory state [batch_size, memory_size, context_size]
-            current_timestep: Current timestep
-
-        Returns:
-            Updated memory state [batch_size, memory_size, context_size]
-        """
-        a, b = ffa_params
-
-        a = jnp.clip(
-            jnp.reshape(a, (1, -1, 1)), a_max=-1e-6
-        )  # [memory_size] -> [1, memory_size, 1]
-        b = jnp.reshape(b, (1, 1, -1))  # [context_size] -> [1, 1, context_size]
-
-        # Compute decay factor gamma = exp(a * dt + i * b * dt)
-        # For single timestep, dt = 1
-        ab = jax.lax.complex(a, b)
-        gamma = jnp.exp(ab * 1.0)  # [1, memory_size, context_size]
-
-        # Expand x to match memory dimensions
-        # x: [batch_size, memory_size] -> [batch_size, memory_size, context_size]
-        x_expanded = jnp.expand_dims(x, axis=-1)  # [batch_size, memory_size, 1]
-        x_complex = jax.lax.complex(x_expanded, jnp.zeros_like(x_expanded))
-        x_complex = jnp.broadcast_to(
-            x_complex, prev_state.shape
-        )  # [batch_size, memory_size, context_size]
-
-        # Update memory: new_state = gamma * prev_state + x
-        # Note: For reset/done handling, this would need additional logic
-        new_state = gamma * prev_state + x_complex
-
-        return new_state
-
-
-if __name__ == "__main__":
-    # Example usage
-    key = jax.random.PRNGKey(42)
-
-    cell = FFMCell(input_size=64, output_size=32, memory_size=16, context_size=8)
-
-    batch_size = 4
-    input_shape = (batch_size, 64)
-    carry = cell.initialize_carry(key, input_shape)
-
-    print("Initialized carry state")
-    print(f"Memory state shape: {carry.memory_state.shape}")
-
-    inputs = jax.random.normal(key, input_shape)
-
-    params = cell.init(key, carry, inputs)
-    print("Initialized parameters")
-
-    new_carry, output = cell.apply(params, carry, inputs)
-
-    print(f"Input shape: {inputs.shape}")
-    print(f"Output shape: {output.shape}")
-    print(f"Memory state shape: {new_carry.memory_state.shape}")
-    print("Run successful!")
+        return new_carry, y

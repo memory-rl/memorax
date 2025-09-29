@@ -1,0 +1,3 @@
+_target_: memory_rl.networks.recurrent.S5Cell
+features: 128
+state_size: 128

@@ -1,0 +1,38 @@
+# @package _global_
+
+total_timesteps:     5_000_000
+num_train_steps:     100_000
+evaluate_every:      100_000
+
+algorithm:
+  learning_rate: 5e-3
+  num_envs: 64
+  num_eval_envs: 10
+  num_steps: 64
+  anneal_lr: True
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 8
+  normalize_advantage: True
+  clip_coef: 0.2
+  clip_vloss: True
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  learning_starts: 0
+
+  actor:
+    feature_extractor:
+      extractor:
+        _target_: memory_rl.networks.CNN
+        features:        [16]
+        kernel_sizes:    [[3, 3]]
+        strides:         [[1, 1]]
+  critic:
+    feature_extractor:
+      extractor:
+        _target_: memory_rl.networks.CNN
+        features:        [16]
+        kernel_sizes:    [[3, 3]]
+        strides:         [[1, 1]]

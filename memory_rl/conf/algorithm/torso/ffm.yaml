@@ -1,4 +1,4 @@
 _target_: memory_rl.networks.recurrent.FFMCell
-features: 256
+features: 128
 memory_size: 32
 context_size: 16

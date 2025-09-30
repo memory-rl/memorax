@@ -1,0 +1,3 @@
+_target_: memory_rl.environments.popgym_arcade.make
+env_id: AutoEncodeEasy
+partial_obs: True

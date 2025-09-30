@@ -7,7 +7,7 @@ defaults:
 
 name: ppo
 learning_rate: 3e-4
-num_envs: 10
+num_envs: 32
 num_eval_envs: 10
 num_steps: 128
 anneal_lr: True

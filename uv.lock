@@ -540,6 +540,18 @@ wheels = [
 ]
 
 [[package]]
+name = "dm-pix"
+version = "0.4.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "chex" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f0/8b/7d8d4b4646be35aa5a218335f9c0c1c7e3461e3fd997ecd10c03b3d5f27f/dm_pix-0.4.4.tar.gz", hash = "sha256:6139e3154feac8109dbc0859380f8e3a9f9465d3006a7b8c347e70ed875de1f7", size = 48566, upload-time = "2025-02-17T11:34:24.369Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/01/8e/c3b962cc1f350fdb77531715362da2a915cd688a49b8c22959b43988d117/dm_pix-0.4.4-py3-none-any.whl", hash = "sha256:afd492b9d27a77a55522ce504f5360e2efde1bd9b70fd43b3f9a42219c1c4f23", size = 56747, upload-time = "2025-02-17T11:34:23.143Z" },
+]
+
+[[package]]
 name = "dm-tree"
 version = "0.1.9"
 source = { registry = "https://pypi.org/simple" }
@@ -1269,6 +1281,18 @@ wheels = [
 ]
 
 [[package]]
+name = "jaxtyping"
+version = "0.3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "wadler-lindig" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/88/a8/416bd7ea110ec6b68e8868b0f99c985c735adcf7badc491d3c343937260a/jaxtyping-0.3.2.tar.gz", hash = "sha256:f30483fac4b42e915db8ad2414a85c3b63284aa7d3c100b96b59f755cf4a86ad", size = 44989, upload-time = "2025-04-23T09:48:16.907Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/b9/281e10e2d967ea5e481683eaec99f55ac5a61085ee60551c36942ef32bef/jaxtyping-0.3.2-py3-none-any.whl", hash = "sha256:6a020fd276226ddb5ac4f5725323843dd65e3c7e85c64fd62431e5f738c74e04", size = 55409, upload-time = "2025-04-23T09:48:15.924Z" },
+]
+
+[[package]]
 name = "jinja2"
 version = "3.1.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1493,6 +1517,7 @@ dependencies = [
     { name = "pgx" },
     { name = "playground" },
     { name = "pobax" },
+    { name = "popgym-arcade" },
     { name = "rliable" },
     { name = "tensorboard" },
     { name = "tqdx" },
@@ -1536,6 +1561,7 @@ requires-dist = [
     { name = "pgx", specifier = ">=2.6.0" },
     { name = "playground", specifier = ">=0.0.5" },
     { name = "pobax", specifier = ">=0.0.1" },
+    { name = "popgym-arcade", specifier = ">=0.0.4" },
     { name = "rliable", git = "https://github.com/google-research/rliable" },
     { name = "tensorboard", specifier = ">=2.20.0" },
     { name = "tqdx", specifier = ">=0.1.3" },
@@ -2142,6 +2168,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/de/54/6a4ba0c9e0975597ae9f7df1de1751b387f2182a379d5cbadd292690f87b/pobax-0.0.1.tar.gz", hash = "sha256:c00b1982509b99fd8040ca1e78786079a5bd28fb78db7ccd740c67755b2fa2b5", size = 687177, upload-time = "2025-07-11T16:20:37.326Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b0/1a/fbb1d25afbf8d3aaa5b492f9e5820e780daa22f2956716027dd9cfb42b67/pobax-0.0.1-py3-none-any.whl", hash = "sha256:a50f8a3cf6121cbf9ae47ae3e8e83ba39604c3cdb0fa54a2fb84cdda0a84bf02", size = 112602, upload-time = "2025-07-11T16:16:30.448Z" },
+]
+
+[[package]]
+name = "popgym-arcade"
+version = "0.0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dm-pix" },
+    { name = "gymnax" },
+    { name = "jaxtyping" },
+    { name = "pygame" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3f/50/b52c151da5bd50f80ff36d074b08a63fa146cbfcb0d5988b416debfe12ce/popgym_arcade-0.0.4.tar.gz", hash = "sha256:a8e0df55bfc5158d399fda96f98a6af133b5482abd50ccac04e2a48caa228f14", size = 79183, upload-time = "2025-07-15T11:02:32.665Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fd/68/c4945a42e0456f39ed3693b1732e746e6858f62746b1b96fa6c642577ad8/popgym_arcade-0.0.4-py3-none-any.whl", hash = "sha256:aea8495bc5b5efc55f2d8dbe137faca1a9e9c221ec63577872c4c6b86c1e90da", size = 115418, upload-time = "2025-07-15T11:02:31.089Z" },
 ]
 
 [[package]]
@@ -2964,6 +3005,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a9/96/0834f30fa08dca3738614e6a9d42752b6420ee94e58971d702118f7cfd30/virtualenv-20.32.0.tar.gz", hash = "sha256:886bf75cadfdc964674e6e33eb74d787dff31ca314ceace03ca5810620f4ecf0", size = 6076970, upload-time = "2025-07-21T04:09:50.985Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5c/c6/f8f28009920a736d0df434b52e9feebfb4d702ba942f15338cb4a83eafc1/virtualenv-20.32.0-py3-none-any.whl", hash = "sha256:2c310aecb62e5aa1b06103ed7c2977b81e042695de2697d01017ff0f1034af56", size = 6057761, upload-time = "2025-07-21T04:09:48.059Z" },
+]
+
+[[package]]
+name = "wadler-lindig"
+version = "0.1.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/67/cbae4bf7683a64755c2c1778c418fea96d00e34395bb91743f08bd951571/wadler_lindig-0.1.7.tar.gz", hash = "sha256:81d14d3fe77d441acf3ebd7f4aefac20c74128bf460e84b512806dccf7b2cd55", size = 15842, upload-time = "2025-06-18T07:00:42.843Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8d/96/04e7b441807b26b794da5b11e59ed7f83b2cf8af202bd7eba8ad2fa6046e/wadler_lindig-0.1.7-py3-none-any.whl", hash = "sha256:e3ec83835570fd0a9509f969162aeb9c65618f998b1f42918cfc8d45122fe953", size = 20516, upload-time = "2025-06-18T07:00:41.684Z" },
 ]
 
 [[package]]

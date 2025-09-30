@@ -1,6 +1,6 @@
 from typing import Any
-import jax
-from gymnax.environments import EnvParams
+from dataclasses import dataclass
+
 from popjaxrl.envs import make as make_popjaxrl_env
 
 from memory_rl.utils.wrappers import GymnaxWrapper
@@ -36,21 +36,16 @@ max_steps_in_episode = {
 }
 
 
-class EnvParams(EnvParams):
+@dataclass(frozen=True)
+class EnvParams:
     env_params: Any
+    max_steps_in_episode: int
 
 
-class PopGymWrapper(GymnaxWrapper):
+class PopJaxRLWrapper(GymnaxWrapper):
     def __init__(self, env):
         super().__init__(env)
         self.max_steps_in_episode = max_steps_in_episode[env.name]
-
-    @property
-    def default_params(self):
-        env_params = self._env.default_params
-        return EnvParams(
-            env_params=env_params, max_steps_in_episode=self.max_steps_in_episode
-        )
 
     def reset(self, key, params):
         return self._env.reset_env(key, params.env_params)
@@ -64,6 +59,8 @@ class PopGymWrapper(GymnaxWrapper):
 
 def make(env_id: str, **kwargs):
     env, env_params = make_popjaxrl_env(env_id)
-    env = PopGymWrapper(env)
-    env_params = env.default_params
+    env = PopJaxRLWrapper(env)
+    env_params = EnvParams(
+        env_params=env_params, max_steps_in_episode=max_steps_in_episode[env_id]
+    )
     return env, env_params

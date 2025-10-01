@@ -1,9 +1,9 @@
 defaults:
   - feature_extractor@actor.feature_extractor: shared
-  - torso@actor.torso: ffm
+  - torso@actor.torso: mlstm
     
   - feature_extractor@critic.feature_extractor: shared
-  - torso@critic.torso: ffm
+  - torso@critic.torso: mlstm
 
   - mode: TBPTT
 

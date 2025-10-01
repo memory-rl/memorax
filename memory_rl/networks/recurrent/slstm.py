@@ -119,8 +119,6 @@ class sLSTMCell(RNNCellBase):
 
 
 class BlockDiagonalDense(Module):
-    """Block-diagonal (per-head) linear layer: split features into NH heads and
-    apply a head-local Dense. Equivalent to a block-diagonal weight matrix."""
 
     num_heads: int
     use_bias: bool = True
@@ -246,28 +244,20 @@ class sLSTMBlock(RNNCellBase):
         )(inputs)
 
         if self.use_causal_conv:
-            k_i = self.param(
-                "conv_i_kernel",
-                self.kernel_init,
-                (self.conv_kernel_size, self.features),
-                self.param_dtype,
-            )
-            k_f = self.param(
-                "conv_f_kernel",
+            k_x = self.param(
+                "conv_kernel",
                 self.kernel_init,
                 (self.conv_kernel_size, self.features),
                 self.param_dtype,
             )
             causal_window = jnp.concatenate([x_ln[..., None, :], conv_buf], axis=-2)
-            conv_i = jnp.sum(causal_window * k_i, axis=-2)
-            conv_f = jnp.sum(causal_window * k_f, axis=-2)
-            conv_i = jax.nn.silu(conv_i)
-            conv_f = jax.nn.silu(conv_f)
+            conv_x = jnp.sum(causal_window * k_x, axis=-2)
+            conv_x = jax.nn.silu(conv_x)
             new_conv_buf = jnp.concatenate(
                 [x_ln[..., None, :], conv_buf[..., :-1, :]], axis=-2
             )
         else:
-            conv_i = conv_f = 0.0
+            conv_x = 0.0
             new_conv_buf = conv_buf
 
         linear_block_diagonal_dense = partial(
@@ -302,8 +292,8 @@ class sLSTMBlock(RNNCellBase):
         }
 
         z_tilde = lin_x["z"](x_ln) + lin_h["z"](h)
-        i_tilde = lin_x["i"](x_ln) + lin_h["i"](h) + conv_i
-        f_tilde = lin_x["f"](x_ln) + lin_h["f"](h) + conv_f
+        i_tilde = lin_x["i"](conv_x) + lin_h["i"](h)
+        f_tilde = lin_x["f"](conv_x) + lin_h["f"](h)
         o_tilde = lin_x["o"](x_ln) + lin_h["o"](h)
 
         z = self.activation_fn(z_tilde)

@@ -245,8 +245,8 @@ class mLSTMBlock(RNNCellBase):
             param_dtype=self.param_dtype,
         )
 
-        q = linear_block_diagonal_dense(name="q")(up_core) + conv_x
-        k = linear_block_diagonal_dense(name="k")(up_core) + conv_x
+        q = linear_block_diagonal_dense(name="q")(conv_x)
+        k = linear_block_diagonal_dense(name="k")(conv_x)
         v = linear_block_diagonal_dense(name="v")(up_core)
 
         def to_heads(x):
@@ -301,9 +301,7 @@ class mLSTMBlock(RNNCellBase):
             name="lskip",
         )(conv_x)
         h = h_norm + lskip
-
-        gate = jax.nn.swish(up_gate)
-        gated = gate * h
+        h = jax.nn.swish(up_gate) * h
 
         out = Dense(
             features=self.features,
@@ -313,7 +311,7 @@ class mLSTMBlock(RNNCellBase):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="down_proj",
-        )(gated)
+        )(h)
 
         y = out + inputs
         return (C_new, n_new, m_new, conv_buf_new), y

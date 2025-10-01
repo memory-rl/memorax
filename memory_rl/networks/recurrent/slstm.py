@@ -92,13 +92,13 @@ class sLSTMCell(RNNCellBase):
         i_prime = jnp.exp(i_tilde - m_new)
         f_prime = jnp.exp(log_f + m - m_new)
 
-        new_c = f_prime * c + i_prime * z
-        new_n = f_prime * n + i_prime
+        c_new = f_prime * c + i_prime * z
+        n_new = f_prime * n + i_prime
 
-        h_tilde = new_c / jnp.maximum(new_n, self.eps)
-        new_h = o * h_tilde
+        h_tilde = c_new / jnp.maximum(n_new, self.eps)
+        h_new = o * h_tilde
 
-        return (new_c, new_n, new_h, m_new), new_h
+        return (c_new, n_new, h_new, m_new), h_new
 
     @nowrap
     def initialize_carry(
@@ -107,11 +107,11 @@ class sLSTMCell(RNNCellBase):
         batch_dims = input_shape[:-1]
         key_c, key_n, key_h, key_m = random.split(rng, 4)
         mem_shape = batch_dims + (self.features,)
-        c0 = self.carry_init(key_c, mem_shape, self.param_dtype)
-        n0 = self.carry_init(key_n, mem_shape, self.param_dtype)
-        h0 = self.carry_init(key_h, mem_shape, self.param_dtype)
-        m0 = self.carry_init(key_m, mem_shape, self.param_dtype)
-        return (c0, n0, h0, m0)
+        c = self.carry_init(key_c, mem_shape, self.param_dtype)
+        n = self.carry_init(key_n, mem_shape, self.param_dtype)
+        h = self.carry_init(key_h, mem_shape, self.param_dtype)
+        m = self.carry_init(key_m, mem_shape, self.param_dtype)
+        return (c, n, h, m)
 
     @property
     def num_feature_axes(self) -> int:
@@ -346,16 +346,15 @@ class sLSTMBlock(RNNCellBase):
         self, rng: PRNGKey, input_shape: tuple[int, ...]
     ) -> tuple[Array, Array, Array, Array, Array]:
         batch_dims = input_shape[:-1]
-        k1, k2, k3, k4, k5 = random.split(rng, 5)
+        key_c, key_n, key_h, key_m, key_conv_buf = random.split(rng, 5)
         mem_shape = batch_dims + (self.features,)
-        c0 = self.carry_init(k1, mem_shape, self.param_dtype)
-        n0 = self.carry_init(k2, mem_shape, self.param_dtype)
-        h0 = self.carry_init(k3, mem_shape, self.param_dtype)
-        m0 = self.carry_init(k4, mem_shape, self.param_dtype)
-        K = self.conv_kernel_size
-        buf_shape = batch_dims + (max(K - 1, 0), self.features)
-        convbuf0 = self.carry_init(k5, buf_shape, self.param_dtype)
-        return (c0, n0, h0, m0, convbuf0)
+        c = self.carry_init(key_c, mem_shape, self.param_dtype)
+        n = self.carry_init(key_n, mem_shape, self.param_dtype)
+        h = self.carry_init(key_h, mem_shape, self.param_dtype)
+        m = self.carry_init(key_m, mem_shape, self.param_dtype)
+        buf_shape = batch_dims + (max(self.conv_kernel_size - 1, 0), self.features)
+        convbuf = self.carry_init(key_conv_buf, buf_shape, self.param_dtype)
+        return (c, n, h, m, convbuf)
 
     @property
     def num_feature_axes(self) -> int:

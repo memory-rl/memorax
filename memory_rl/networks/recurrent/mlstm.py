@@ -135,6 +135,7 @@ class mLSTMCell(RNNCellBase):
 class BlockDiagonalDense(Module):
 
     num_heads: int
+    block_size: int = 4
     use_bias: bool = True
     kernel_init: Initializer = default_kernel_init
     bias_init: Initializer = initializers.zeros_init()
@@ -143,28 +144,35 @@ class BlockDiagonalDense(Module):
 
     @compact
     def __call__(self, x: Array) -> Array:
-        features = x.shape[-1]
+        *batch, features = x.shape
         if features % self.num_heads != 0:
             raise ValueError(
                 f"features ({features}) must be divisible by num_heads ({self.num_heads})."
             )
-        dh = features // self.num_heads
-        xh = x.reshape(x.shape[:-1] + (self.num_heads, dh))
+        head_dim = features // self.num_heads
+
+        if head_dim % self.block_size != 0:
+            raise ValueError(
+                f"head_dim ({head_dim}) must be divisible by block_size ({self.block_size})."
+            )
+        block_dim = head_dim // self.block_size
+
+        x = x.reshape(*batch, self.num_heads, block_dim, self.block_size)
 
         k = self.param(
-            "kernel", self.kernel_init, (self.num_heads, dh, dh), self.param_dtype
+            "kernel", self.kernel_init, (self.num_heads, block_dim, self.block_size, self.block_size), self.param_dtype
         )
         b = (
-            self.param("bias", self.bias_init, (self.num_heads, dh), self.param_dtype)
+            self.param("bias", self.bias_init, (self.num_heads, block_dim, self.block_size), self.param_dtype)
             if self.use_bias
             else None
         )
 
-        xh, k, b = promote_dtype(xh, k, b, dtype=self.dtype)
-        yh = jnp.einsum("...hd,hdf->...hf", xh, k)
+        x, k, b = promote_dtype(x, k, b, dtype=self.dtype)
+        yh = jnp.einsum("...hbs,hbst->...hbt", x, k)
         if b is not None:
             yh = yh + b
-        return yh.reshape(x.shape[:-1] + (features,))
+        return yh.reshape(*batch, features)
 
 
 class mLSTMBlock(RNNCellBase):
@@ -172,8 +180,7 @@ class mLSTMBlock(RNNCellBase):
     features: int
     num_heads: int = 4
     up_proj_factor: int = 2
-    conv1d_kernel_size: int = 4
-    qkv_proj_blocksize: int = 4
+    conv_kernel_size: int = 4
     forget_activation: str = "exp"
 
     kernel_init: Initializer = default_kernel_init
@@ -181,8 +188,6 @@ class mLSTMBlock(RNNCellBase):
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
     carry_init: Initializer = initializers.zeros_init()
-    ln_epsilon: float = 1e-5
-    gn_epsilon: float = 1e-5
 
     def _log_forget(self, f_raw: Array) -> Array:
         if self.forget_activation == "exp":
@@ -197,9 +202,9 @@ class mLSTMBlock(RNNCellBase):
     @compact
     def __call__(self, carry, inputs):
         (C, n, m, conv_buf) = carry
+        batch_dims = inputs.shape[:-1]
         up_features = self.features * self.up_proj_factor
         head_dim = up_features // self.num_heads
-        batch_dims = inputs.shape[:-1]
         assert up_features % self.num_heads == 0
 
         x_ln = LayerNorm(
@@ -225,14 +230,15 @@ class mLSTMBlock(RNNCellBase):
         k_x = self.param(
             "conv_kernel",
             self.kernel_init,
-            (self.conv_kernel_size, self.features),
+            (up_features, self.conv_kernel_size),
             self.param_dtype,
         )
-        causal_window = jnp.concatenate([x_ln[..., None, :], conv_buf], axis=-2)
-        conv_x = jnp.sum(causal_window * k_x, axis=-2)
+
+        causal_window = jnp.concatenate([up_core[..., None], conv_buf], axis=-1)
+        conv_x = jnp.einsum('...fk,fk->...f', causal_window, k_x)
         conv_x = jax.nn.silu(conv_x)
         conv_buf_new = jnp.concatenate(
-            [x_ln[..., None, :], conv_buf[..., :-1, :]], axis=-2
+            [up_core[..., None], conv_buf[..., :-1]], axis=-1
         )
 
         linear_block_diagonal_dense = partial(
@@ -265,8 +271,8 @@ class mLSTMBlock(RNNCellBase):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
-        i_tilde = gate_dense(name="wi")(inputs)
-        f_tilde = gate_dense(name="wf")(inputs)
+        i_tilde = gate_dense(name="wi")(conv_x)
+        f_tilde = gate_dense(name="wf")(conv_x)
 
         log_f = self._log_forget(f_tilde)
 
@@ -281,6 +287,7 @@ class mLSTMBlock(RNNCellBase):
 
         denom = jnp.maximum(jnp.abs(jnp.sum(n_new * q, axis=-1)), jnp.asarray(1.0))
         h_tilde = jnp.matmul(C_new, q[..., :, None])[..., :, 0] / denom[..., None]
+        h_tilde = h_tilde.reshape(batch_dims + (up_features,))
 
         h_norm = GroupNorm(
             num_groups=self.num_heads,
@@ -321,15 +328,14 @@ class mLSTMBlock(RNNCellBase):
         self, rng: PRNGKey, input_shape: tuple[int, ...]
     ) -> tuple[Array, Array, Array, Array]:
         batch_dims = input_shape[:-1]
-        k1, k2, k3, k4 = random.split(rng, 4)
-        mem_shape = batch_dims + (self.features,)
-        c0 = self.carry_init(k1, mem_shape, self.param_dtype)
-        n0 = self.carry_init(k2, mem_shape, self.param_dtype)
-        m0 = self.carry_init(k3, mem_shape, self.param_dtype)
-        K = self.conv_kernel_size
-        buf_shape = batch_dims + (max(K - 1, 0), self.features)
-        convbuf0 = self.carry_init(k4, buf_shape, self.param_dtype)
-        return (c0, n0, m0, convbuf0)
+        up_features = self.features * self.up_proj_factor
+        head_dim = up_features // self.num_heads
+        key_c, key_n, key_m, key_conv_buf = random.split(rng, 4)
+        C = self.carry_init(key_c, (batch_dims + (self.num_heads, head_dim, head_dim)), self.param_dtype)
+        n = self.carry_init(key_n, (batch_dims + (self.num_heads, head_dim)), self.param_dtype)
+        m = self.carry_init(key_m, (batch_dims + (self.num_heads,)), self.param_dtype)
+        conv_buf = self.carry_init(key_conv_buf, batch_dims + (up_features, max(self.conv_kernel_size - 1, 0)), self.param_dtype)
+        return (C, n, m, conv_buf)
 
     @property
     def num_feature_axes(self) -> int:

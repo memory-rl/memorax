@@ -1,16 +1,16 @@
 defaults:
   - feature_extractor@actor.feature_extractor: shared
-  - torso@actor.torso: mlstm
+  - torso@actor.torso: xlstm
     
   - feature_extractor@critic.feature_extractor: shared
-  - torso@critic.torso: mlstm
+  - torso@critic.torso: xlstm
 
   - mode: TBPTT
 
 
 name: rppo
 learning_rate: 3e-4
-num_envs: 128
+num_envs: 32
 num_eval_envs: 16
 # num_steps: controlled via mode.length instead
 anneal_lr: True

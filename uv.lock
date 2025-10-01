@@ -1521,6 +1521,7 @@ dependencies = [
     { name = "rliable" },
     { name = "tensorboard" },
     { name = "tqdx" },
+    { name = "uniplot" },
     { name = "wandb" },
 ]
 
@@ -1565,6 +1566,7 @@ requires-dist = [
     { name = "rliable", git = "https://github.com/google-research/rliable" },
     { name = "tensorboard", specifier = ">=2.20.0" },
     { name = "tqdx", specifier = ">=0.1.3" },
+    { name = "uniplot", specifier = ">=0.21.4" },
     { name = "wandb", specifier = ">=0.21.0" },
 ]
 provides-extras = ["cuda"]
@@ -2463,6 +2465,15 @@ wheels = [
 ]
 
 [[package]]
+name = "readchar"
+version = "4.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/dd/f8/8657b8cbb4ebeabfbdf991ac40eca8a1d1bd012011bd44ad1ed10f5cb494/readchar-4.2.1.tar.gz", hash = "sha256:91ce3faf07688de14d800592951e5575e9c7a3213738ed01d394dcc949b79adb", size = 9685, upload-time = "2024-11-04T18:28:07.757Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/10/e4b1e0e5b6b6745c8098c275b69bc9d73e9542d5c7da4f137542b499ed44/readchar-4.2.1-py3-none-any.whl", hash = "sha256:a769305cd3994bb5fa2764aa4073452dc105a4ec39068ffe6efd3c20c60acc77", size = 9350, upload-time = "2024-11-04T18:28:02.859Z" },
+]
+
+[[package]]
 name = "requests"
 version = "2.32.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2982,6 +2993,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/95/32/1a225d6164441be760d75c2c42e2780dc0873fe382da3e98a2e1e48361e5/tzdata-2025.2.tar.gz", hash = "sha256:b60a638fcc0daffadf82fe0f57e53d06bdec2f36c4df66280ae79bce6bd6f2b9", size = 196380, upload-time = "2025-03-23T13:54:43.652Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5c/23/c7abc0ca0a1526a0774eca151daeb8de62ec457e77262b66b359c3c7679e/tzdata-2025.2-py2.py3-none-any.whl", hash = "sha256:1a403fada01ff9221ca8044d701868fa132215d84beb92242d9acd2147f667a8", size = 347839, upload-time = "2025-03-23T13:54:41.845Z" },
+]
+
+[[package]]
+name = "uniplot"
+version = "0.21.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "readchar" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/71/cc/9ecf0d50960384d1dd818fb31d8a6b3ad62848fb0d29cd9c8b6345b90122/uniplot-0.21.4.tar.gz", hash = "sha256:8fc5a8e3ecb98f3cb74e9363715ea61658d5cfc4fb046b55a5f1a0ad658d4846", size = 34031, upload-time = "2025-08-03T07:43:29.686Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4d/56/5ddd9227373e56a70cb4d52f25a06656bfa9eaedbd39fe9f39537a689534/uniplot-0.21.4-py3-none-any.whl", hash = "sha256:87d750afc5904ef0e2fe06e701f4424db602c4a2e996124be4a56b0dfba8e609", size = 36714, upload-time = "2025-08-03T07:43:28.273Z" },
 ]
 
 [[package]]

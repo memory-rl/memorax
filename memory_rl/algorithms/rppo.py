@@ -68,13 +68,11 @@ class RPPO:
     def _deterministic_action(
         self, key: chex.PRNGKey, state: RPPOState
     ) -> tuple[chex.PRNGKey, RPPOState, chex.Array, chex.Array]:
-        key, actor_memory_key = jax.random.split(key)
         actor_hidden_state, probs = self.actor.apply(
             state.actor_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
             initial_carry=state.actor_hidden_state,
-            rngs={"memory": actor_memory_key},
         )
         action = jnp.argmax(probs.logits, axis=-1)
         log_prob = probs.log_prob(action)

@@ -1,2 +1,2 @@
-_target_: memory_rl.networks.recurrent.mLSTMCell
+_target_: memory_rl.networks.recurrent.mLSTMBlock
 features: 128

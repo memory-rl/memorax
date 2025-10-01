@@ -97,13 +97,13 @@ class RPPO:
     def _stochastic_action(
         self, key: chex.PRNGKey, state: RPPOState
     ) -> tuple[chex.PRNGKey, RPPOState, chex.Array, chex.Array]:
-        key, action_key, actor_memory_key, critic_memory_key = jax.random.split(key, 4)
+        key, action_key, actor_memory_key, actor_dropout_key, critic_memory_key, critic_dropout_key = jax.random.split(key, 6)
         actor_hidden_state, probs = self.actor.apply(
             state.actor_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
             initial_carry=state.actor_hidden_state,
-            rngs={"memory": actor_memory_key},
+            rngs={"memory": actor_memory_key, "dropout": actor_dropout_key},
         )
         action = probs.sample(seed=action_key)
         log_prob = probs.log_prob(action)
@@ -113,7 +113,7 @@ class RPPO:
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
             initial_carry=state.critic_hidden_state,
-            rngs={"memory": critic_memory_key},
+            rngs={"memory": critic_memory_key, "dropout": critic_dropout_key},
         )
 
         action = action.squeeze(1)
@@ -160,7 +160,7 @@ class RPPO:
     def _update_actor(
         self, key, state: RPPOState, initial_actor_hidden_state, transitions, advantages
     ):
-        key, actor_key = jax.random.split(key)
+        key, memory_key, dropout_key = jax.random.split(key, 3)
 
         def actor_loss_fn(params):
             _, probs = self.actor.apply(
@@ -168,7 +168,7 @@ class RPPO:
                 observation=transitions.obs,
                 mask=transitions.prev_done,
                 initial_carry=initial_actor_hidden_state,
-                rngs={"memory": actor_key},
+                rngs={"memory": memory_key, "dropout": dropout_key},
             )
             log_probs = probs.log_prob(transitions.action)
             entropy = probs.entropy().mean()
@@ -211,7 +211,7 @@ class RPPO:
         self, key, state: RPPOState, initial_critic_hidden_state, transitions, returns
     ):
 
-        key, critic_key = jax.random.split(key)
+        key, memory_key, dropout_key = jax.random.split(key, 3)
 
         def critic_loss_fn(params):
             _, values = self.critic.apply(
@@ -219,7 +219,7 @@ class RPPO:
                 observation=transitions.obs,
                 mask=transitions.prev_done,
                 initial_carry=initial_critic_hidden_state,
-                rngs={"memory": critic_key},
+                rngs={"memory": memory_key, "dropout": dropout_key},
             )
             values = values.squeeze(-1)
 
@@ -329,13 +329,12 @@ class RPPO:
             length=self.cfg.mode.length,
         )
 
-        key, critic_key = jax.random.split(key)
+        key, memory_key, dropout_key = jax.random.split(key, 3)
         _, final_value = self.critic.apply(
             state.critic_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
-            initial_carry=state.critic_hidden_state,  # Use the latest critic hidden state from scan
-            rngs={"memory": critic_key},
+            initial_carry=state.critic_hidden_state,
         )
 
         final_value = final_value.squeeze((1, -1))
@@ -386,8 +385,8 @@ class RPPO:
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
-        key, env_key, actor_key, actor_memory_key, critic_key, critic_memory_key = (
-            jax.random.split(key, 6)
+        key, env_key, actor_key, actor_memory_key, actor_dropout_key, critic_key, critic_memory_key, critic_dropout_key = (
+            jax.random.split(key, 8)
         )
 
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
@@ -399,13 +398,13 @@ class RPPO:
         critic_hidden_state = self.critic.initialize_carry(obs.shape)
 
         actor_params = self.actor.init(
-            {"params": actor_key, "memory": actor_memory_key},
+            {"params": actor_key, "memory": actor_memory_key, "dropout": actor_dropout_key},
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
             initial_carry=actor_hidden_state,
         )
         critic_params = self.critic.init(
-            {"params": critic_key, "memory": critic_memory_key},
+            {"params": critic_key, "memory": critic_memory_key, "dropout": critic_dropout_key},
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
             initial_carry=critic_hidden_state,

@@ -139,7 +139,7 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
         # header
         header = Table(box=None, expand=True, show_header=False)
         header.add_column(justify="left")
-        header.add_row(f"[bold white]{self.name}[/]")
+        header.add_row(f"[bold white]{self.title} - {self.name}[/]")
         dashboard.add_row(header)
 
         # summary (left)

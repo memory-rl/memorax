@@ -84,9 +84,6 @@ class TemporalLinkage(nn.Module):
         result = jnp.einsum("bwri,bwij->bwrj", exp_rw, lnk)
         return jnp.transpose(result, (0, 2, 1, 3))
 
-    @property
-    def state_size(self) -> Tuple[int, int]:
-        return self.memory_size, self.num_writes
 
 
 class Freeness(nn.Module):
@@ -146,15 +143,11 @@ class Freeness(nn.Module):
             [jnp.ones_like(prod_sorted_usage[:, :1]), prod_sorted_usage[:, :-1]], axis=1
         )
         sorted_alloc = sorted_nonusage * prod_exclusive
-        sorted_alloc = sorted_nonusage * prod_sorted_usage
         b, n = indices.shape
         inv = jnp.zeros_like(indices)
         inv = inv.at[jnp.arange(b)[:, None], indices].set(jnp.arange(n)[None, :])
         return jnp.take_along_axis(sorted_alloc, inv, axis=1)
 
-    @property
-    def state_size(self) -> int:
-        return self.memory_size
 
 
 def _erase_and_write(
@@ -300,9 +293,6 @@ class MemoryAccess(nn.Module):
     def output_size(self) -> Tuple[int, int]:
         return self.num_reads, self.word_size
 
-    @property
-    def state_size(self) -> Tuple[int, ...]:
-        return (self.memory_size, self.word_size)
 
 
 class DNCCell(RNNCellBase):

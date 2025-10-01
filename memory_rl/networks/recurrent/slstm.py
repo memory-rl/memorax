@@ -1,4 +1,5 @@
 from functools import partial  # pylint: disable=g-importing-member
+import math
 from typing import (
     Any,
     TypeVar,
@@ -29,41 +30,11 @@ Output = Any
 
 
 class sLSTMCell(RNNCellBase):
-    r"""sLSTM cell from xLSTM (Beck et al., 2024).
-
-    Vectorized forward pass (Appendix A.2):
-        c_t = f_t ⊙ c_{t-1} + i_t ⊙ z_t
-        n_t = f_t ⊙ n_{t-1} + i_t
-        h_t = o_t ⊙ (c_t ⊙ n_t^{-1})
-
-        z_t = tanh(W_z x_t + R_z h_{t-1} + b_z)
-        i_raw = W_i x_t + R_i h_{t-1} + b_i
-        f_raw = W_f x_t + R_f h_{t-1} + b_f
-        o_t   = sigmoid(W_o x_t + R_o h_{t-1} + b_o)
-
-    Exponential gating + stabilizer (Eqs. 12–17):
-        i_t = exp(i_raw)  (stabilized as i'_t)
-        f_t = exp(f_raw) or sigmoid(f_raw)  (choose via `forget_activation`)
-        m_t = max( log(f_t) + m_{t-1}, i_raw )
-        i'_t = exp(i_raw - m_t)
-        f'_t = exp(log(f_t) + m_{t-1} - m_t)
-
-    We use i'_t and f'_t in the recurrence (output & grads are invariant).
-
-    Attributes:
-      features: hidden size.
-      activation_fn: φ for z_t (default: tanh).
-      forget_activation: 'exp' or 'sigmoid' (default: 'exp').
-      stabilize: whether to use the stabilizer state m_t (default: True).
-      eps: epsilon to avoid division by zero in c_t / n_t.
-      kernel_init, recurrent_kernel_init, bias_init, dtype, param_dtype, carry_init:
-        follow the conventions in `LSTMCell`.
-    """
+    r"""sLSTM cell from xLSTM (Beck et al., 2024)."""
 
     features: int
     activation_fn: Callable[..., Any] = tanh
     forget_activation: str = "exp"  # 'exp' or 'sigmoid'
-    stabilize: bool = True
     eps: float = 1e-6
 
     kernel_init: Initializer = default_kernel_init
@@ -83,20 +54,13 @@ class sLSTMCell(RNNCellBase):
         else:
             raise ValueError("forget_activation must be 'exp' or 'sigmoid'.")
 
-    def _apply_forget_no_stabilize(self, f_raw: Array) -> Array:
-        if self.forget_activation == "exp":
-            return jnp.exp(f_raw)
-        else:
-            return sigmoid(f_raw)
-
     @compact
     def __call__(
-        self, carry: tuple[Array, Array, Array, Array], inputs: Array  # (c, n, h, m)
+        self, carry: tuple[Array, Array, Array, Array], inputs: Array
     ) -> tuple[tuple[Array, Array, Array, Array], Array]:
         c, n, h, m = carry
         hidden_features = h.shape[-1]
 
-        # Input/recurrent affine transforms (match LSTMCell parameterization)
         dense_h = partial(
             Dense,
             features=hidden_features,
@@ -115,31 +79,22 @@ class sLSTMCell(RNNCellBase):
             param_dtype=self.param_dtype,
         )
 
-        # Preactivations
-        z_raw = dense_i(name="iz")(inputs) + dense_h(name="hz")(h)
-        i_raw = dense_i(name="ii")(inputs) + dense_h(name="hi")(h)
-        f_raw = dense_i(name="if")(inputs) + dense_h(name="hf")(h)
-        o_raw = dense_i(name="io")(inputs) + dense_h(name="ho")(h)
+        z_tilde = dense_i(name="iz")(inputs) + dense_h(name="hz")(h)
+        i_tilde = dense_i(name="ii")(inputs) + dense_h(name="hi")(h)
+        f_tilde = dense_i(name="if")(inputs) + dense_h(name="hf")(h)
+        o_tilde = dense_i(name="io")(inputs) + dense_h(name="ho")(h)
 
-        # Gates & candidate
-        z = self.activation_fn(z_raw)
-        o = sigmoid(o_raw)
+        z = self.activation_fn(z_tilde)
+        o = sigmoid(o_tilde)
 
-        if self.stabilize:
-            log_f = self._log_forget(f_raw)  # log f_t
-            m_new = jnp.maximum(log_f + m, i_raw)  # Eq. (15)
-            i_prime = jnp.exp(i_raw - m_new)  # Eq. (16)
-            f_prime = jnp.exp(log_f + m - m_new)  # Eq. (17)
-        else:
-            m_new = m
-            i_prime = jnp.exp(i_raw)
-            f_prime = self._apply_forget_no_stabilize(f_raw)
+        log_f = self._log_forget(f_tilde)
+        m_new = jnp.maximum(log_f + m, i_tilde)
+        i_prime = jnp.exp(i_tilde - m_new)
+        f_prime = jnp.exp(log_f + m - m_new)
 
-        # Recurrences (Eqs. 34–36 with stabilized gates)
         new_c = f_prime * c + i_prime * z
         new_n = f_prime * n + i_prime
 
-        # Hidden: identity on normalized state (Eq. 36); output gate applied
         h_tilde = new_c / jnp.maximum(new_n, self.eps)
         new_h = o * h_tilde
 
@@ -163,9 +118,6 @@ class sLSTMCell(RNNCellBase):
         return 1
 
 
-import math
-
-
 class BlockDiagonalDense(Module):
     """Block-diagonal (per-head) linear layer: split features into NH heads and
     apply a head-local Dense. Equivalent to a block-diagonal weight matrix."""
@@ -185,19 +137,19 @@ class BlockDiagonalDense(Module):
                 f"features ({features}) must be divisible by num_heads ({self.num_heads})."
             )
         dh = features // self.num_heads
-        xh = x.reshape(x.shape[:-1] + (self.num_heads, dh))  # (..., NH, dh)
+        xh = x.reshape(x.shape[:-1] + (self.num_heads, dh))
 
         k = self.param(
             "kernel", self.kernel_init, (self.num_heads, dh, dh), self.param_dtype
         )
-        b = None
-        if self.use_bias:
-            b = self.param(
-                "bias", self.bias_init, (self.num_heads, dh), self.param_dtype
-            )
+        b = (
+            self.param("bias", self.bias_init, (self.num_heads, dh), self.param_dtype)
+            if self.use_bias
+            else None
+        )
 
         xh, k, b = promote_dtype(xh, k, b, dtype=self.dtype)
-        yh = jnp.einsum("...hd,hdf->...hf", xh, k)  # (..., NH, dh)
+        yh = jnp.einsum("...hd,hdf->...hf", xh, k)
         if b is not None:
             yh = yh + b
         return yh.reshape(x.shape[:-1] + (features,))
@@ -246,34 +198,7 @@ class GatedMLP(Module):
 
 
 class sLSTMBlock(RNNCellBase):
-    r"""sLSTM Block (post up-projection) as in Fig. 10 of xLSTM.
-
-    Pipeline per time step t:
-      x̃_t = LN(x_t)                                           (pre-LN residual)
-      Add optional causal Conv4 (Swish) contributions to i/f gate inputs
-      For i, f, o, z: block-diagonal (NH heads) input and recurrent linears
-      Run stabilized sLSTM update on (c,n,h,m)
-      h_t → GroupNorm (head-wise)
-      y_t = x_t + GeGLU_updown(h_t)                            (residual output)
-
-    Carry:
-      (c_t, n_t, h_t, m_t, convbuf_t) with convbuf_t storing the last K-1 LN’d inputs.
-
-    Args:
-      features: model width (must be divisible by num_heads).
-      num_heads: number of block-diagonal heads (NH).
-      use_causal_conv: if True, add Swish+causal Conv4 inputs into i/f gates.
-      conv_kernel_size: causal kernel size (default 4).
-      activation_fn: φ for z (default tanh).
-      forget_activation: 'exp' or 'sigmoid' for f gate (default 'exp').
-      stabilize: use stabilizer state m_t (recommended True).
-      eps: floor for n_t in h = c/n.
-      kernel_init, recurrent_kernel_init, bias_init, dtype, param_dtype, carry_init: as in LSTMCell.
-      mlp_pf: projection factor of the gated MLP (Fig. 10 uses 4/3).
-
-    Output:
-      The residual block output y_t (not the raw h_t).
-    """
+    r"""sLSTM Block (post up-projection)"""
 
     features: int
     num_heads: int = 4
@@ -300,22 +225,18 @@ class sLSTMBlock(RNNCellBase):
             return -jax.nn.softplus(-f_raw)
         raise ValueError("forget_activation must be 'exp' or 'sigmoid'.")
 
-    def _apply_forget_no_stabilize(self, f_raw: Array) -> Array:
-        return jnp.exp(f_raw) if self.forget_activation == "exp" else sigmoid(f_raw)
-
     @compact
     def __call__(
         self,
-        carry: tuple[Array, Array, Array, Array, Array],  # (c, n, h, m, convbuf)
+        carry: tuple[Array, Array, Array, Array, Array],
         inputs: Array,
     ) -> tuple[tuple[Array, Array, Array, Array, Array], Array]:
-        c, n, h, m, convbuf = carry
+        c, n, h, m, conv_buf = carry
         if self.features % self.num_heads != 0:
             raise ValueError(
                 f"features ({self.features}) must be divisible by num_heads ({self.num_heads})."
             )
 
-        # Pre-LayerNorm (pre-LN residual backbone)
         x_ln = LayerNorm(
             use_scale=True,
             use_bias=True,
@@ -324,30 +245,30 @@ class sLSTMBlock(RNNCellBase):
             name="pre_ln",
         )(inputs)
 
-        # Optional causal Conv(K) with Swish for i/f gate inputs (depthwise per-feature).
-        # window = [x_t, x_{t-1}, ..., x_{t-K+1}] in convbuf order.
         if self.use_causal_conv:
-            K = self.conv_kernel_size
-            # conv kernels: (K, d), depthwise; separate params for i and f
             k_i = self.param(
-                "conv_i_kernel", self.kernel_init, (K, self.features), self.param_dtype
+                "conv_i_kernel",
+                self.kernel_init,
+                (self.conv_kernel_size, self.features),
+                self.param_dtype,
             )
             k_f = self.param(
-                "conv_f_kernel", self.kernel_init, (K, self.features), self.param_dtype
+                "conv_f_kernel",
+                self.kernel_init,
+                (self.conv_kernel_size, self.features),
+                self.param_dtype,
             )
-            # assemble current causal window
-            win = jnp.concatenate([x_ln[..., None, :], convbuf], axis=-2)  # (..., K, d)
-            conv_i = jnp.sum(win * k_i, axis=-2)
-            conv_f = jnp.sum(win * k_f, axis=-2)
+            causal_window = jnp.concatenate([x_ln[..., None, :], conv_buf], axis=-2)
+            conv_i = jnp.sum(causal_window * k_i, axis=-2)
+            conv_f = jnp.sum(causal_window * k_f, axis=-2)
             conv_i = jax.nn.silu(conv_i)
             conv_f = jax.nn.silu(conv_f)
-            # update conv buffer (prepend x_t, drop oldest)
-            new_convbuf = jnp.concatenate(
-                [x_ln[..., None, :], convbuf[..., :-1, :]], axis=-2
+            new_conv_buf = jnp.concatenate(
+                [x_ln[..., None, :], conv_buf[..., :-1, :]], axis=-2
             )
         else:
             conv_i = conv_f = 0.0
-            new_convbuf = convbuf  # unchanged
+            new_conv_buf = conv_buf
 
         linear_block_diagonal_dense = partial(
             BlockDiagonalDense,
@@ -367,7 +288,6 @@ class sLSTMBlock(RNNCellBase):
             param_dtype=self.param_dtype,
         )
 
-        # Block-diagonal (per-head) input/recurrent linears for gates and candidate
         lin_x = {
             "z": linear_block_diagonal_dense(name="x_z"),
             "i": linear_block_diagonal_dense(name="x_i"),
@@ -381,30 +301,24 @@ class sLSTMBlock(RNNCellBase):
             "o": recurrent_block_diagonal_dense(name="h_o"),
         }
 
-        z_raw = lin_x["z"](x_ln) + lin_h["z"](h)
-        i_raw = lin_x["i"](x_ln) + lin_h["i"](h) + conv_i
-        f_raw = lin_x["f"](x_ln) + lin_h["f"](h) + conv_f
-        o_raw = lin_x["o"](x_ln) + lin_h["o"](h)
+        z_tilde = lin_x["z"](x_ln) + lin_h["z"](h)
+        i_tilde = lin_x["i"](x_ln) + lin_h["i"](h) + conv_i
+        f_tilde = lin_x["f"](x_ln) + lin_h["f"](h) + conv_f
+        o_tilde = lin_x["o"](x_ln) + lin_h["o"](h)
 
-        z = self.activation_fn(z_raw)
-        o = sigmoid(o_raw)
+        z = self.activation_fn(z_tilde)
+        o = sigmoid(o_tilde)
 
-        if self.stabilize:
-            log_f = self._log_forget(f_raw)  # log f_t
-            m_new = jnp.maximum(log_f + m, i_raw)  # stabilizer update
-            i_p = jnp.exp(i_raw - m_new)
-            f_p = jnp.exp(log_f + m - m_new)
-        else:
-            m_new = m
-            i_p = jnp.exp(i_raw)
-            f_p = self._apply_forget_no_stabilize(f_raw)
+        log_f = self._log_forget(f_tilde)
+        m_new = jnp.maximum(log_f + m, i_tilde)
+        i_p = jnp.exp(i_tilde - m_new)
+        f_p = jnp.exp(log_f + m - m_new)
 
         c_new = f_p * c + i_p * z
         n_new = f_p * n + i_p
         h_tilde = c_new / jnp.maximum(n_new, self.eps)
-        h_new = o * h_tilde  # hidden of the cell
+        h_new = o * h_tilde
 
-        # Head-wise normalization (GroupNorm with NH groups)
         h_norm = GroupNorm(
             num_groups=self.num_heads,
             use_bias=True,
@@ -422,8 +336,7 @@ class sLSTMBlock(RNNCellBase):
             name="post_ln",
         )(h)
 
-        # Post up-projection: gated MLP (GeGLU) with Pf = 4/3
-        mlp_out = GatedMLP(
+        out = GatedMLP(
             self.features,
             pf=self.mlp_pf,
             kernel_init=self.kernel_init,
@@ -433,9 +346,9 @@ class sLSTMBlock(RNNCellBase):
             name="geglu",
         )(h_ln)
 
-        y = mlp_out + h  # pre-LN residual
+        y = out + h
 
-        new_carry = (c_new, n_new, h_new, m_new, new_convbuf)
+        new_carry = (c_new, n_new, h_new, m_new, new_conv_buf)
         return new_carry, y
 
     @nowrap
@@ -449,7 +362,6 @@ class sLSTMBlock(RNNCellBase):
         n0 = self.carry_init(k2, mem_shape, self.param_dtype)
         h0 = self.carry_init(k3, mem_shape, self.param_dtype)
         m0 = self.carry_init(k4, mem_shape, self.param_dtype)
-        # conv buffer holds K-1 previous LN(x); keep even if use_causal_conv=False for shape stability
         K = self.conv_kernel_size
         buf_shape = batch_dims + (max(K - 1, 0), self.features)
         convbuf0 = self.carry_init(k5, buf_shape, self.param_dtype)

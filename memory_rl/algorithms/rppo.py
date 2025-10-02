@@ -329,7 +329,6 @@ class RPPO:
             length=self.cfg.mode.length,
         )
 
-        key, memory_key, dropout_key = jax.random.split(key, 3)
         _, final_value = self.critic.apply(
             state.critic_params,
             observation=jnp.expand_dims(state.obs, 1),
@@ -339,7 +338,6 @@ class RPPO:
 
         final_value = final_value.squeeze((1, -1))
 
-        # Compute GAE on time-major data (T, B, ...)
         advantages, returns = generalized_advantage_estimatation(
             self.cfg.gamma,
             self.cfg.gae_lambda,
@@ -347,10 +345,8 @@ class RPPO:
             transitions,
         )
 
-        # Convert from time_major=True format (T, B, ...) to time_major=False format (B, T, ...)
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
 
-        # Convert advantages and returns from (T, B) to (B, T) format
         advantages = jnp.swapaxes(advantages, 0, 1)
         returns = jnp.swapaxes(returns, 0, 1)
 
@@ -362,8 +358,8 @@ class RPPO:
             (
                 key,
                 state,
-                initial_actor_h_rollout,  # (B,H)
-                initial_critic_h_rollout,  # (B,H)
+                initial_actor_h_rollout,
+                initial_critic_h_rollout,
                 transitions,
                 advantages,
                 returns,
@@ -372,16 +368,19 @@ class RPPO:
         )
 
         entropy, approx_kl, clipfrac = aux
-        transitions.info["losses/actor_loss"] = actor_loss
-        transitions.info["losses/critic_loss"] = critic_loss
-        transitions.info["losses/entropy"] = entropy
-        transitions.info["losses/approx_kl"] = approx_kl
-        transitions.info["losses/clipfrac"] = clipfrac
+        info = {
+            **transitions.info,
+            "losses/actor_loss": actor_loss,
+            "losses/critic_loss": critic_loss,
+            "losses/entropy": entropy,
+            "losses/approx_kl": approx_kl,
+            "losses/clipfrac": clipfrac,
+        }
 
         return (
             key,
             state,
-        ), transitions.replace(obs=None, next_obs=None)
+        ), transitions.replace(obs=None, next_obs=None, info=info)
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -444,6 +443,9 @@ class RPPO:
             (key, state),
             length=num_steps // (self.cfg.num_envs * self.cfg.mode.length),
         )
+
+        transitions = jax.tree.map(lambda x: jnp.swapaxes(x, -1, 1), transitions)
+        transitions = jax.tree.map(lambda x: x.reshape((-1,) + x.shape[2:]), transitions)
 
         return key, state, transitions
 

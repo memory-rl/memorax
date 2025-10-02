@@ -9,6 +9,7 @@ from flax.linen.normalization import LayerNorm
 from flax.typing import Array, PRNGKey, Dtype, Initializer
 from flax.linen.recurrent import RNNCellBase
 
+
 class FFMCell(RNNCellBase):
     """Fast & Forgetful Memory (FFM) cell."""
 
@@ -89,13 +90,14 @@ class FFMCell(RNNCellBase):
     def _associative_update(self, a, b, lhs, rhs):
         carry, i, done = lhs
         x, j, done = rhs
-        carry = carry * self._gamma(a, b, j-i) * jnp.logical_not(done) + x
+        carry = carry * self._gamma(a, b, j - i) * jnp.logical_not(done) + x
         i = j
         return carry, i, done
 
-
     @compact
-    def apply_parallel(self, carry: Array, inputs: Array, dones: Array) -> tuple[Array, Array]:
+    def apply_parallel(
+        self, carry: Array, inputs: Array, dones: Array
+    ) -> tuple[Array, Array]:
         dense = partial(
             Dense,
             use_bias=True,
@@ -110,7 +112,7 @@ class FFMCell(RNNCellBase):
 
         gated_x = dense(features=self.memory_size, name="pre")(inputs) * gate_in
 
-        carry = jax.vmap(self._aggregate, in_axes=(1, 0, 1))(gated_x, carry, dones)
+        carry = jax.vmap(self._aggregate, in_axes=(0, 0, 0))(gated_x, carry, dones)
 
         z_in = jnp.concatenate([jnp.real(carry), jnp.imag(carry)], axis=-1)
         z_in = z_in.reshape((*z_in.shape[:-2], -1))

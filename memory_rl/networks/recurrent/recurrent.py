@@ -278,15 +278,13 @@ class MaskedRNN(nn.RNN):
                 def _move_time_back(x):
                     return jnp.moveaxis(x, 0, time_axis)
 
-
                 inputs_learn = self._slice_time(inputs, burn_in_length, None, time_axis)
                 mask_learn = self._slice_time(mask, burn_in_length, None, time_axis)
                 carries_learn, outputs_learn = self.cell.apply_parallel(
                     carry_learn,
-                    _move_time_front(inputs_learn),
-                    _move_time_front(mask_learn),
+                    inputs_learn,
+                    mask_learn,
                 )
-                outputs_learn = _move_time_back(outputs_learn)
                 carry_learn_final = carries_learn
             else:
                 learn_out = scan(

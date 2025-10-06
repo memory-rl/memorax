@@ -1,5 +1,5 @@
-_target_: memory_rl.environments.craftax.make
+namespace: craftax
 env_id: Craftax-Pixels-v1
-
-wrappers:
- - _target_: gymnax.wrappers.FlattenObservationWrapper
+kwargs:
+  auto_reset: True
+flatten_obs: True

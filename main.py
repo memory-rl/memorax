@@ -34,8 +34,8 @@ def main(cfg: DictConfig):
 
     import jax
 
-    from memory_rl import Algorithm, make
-    from memory_rl.environments.environment import make as make_env
+    from memory_rl import algorithms, environments
+    from memory_rl.algorithms.algorithm import Algorithm
 
     logger = instantiate(cfg.logger)
     logger_state = logger.init(OmegaConf.to_container(cfg, resolve=True))
@@ -44,9 +44,9 @@ def main(cfg: DictConfig):
 
     keys = jax.random.split(key, cfg.num_seeds)
 
-    env, env_params = make_env(cfg.environment, keys)
+    env, env_params = environments.make(cfg.environment)
 
-    algorithm: Algorithm = make(cfg.algorithm.name, cfg, env, env_params)
+    algorithm: Algorithm = algorithms.make(cfg.algorithm.name, cfg, env, env_params)
 
     keys, state = jax.vmap(algorithm.init)(keys)
 

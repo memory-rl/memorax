@@ -1,3 +1,4 @@
-_target_: memory_rl.environments.popgym_arcade.make
+namespace: popgym_arcade
 env_id: AutoEncodeEasy
-partial_obs: True
+kwargs:
+  partial_obs: True

@@ -1,2 +1,3 @@
-_target_: memory_rl.environments.brax.make
+namespace: brax
 env_id: walker2d-F
+kwargs:

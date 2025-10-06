@@ -1,5 +1,3 @@
-_target_: memory_rl.environments.gxm.make
+namespace: gxm
 env_id: "Envpool/Breakout-v5"
-
-wrappers:
- - _target_: gymnax.wrappers.FlattenObservationWrapper
+kwargs:

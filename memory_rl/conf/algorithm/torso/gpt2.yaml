@@ -1,10 +1,2 @@
-_target_: memory_rl.networks.recurrent.GPTRNNCell
-max_sequence_length: 50
-config:
-  _target_: memory_rl.networks.recurrent.GPTConfig
-  # num_embeds: ${algorithm.feature_extractor.features[-1]}
-  num_embeds: 128
-  num_heads: 4
-  num_layers: 2
-  block_size: 1
-  vocab_size: 1 # vocab_size is not used so just set to 1
+_target_: memory_rl.networks.recurrent.GPT2Cell
+features: 128

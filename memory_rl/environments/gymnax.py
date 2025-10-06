@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import gymnax
-from gymnax.environments import environment, spaces, EnvParams
+from gymnax.environments import environment
 from flax import struct
 
 from memory_rl.utils.wrappers import GymnaxWrapper
@@ -59,6 +59,11 @@ class BSuiteWrapper(GymnaxWrapper):
         return obs, new_state, reward, done, info
 
 
-def make(env_id: str, **kwargs):
-    env, env_params = gymnax.make(env_id)
+def make(cfg):
+    kwargs = cfg.kwargs or {}
+    env, env_params = gymnax.make(cfg.env_id, **kwargs)
+
+    if "bsuite" in cfg.env_id:
+        env = BSuiteWrapper(env)
+
     return env, env_params

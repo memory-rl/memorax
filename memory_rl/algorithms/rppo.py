@@ -97,7 +97,14 @@ class RPPO:
     def _stochastic_action(
         self, key: chex.PRNGKey, state: RPPOState
     ) -> tuple[chex.PRNGKey, RPPOState, chex.Array, chex.Array]:
-        key, action_key, actor_memory_key, actor_dropout_key, critic_memory_key, critic_dropout_key = jax.random.split(key, 6)
+        (
+            key,
+            action_key,
+            actor_memory_key,
+            actor_dropout_key,
+            critic_memory_key,
+            critic_dropout_key,
+        ) = jax.random.split(key, 6)
         actor_hidden_state, probs = self.actor.apply(
             state.actor_params,
             observation=jnp.expand_dims(state.obs, 1),
@@ -384,9 +391,16 @@ class RPPO:
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
-        key, env_key, actor_key, actor_memory_key, actor_dropout_key, critic_key, critic_memory_key, critic_dropout_key = (
-            jax.random.split(key, 8)
-        )
+        (
+            key,
+            env_key,
+            actor_key,
+            actor_memory_key,
+            actor_dropout_key,
+            critic_key,
+            critic_memory_key,
+            critic_dropout_key,
+        ) = jax.random.split(key, 8)
 
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
@@ -397,13 +411,21 @@ class RPPO:
         critic_hidden_state = self.critic.initialize_carry(obs.shape)
 
         actor_params = self.actor.init(
-            {"params": actor_key, "memory": actor_memory_key, "dropout": actor_dropout_key},
+            {
+                "params": actor_key,
+                "memory": actor_memory_key,
+                "dropout": actor_dropout_key,
+            },
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
             initial_carry=actor_hidden_state,
         )
         critic_params = self.critic.init(
-            {"params": critic_key, "memory": critic_memory_key, "dropout": critic_dropout_key},
+            {
+                "params": critic_key,
+                "memory": critic_memory_key,
+                "dropout": critic_dropout_key,
+            },
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
             initial_carry=critic_hidden_state,
@@ -445,7 +467,9 @@ class RPPO:
         )
 
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, -1, 1), transitions)
-        transitions = jax.tree.map(lambda x: x.reshape((-1,) + x.shape[2:]), transitions)
+        transitions = jax.tree.map(
+            lambda x: x.reshape((-1,) + x.shape[2:]), transitions
+        )
 
         return key, state, transitions
 

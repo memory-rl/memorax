@@ -1,5 +1,6 @@
-_target_: memory_rl.environments.gymnax.make
+namespace: gymnax
 env_id: MemoryChain-bsuite
+kwargs:
 
 env_params:
   memory_length: 5

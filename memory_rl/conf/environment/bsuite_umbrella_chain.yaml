@@ -1,5 +1,6 @@
-_target_: memory_rl.environments.gymnax.make
+namespace: gymnax
 env_id: UmbrellaChain-bsuite
+kwargs:
 
 env_params:
   chain_length: 10

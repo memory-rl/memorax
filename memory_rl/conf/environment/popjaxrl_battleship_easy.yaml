@@ -1,2 +1,3 @@
-_target_: memory_rl.environments.popjaxrl.make
+namespace: popjaxrl
 env_id: BattleshipEasy
+kwargs:

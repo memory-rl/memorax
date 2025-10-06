@@ -1,2 +1,4 @@
-_target_: memory_rl.environments.gymnax.make
+namespace: gymnax
 env_id: Breakout-MinAtar
+kwargs:
+flatten_obs: True

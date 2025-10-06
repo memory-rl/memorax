@@ -1,8 +1,8 @@
 _target_: memory_rl.networks.recurrent.GTrXLCell
-features: 256
-n_layers: 2
-n_heads: 8
-d_head: 32
-d_inner: 1024
-mem_len: 128
+features: 128
+num_layers: 2
+num_heads: 4
+head_dim: 32
+hidden_dim: 1024
+memory_length: 128
 

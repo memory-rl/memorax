@@ -31,8 +31,8 @@ mask_dims = {
 
 
 class BraxGymnaxWrapper(GymnaxWrapper):
-    def __init__(self, env_name, backend="mjx"):
-        env = envs.get_environment(env_name=env_name, backend=backend)
+    def __init__(self, env_name, backend, **kwargs):
+        env = envs.get_environment(env_name=env_name, backend=backend, **kwargs)
         env = EpisodeWrapper(env, episode_length=1000, action_repeat=1)
         env = AutoResetWrapper(env)
         super().__init__(env)
@@ -66,9 +66,15 @@ class BraxGymnaxWrapper(GymnaxWrapper):
         )
 
 
-def make(env_id: str, **kwargs):
-    env_id, mask_mode = env_id.split("-")
-    env = BraxGymnaxWrapper(env_id, backend="mjx")
+def make(cfg):
+    env_id, mask_mode = cfg.env_id.split("-")
+    backend = cfg.get("backend", "mjx")
+    kwargs = cfg.kwargs or {}
+    env = BraxGymnaxWrapper(
+        env_id,
+        backend,
+        **kwargs,
+    )
 
     env = MaskObservationWrapper(env, mask_dims=mask_dims[env_id][mask_mode])
 

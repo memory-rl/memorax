@@ -48,10 +48,11 @@ class PixelCraftaxEnvWrapper(GymnaxWrapper):
         )
 
 
-def make(env_id: str, **kwargs):
-    env = craftax_env.make_craftax_env_from_name(env_id, auto_reset=True)
+def make(cfg):
+    kwargs = cfg.kwargs or {}
+    env = craftax_env.make_craftax_env_from_name(cfg.env_id, **kwargs)
 
-    if "Pixel" in env_id:
+    if cfg.env_id == "Craftax-Pixels-v1":
         env = PixelCraftaxEnvWrapper(env)
 
     env_params = env.default_params

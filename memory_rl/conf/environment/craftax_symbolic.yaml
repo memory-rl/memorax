@@ -1,2 +1,4 @@
-_target_: memory_rl.environments.craftax.make
+namespace: craftax
 env_id: Craftax-Symbolic-v1
+kwargs:
+  auto_reset: True

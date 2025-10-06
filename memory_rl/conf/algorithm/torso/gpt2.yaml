@@ -1,2 +1,5 @@
 _target_: memory_rl.networks.recurrent.GPT2Cell
 features: 128
+num_layers: 4
+num_heads: 4
+max_length: 1024

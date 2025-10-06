@@ -74,6 +74,7 @@ def main(cfg: DictConfig):
 
     for i in range(0, cfg.total_timesteps, cfg.num_train_steps):
         start = time.perf_counter()
+
         keys, state, transitions = jax.vmap(algorithm.train, in_axes=(0, 0, None))(
             keys, state, cfg.num_train_steps
         )

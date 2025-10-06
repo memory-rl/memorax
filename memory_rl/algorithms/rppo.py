@@ -101,16 +101,14 @@ class RPPO:
             key,
             action_key,
             actor_memory_key,
-            actor_dropout_key,
             critic_memory_key,
-            critic_dropout_key,
-        ) = jax.random.split(key, 6)
+        ) = jax.random.split(key, 4)
         actor_hidden_state, probs = self.actor.apply(
             state.actor_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
             initial_carry=state.actor_hidden_state,
-            rngs={"memory": actor_memory_key, "dropout": actor_dropout_key},
+            rngs={"memory": actor_memory_key},
         )
         action = probs.sample(seed=action_key)
         log_prob = probs.log_prob(action)
@@ -120,7 +118,7 @@ class RPPO:
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
             initial_carry=state.critic_hidden_state,
-            rngs={"memory": critic_memory_key, "dropout": critic_dropout_key},
+            rngs={"memory": critic_memory_key},
         )
 
         action = action.squeeze(1)

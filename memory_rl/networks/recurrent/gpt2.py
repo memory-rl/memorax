@@ -1,12 +1,12 @@
 from typing import Any, Optional
 from functools import partial
 from flax.linen.module import nowrap
+from flax.typing import Dtype
 import jax.numpy as jnp
 import jax
 from flax import linen as nn
 from flax import struct
 from flax.linen.recurrent import RNNCellBase
-
 
 @struct.dataclass
 class KVCache:
@@ -51,24 +51,24 @@ class MultiHeadAttentionBlock(nn.Module):
             bias_init=self.bias_init,
         )
 
-        query = projection(name="query")(x)[:, None, :, :]
-        key = projection(name="key")(x)[:, None, :, :]
-        value = projection(name="value")(x)[:, None, :, :]
+        def _add_time_axis(x):
+            return x[:, None, :, :]
+
+        query = _add_time_axis(projection(name="query")(x))
+        key = _add_time_axis(projection(name="key")(x))
+        value = _add_time_axis(projection(name="value")(x))
 
         kv_cache = jax.vmap(KVCache.update, in_axes=(0, None, 0, 0))(
             kv_cache, self.max_length, key, value
         )
         key_value_seq_lengths = KVCache.length(kv_cache.idx, self.max_length)
 
-        mask = jnp.arange(self.max_length)[None, :] < key_value_seq_lengths[:, None]
-        mask = mask[:, None, None, :]
-
         x = jax.nn.dot_product_attention(
-            query,
-            kv_cache.key,
-            kv_cache.value,
-            mask=mask,
+            query.astype(jnp.bfloat16),
+            kv_cache.key.astype(jnp.bfloat16),
+            kv_cache.value.astype(jnp.bfloat16),
             key_value_seq_lengths=key_value_seq_lengths,
+            implementation="xla"
         )
 
         y = nn.DenseGeneral(
@@ -157,18 +157,25 @@ class GPT2Block(nn.Module):
         return x, kv_cache
 
 
+
 class GPT2Cell(RNNCellBase):
+    """GPT-2 as a Flax Linen RNNCell with a per-layer KV ring buffer.
+
+    Carry: (k_cache, v_cache, t)
+      - k_cache, v_cache: [B, n_layer, T, H, Hd]
+      - t:                 [B] step counter (monotonic)
+    """
     features: int
     num_layers: int = 12
     num_heads: int = 12
     hidden_dim: Optional[int] = None
     max_length: int = 1024
     dropout: float = 0.0
-    dtype: Any = jnp.float32
-    param_dtype: Any = jnp.float32
+    dtype: Dtype | None = None
+    param_dtype: Dtype = jnp.float32
     kernel_init: Any = nn.initializers.normal(stddev=0.02)
     bias_init: Any = nn.initializers.zeros_init()
-    carry_init: Any = None
+    carry_init: Any = None  # unused; present for API parity
 
     @property
     def num_feature_axes(self) -> int:

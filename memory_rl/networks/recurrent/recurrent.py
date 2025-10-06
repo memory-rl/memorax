@@ -4,7 +4,6 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
-
 class MaskedRNN(nn.RNN):
     return_carry_history: bool = False
     burn_in_length: int = 0
@@ -101,8 +100,10 @@ class MaskedRNN(nn.RNN):
         return self.cell.initialize_carry(init_key, input_shape)
 
     def _build_scan(
-        self, slice_carry: bool, return_carry_history: bool, time_axis: int
+        self, slice_carry: bool, return_carry_history: bool, inputs, time_axis: int
     ):
+        input_shape = inputs.shape[:time_axis] + inputs.shape[time_axis + 1 :]
+        initial_carry = self.cell.initialize_carry(jax.random.key(0), input_shape)
         def scan_fn(cell, carry, x, mask):
             carry = jax.tree.map(
                 lambda initial_carry, carry: jnp.where(
@@ -110,7 +111,7 @@ class MaskedRNN(nn.RNN):
                     initial_carry,
                     carry,
                 ),
-                self.cell.initialize_carry(jax.random.key(0), x.shape),
+                initial_carry,
                 carry,
             )
             carry, y = cell(carry, x)
@@ -244,7 +245,7 @@ class MaskedRNN(nn.RNN):
 
         slice_carry = seq_lengths is not None and return_carry
 
-        scan = self._build_scan(slice_carry, return_carry_history, time_axis)
+        scan = self._build_scan(slice_carry, return_carry_history, inputs, time_axis)
 
         has_learn = (int(inputs.shape[time_axis]) - int(burn_in_length)) > 0
 
@@ -267,16 +268,10 @@ class MaskedRNN(nn.RNN):
 
         carries_learn = outputs_learn = None
         if has_learn:
-            use_parallel = hasattr(self.cell, "apply_parallel") and not (
+            use_parallel = hasattr(self.cell, "apply_parallel") and inputs.shape[time_axis] > 1 and not (
                 slice_carry or return_carry_history
             )
             if use_parallel:
-
-                def _move_time_front(x):
-                    return jnp.moveaxis(x, time_axis, 0)
-
-                def _move_time_back(x):
-                    return jnp.moveaxis(x, 0, time_axis)
 
                 inputs_learn = self._slice_time(inputs, burn_in_length, None, time_axis)
                 mask_learn = self._slice_time(mask, burn_in_length, None, time_axis)

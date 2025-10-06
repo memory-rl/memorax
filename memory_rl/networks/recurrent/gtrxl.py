@@ -136,9 +136,9 @@ class RelativeMultiHeadAttentionBlock(Module):
         bias = (bd / jnp.sqrt(head_dim)).astype(self.param_dtype)
 
         x = jax.nn.dot_product_attention(
-            query_u,
-            key,
-            value,
+            query_u.astype(jnp.bfloat16),
+            key.astype(jnp.bfloat16),
+            value.astype(jnp.bfloat16),
             bias=bias,
         ).reshape(B, T, self.num_heads * head_dim)
 

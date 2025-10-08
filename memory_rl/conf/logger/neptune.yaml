@@ -1,5 +1,0 @@
-# @package logger.loggers.neptune
-_target_: memory_rl.loggers.NeptuneLogger
-workspace: noahfarr
-project: memory-rl
-mode: async

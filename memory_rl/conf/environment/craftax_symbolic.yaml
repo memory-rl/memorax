@@ -1,4 +1,0 @@
-namespace: craftax
-env_id: Craftax-Symbolic-v1
-kwargs:
-  auto_reset: True

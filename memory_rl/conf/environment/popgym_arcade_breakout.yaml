@@ -1,4 +1,0 @@
-namespace: popgym_arcade
-env_id: CartPoleEasy
-kwargs:
-  partial_obs: True

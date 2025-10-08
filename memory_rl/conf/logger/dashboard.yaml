@@ -1,7 +1,0 @@
-# @package logger.loggers.dashboard
-_target_: memory_rl.loggers.DashboardLogger
-title: Memory RL
-name: ${algorithm.name}
-total_timesteps: ${total_timesteps}
-refresh_per_second: 1
-env_id: ${environment.env_id}

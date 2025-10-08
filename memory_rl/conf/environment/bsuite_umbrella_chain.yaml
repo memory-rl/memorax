@@ -1,7 +1,0 @@
-namespace: gymnax
-env_id: UmbrellaChain-bsuite
-kwargs:
-
-env_params:
-  chain_length: 10
-  max_steps_in_episode: ${eval:${.chain_length}+1}

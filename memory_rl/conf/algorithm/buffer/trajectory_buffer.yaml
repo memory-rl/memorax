@@ -1,5 +1,0 @@
-_target_: fbx.make_trajectory_buffer
-add_batch_size: ${algorithm.num_envs}
-sample_batch_size: ${algorithm.batch_size}
-period: 1
-max_size: ${algorithm.buffer_size}

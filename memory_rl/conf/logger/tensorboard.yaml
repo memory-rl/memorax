@@ -1,2 +1,0 @@
-# @package logger.loggers.tensorboard
-_target_: memory_rl.loggers.TensorBoardLogger

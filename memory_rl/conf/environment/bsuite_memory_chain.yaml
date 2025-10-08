@@ -1,8 +1,0 @@
-namespace: gymnax
-env_id: MemoryChain-bsuite
-kwargs:
-
-env_params:
-  memory_length: 5
-  max_steps_in_episode: ${eval:${.memory_length}+1}
-

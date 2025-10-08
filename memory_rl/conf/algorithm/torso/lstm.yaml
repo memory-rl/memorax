@@ -1,2 +1,0 @@
-_target_: flax.linen.LSTMCell
-features: 128

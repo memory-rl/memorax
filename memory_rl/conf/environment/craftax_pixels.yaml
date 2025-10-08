@@ -1,5 +1,0 @@
-namespace: craftax
-env_id: Craftax-Pixels-v1
-kwargs:
-  auto_reset: True
-flatten_obs: True

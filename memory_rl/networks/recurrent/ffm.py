@@ -85,7 +85,9 @@ class FFMCell(RNNCellBase):
             (x, timestep, done),
             axis=0,
         )
+
         return carry[1:]
+
 
     def _associative_update(self, a, b, lhs, rhs):
         carry, i, done = lhs
@@ -93,6 +95,43 @@ class FFMCell(RNNCellBase):
         carry = carry * self._gamma(a, b, j - i) * jnp.logical_not(done) + x
         i = j
         return carry, i, done
+
+    @compact
+    def __call__(
+        self, carry: Array, inputs: Array
+    ) -> tuple[Array, Array]:
+
+        # Add time dimension
+        inputs = inputs[:, None, ...]
+        B, T, *_ = inputs.shape
+        dones = jnp.zeros((B, T), dtype=jnp.bool_)
+
+        dense = partial(
+            Dense,
+            use_bias=True,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
+        ln = LayerNorm(use_scale=False, use_bias=False, name="ln")
+
+        gate_in = sigmoid(dense(features=self.memory_size, name="gate_in")(inputs))
+
+        gated_x = dense(features=self.memory_size, name="pre")(inputs) * gate_in
+
+        carry = jax.vmap(self._aggregate, in_axes=(0, 0, 0))(gated_x, carry, dones)
+
+        z_in = jnp.concatenate([jnp.real(carry), jnp.imag(carry)], axis=-1)
+        z_in = z_in.reshape((*z_in.shape[:-2], -1))
+
+        z = dense(features=self.features, name="mix")(z_in)
+
+        gate_out = sigmoid(dense(features=self.features, name="gate_out")(inputs))
+        skip = dense(features=self.features, name="skip")(inputs)
+        y = ln(z * gate_out) + skip * (1.0 - gate_out)
+
+        return carry, y.squeeze(1)
 
     @compact
     def apply_parallel(

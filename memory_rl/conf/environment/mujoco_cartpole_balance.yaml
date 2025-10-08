@@ -1,4 +1,0 @@
-namespace: mujoco
-env_id: CartpoleBalance
-kwargs:
-

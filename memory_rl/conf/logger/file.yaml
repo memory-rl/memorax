@@ -1,5 +1,0 @@
-# @package logger.loggers.file
-_target_: memory_rl.loggers.FileLogger
-algorithm: ${algorithm.name}
-environment: ${environment.env_id}
-directory: /Users/noahfarr/memory-rl/logs

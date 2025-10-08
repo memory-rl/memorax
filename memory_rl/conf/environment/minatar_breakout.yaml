@@ -1,5 +1,0 @@
-namespace: gymnax
-env_id: Breakout-MinAtar
-kwargs:
-flatten_obs: True
-

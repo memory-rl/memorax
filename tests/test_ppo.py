@@ -42,7 +42,7 @@ def test_ppo_init_and_train(
     )
 
     key, state = algorithm.init(rng_key)
-
+    key, state = algorithm.warmup(key, state, num_steps=cfg.batch_size)
     rollout_steps = cfg.num_envs * cfg.num_steps
     key, state, transitions = algorithm.train(key, state, num_steps=rollout_steps)
 

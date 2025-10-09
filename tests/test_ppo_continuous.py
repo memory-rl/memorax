@@ -43,6 +43,6 @@ def test_ppo_continuous_init_and_train(
     )
 
     key, state = algorithm.init(rng_key)
-    rollout_steps = cfg.batch_size
+    rollout_steps = cfg.num_envs * cfg.num_steps * 100
     key, state, transitions = algorithm.train(key, state, num_steps=rollout_steps)
     eval_key, eval_transitions = algorithm.evaluate(key, state, num_steps=2)

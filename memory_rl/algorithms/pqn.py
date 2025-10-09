@@ -25,18 +25,16 @@ class PQNConfig:
     num_envs: int
     num_eval_envs: int
     num_steps: int
-    anneal_lr: bool
     gamma: float
-    gae_lambda: float
+    td_lambda: float
     num_minibatches: int
     update_epochs: int
-    normalize_advantage: bool
-    clip_coef: float
-    clip_vloss: bool
-    ent_coef: float
-    vf_coef: float
+    td_lambda: float
     max_grad_norm: float
     learning_starts: int
+    start_e: float
+    end_e: float
+    exploration_fraction: float
     actor: Any
     critic: Any
 
@@ -78,7 +76,7 @@ class PQN:
 
     def _random_action(self, key: Key, state: PQNState) -> tuple[Key, Array]:
         key, action_key = jax.random.split(key)
-        action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
+        action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
         return key, action, None
 
@@ -119,7 +117,7 @@ class PQN:
         )
 
         state = state.replace(
-            step=state.step + self.cfg.algorithm.num_envs,
+            step=state.step + self.cfg.num_envs,
             obs=next_obs,  # type: ignore
             env_state=env_state,  # type: ignore
         )
@@ -129,15 +127,11 @@ class PQN:
         lambda_return, next_q_value = carry
 
         target_bootstrap = (
-            transition.reward
-            + self.cfg.algorithm.gamma * (1.0 - transition.done) * next_q_value
+            transition.reward + self.cfg.gamma * (1.0 - transition.done) * next_q_value
         )
 
         delta = lambda_return - next_q_value
-        lambda_return = (
-            target_bootstrap
-            + self.cfg.algorithm.gamma * self.cfg.algorithm.td_lambda * delta
-        )
+        lambda_return = target_bootstrap + self.cfg.gamma * self.cfg.td_lambda * delta
 
         lambda_return = (
             1.0 - transition.done
@@ -149,7 +143,7 @@ class PQN:
     def _preprocess_transition(self, key, x):
         x = x.reshape(-1, *x.shape[2:])
         x = jax.random.permutation(key, x)
-        x = x.reshape(self.cfg.algorithm.num_minibatches, -1, *x.shape[1:])
+        x = x.reshape(self.cfg.num_minibatches, -1, *x.shape[1:])
         return x
 
     def _update_epoch(self, carry, _):
@@ -200,7 +194,7 @@ class PQN:
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
             carry,
-            length=self.cfg.algorithm.num_steps,
+            length=self.cfg.num_steps,
         )
 
         final_next_obs = transitions.next_obs[-1]
@@ -210,7 +204,7 @@ class PQN:
         final_q_values = self.q_network.apply(state.params, final_next_obs)
         final_q_value = jnp.max(final_q_values, axis=-1) * (1.0 - final_done)
 
-        lambda_returns = final_reward + self.cfg.algorithm.gamma * final_q_value
+        lambda_returns = final_reward + self.cfg.gamma * final_q_value
         _, targets = jax.lax.scan(
             self._lambda_backscan,
             (lambda_returns, final_q_value),
@@ -223,7 +217,7 @@ class PQN:
             self._update_epoch,
             (key, state, transitions, lambda_targets),
             None,
-            self.cfg.algorithm.update_epochs,
+            self.cfg.update_epochs,
         )
 
         transitions.info["losses/loss"] = loss
@@ -246,7 +240,7 @@ class PQN:
             env_state: Initial environment state.
         """
         key, env_key, q_key = jax.random.split(key, 3)
-        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
@@ -298,10 +292,7 @@ class PQN:
         (key, state), transitions = jax.lax.scan(
             self._learn,
             (key, state),
-            length=(
-                num_steps
-                // (self.cfg.algorithm.num_steps * self.cfg.algorithm.num_envs)
-            ),
+            length=(num_steps // (self.cfg.num_steps * self.cfg.num_envs)),
         )
 
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, -1, 1), transitions)
@@ -328,7 +319,7 @@ class PQN:
             info: Evaluation metrics (rewards, episode lengths, etc.).
         """
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_eval_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )

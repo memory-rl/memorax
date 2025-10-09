@@ -2,15 +2,19 @@ from functools import partial
 from typing import Any, Callable
 import chex
 import flax.linen as nn
-import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 
-from memory_rl.networks import RecurrentNetwork, heads
+from memory_rl.utils.typing import (
+    Array,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
+from memory_rl.networks import RecurrentNetwork
 from memory_rl.utils import generalized_advantage_estimatation, Transition
 
 
@@ -44,30 +48,30 @@ class RPPOConfig:
 @chex.dataclass(frozen=True)
 class RPPOState:
     step: int
-    obs: chex.Array
-    done: chex.Array
-    env_state: gymnax.EnvState
-    actor_hidden_state: chex.Array
-    critic_hidden_state: chex.Array
-    actor_params: core.FrozenDict[str, chex.ArrayTree]
-    critic_params: core.FrozenDict[str, chex.ArrayTree]
+    obs: Array
+    done: Array
+    env_state: EnvState
+    actor_hidden_state: Array
+    critic_hidden_state: Array
+    actor_params: core.FrozenDict[str, Any]
+    critic_params: core.FrozenDict[str, Any]
     actor_optimizer_state: optax.OptState
     critic_optimizer_state: optax.OptState
 
 
 @chex.dataclass(frozen=True)
 class RPPO:
-    cfg: DictConfig
-    env: gymnax.environments.environment.Environment
-    env_params: gymnax.EnvParams
+    cfg: RPPOConfig
+    env: Environment
+    env_params: EnvParams
     actor: RecurrentNetwork
     critic: RecurrentNetwork
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
 
     def _deterministic_action(
-        self, key: chex.PRNGKey, state: RPPOState
-    ) -> tuple[chex.PRNGKey, RPPOState, chex.Array, chex.Array]:
+        self, key: Key, state: RPPOState
+    ) -> tuple[Key, RPPOState, Array, Array]:
         actor_hidden_state, probs = self.actor.apply(
             state.actor_params,
             observation=jnp.expand_dims(state.obs, 1),
@@ -95,8 +99,8 @@ class RPPO:
         return key, state, action, log_prob, value
 
     def _stochastic_action(
-        self, key: chex.PRNGKey, state: RPPOState
-    ) -> tuple[chex.PRNGKey, RPPOState, chex.Array, chex.Array]:
+        self, key: Key, state: RPPOState
+    ) -> tuple[Key, RPPOState, Array, Array]:
         (
             key,
             action_key,
@@ -499,59 +503,3 @@ class RPPO:
         )
 
         return key, transitions.replace(obs=None, next_obs=None)
-
-
-def make(cfg, env, env_params):
-
-    rppo_config = RPPOConfig(**cfg.algorithm)
-
-    actor = RecurrentNetwork(
-        feature_extractor=instantiate(rppo_config.actor.feature_extractor),
-        torso=instantiate(rppo_config.actor.torso),
-        head=heads.Categorical(
-            action_dim=env.action_space(env_params).n,
-            kernel_init=nn.initializers.orthogonal(scale=0.01),
-        ),
-    )
-
-    critic = RecurrentNetwork(
-        feature_extractor=instantiate(rppo_config.critic.feature_extractor),
-        torso=instantiate(rppo_config.critic.torso),
-        head=heads.VNetwork(kernel_init=nn.initializers.orthogonal(scale=1.0)),
-    )
-
-    if rppo_config.anneal_lr:
-        num_updates_per_epoch = cfg.total_timesteps // (
-            rppo_config.num_envs * rppo_config.mode.length
-        )
-        num_updates = (
-            num_updates_per_epoch
-            * rppo_config.update_epochs
-            * rppo_config.num_minibatches
-        )
-        learning_rate = optax.linear_schedule(
-            init_value=rppo_config.learning_rate,
-            end_value=0.0,
-            transition_steps=num_updates,
-        )
-    else:
-        learning_rate = rppo_config.learning_rate
-
-    actor_optimizer = optax.chain(
-        optax.clip_by_global_norm(rppo_config.max_grad_norm),
-        optax.adam(learning_rate=learning_rate, eps=1e-5),
-    )
-    critic_optimizer = optax.chain(
-        optax.clip_by_global_norm(rppo_config.max_grad_norm),
-        optax.adam(learning_rate=learning_rate, eps=1e-5),
-    )
-
-    return RPPO(
-        cfg=rppo_config,
-        env=env,
-        env_params=env_params,
-        actor=actor,
-        critic=critic,
-        actor_optimizer=actor_optimizer,
-        critic_optimizer=critic_optimizer,
-    )

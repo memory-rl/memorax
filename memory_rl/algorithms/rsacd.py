@@ -8,10 +8,17 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 
-from memory_rl.networks import RecurrentNetwork, heads
+from memory_rl.algorithms.rsac import RSACConfig
+from memory_rl.utils.typing import (
+    Array,
+    Buffer,
+    BufferState,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
 from memory_rl.utils import periodic_incremental_update, Transition
 
 
@@ -19,17 +26,17 @@ from memory_rl.utils import periodic_incremental_update, Transition
 class Batch:
     """Data structure for a batch of transitions sampled from the replay buffer."""
 
-    obs: chex.Array
+    obs: Array
     """Batch of obs with shape [batch_size, obs_dim]"""
-    prev_done: chex.Array
+    prev_done: Array
     """Batch of done flags with shape [batch_size]"""
-    action: chex.Array
+    action: Array
     """Batch of actions with shape [batch_size, action_dim]"""
-    reward: chex.Array
+    reward: Array
     """Batch of rewards with shape [batch_size]"""
-    next_obs: chex.Array
+    next_obs: Array
     """Batch of next obs with shape [batch_size, obs_dim]"""
-    done: chex.Array
+    done: Array
     """Batch of next done flags with shape [batch_size]"""
 
 
@@ -59,37 +66,37 @@ class RSACDConfig:
 @chex.dataclass(frozen=True)
 class RSACDState:
     step: int
-    env_state: gymnax.EnvState
-    buffer_state: Any
-    actor_params: core.FrozenDict[str, chex.ArrayTree]
-    critic_params: core.FrozenDict[str, chex.ArrayTree]
-    critic_target_params: core.FrozenDict[str, chex.ArrayTree]
-    alpha_params: core.FrozenDict[str, chex.ArrayTree]
+    env_state: EnvState
+    buffer_state: BufferState
+    actor_params: core.FrozenDict[str, Any]
+    critic_params: core.FrozenDict[str, Any]
+    critic_target_params: core.FrozenDict[str, Any]
+    alpha_params: core.FrozenDict[str, Any]
     actor_optimizer_state: optax.OptState
     critic_optimizer_state: optax.OptState
     actor_hidden_state: Any
     critic_hidden_state: Any
     alpha_optimizer_state: optax.OptState
-    obs: chex.Array
-    done: chex.Array
+    obs: Array
+    done: Array
 
 
 @chex.dataclass(frozen=True)
 class RSACD:
-    cfg: DictConfig
-    env: Any
-    env_params: Any
+    cfg: RSACConfig
+    env: Environment
+    env_params: EnvParams
     actor_network: nn.Module
     critic_network: nn.Module
     alpha_network: nn.Module
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
     alpha_optimizer: optax.GradientTransformation
-    buffer: Any
+    buffer: Buffer
 
     def _deterministic_action(
-        self, key: chex.PRNGKey, state: RSACDState
-    ) -> tuple[chex.PRNGKey, RSACDState]:
+        self, key: Key, state: RSACDState
+    ) -> tuple[Key, RSACDState]:
         actor_hidden_state, dist = self.actor_network.apply(
             state.actor_params,
             observation=jnp.expand_dims(state.obs, 1),
@@ -104,8 +111,8 @@ class RSACD:
         return key, state, action
 
     def _stochastic_action(
-        self, key: chex.PRNGKey, state: RSACDState
-    ) -> tuple[chex.PRNGKey, RSACDState, chex.Array, chex.Array]:
+        self, key: Key, state: RSACDState
+    ) -> tuple[Key, RSACDState, Array, Array]:
         key, sample_key = jax.random.split(key)
         actor_hidden_state, dist = self.actor_network.apply(
             state.actor_params,
@@ -120,8 +127,8 @@ class RSACD:
         return key, state, action
 
     def _random_action(
-        self, key: chex.PRNGKey, state: RSACDState
-    ) -> tuple[chex.PRNGKey, RSACDState, chex.Array, chex.Array]:
+        self, key: Key, state: RSACDState
+    ) -> tuple[Key, RSACDState, Array, Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
@@ -129,7 +136,7 @@ class RSACD:
 
     def _step(
         self, carry, _, *, policy: Callable, write_to_buffer: bool = True
-    ) -> tuple[chex.PRNGKey, RSACDState]:
+    ) -> tuple[Key, RSACDState]:
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
@@ -403,9 +410,7 @@ class RSACD:
     @partial(
         jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
     )
-    def warmup(
-        self, key, state: RSACDState, num_steps: int
-    ) -> tuple[chex.PRNGKey, RSACDState]:
+    def warmup(self, key, state: RSACDState, num_steps: int) -> tuple[Key, RSACDState]:
 
         (key, state), _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
@@ -417,7 +422,7 @@ class RSACD:
     @partial(
         jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
     )
-    def train(self, key: chex.PRNGKey, state: RSACDState, num_steps: int):
+    def train(self, key: Key, state: RSACDState, num_steps: int):
 
         (key, state), transitions = jax.lax.scan(
             self._update_step,
@@ -430,7 +435,7 @@ class RSACD:
     @partial(
         jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
     )
-    def evaluate(self, key: chex.PRNGKey, state: RSACDState, num_steps: int):
+    def evaluate(self, key: Key, state: RSACDState, num_steps: int):
 
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
@@ -455,67 +460,3 @@ class RSACD:
         )
 
         return key, transitions.replace(obs=None, next_obs=None)
-
-
-def make(cfg, env, env_params) -> RSACD:
-
-    rsacd_config = RSACDConfig(**cfg.algorithm)
-
-    action_dim = env.action_space(env_params).n
-
-    # Define networks
-    actor_network = RecurrentNetwork(
-        feature_extractor=instantiate(rsacd_config.actor.feature_extractor),
-        torso=instantiate(rsacd_config.actor.torso),
-        head=heads.Categorical(
-            action_dim=action_dim,
-        ),
-    )
-
-    critic_network = nn.vmap(
-        RecurrentNetwork,
-        variable_axes={"params": 0},
-        split_rngs={"params": True},
-        in_axes=None,
-        out_axes=0,
-        axis_size=2,
-    )(
-        feature_extractor=instantiate(rsacd_config.critic.feature_extractor),
-        torso=instantiate(rsacd_config.critic.torso),
-        head=heads.DiscreteQNetwork(env.action_space(env_params).n),
-    )
-
-    alpha_network = heads.Alpha(initial_alpha=rsacd_config.initial_alpha)
-
-    # Define optimizers
-    actor_optimizer = optax.chain(
-        optax.clip_by_global_norm(10.0),
-        optax.adam(learning_rate=rsacd_config.actor_lr),
-    )
-    critic_optimizer = optax.chain(
-        optax.clip_by_global_norm(10.0),
-        optax.adam(learning_rate=rsacd_config.critic_lr),
-    )
-    alpha_optimizer = optax.chain(
-        optax.clip_by_global_norm(10.0),
-        optax.adam(learning_rate=rsacd_config.alpha_lr),
-    )
-
-    sample_sequence_length = rsacd_config.mode.length or env_params.max_steps_in_episode
-    buffer = instantiate(
-        rsacd_config.buffer,
-        sample_sequence_length=sample_sequence_length,
-    )
-
-    return RSACD(
-        cfg=rsacd_config,
-        env=env,
-        env_params=env_params,
-        actor_network=actor_network,
-        critic_network=critic_network,
-        alpha_network=alpha_network,
-        actor_optimizer=actor_optimizer,
-        critic_optimizer=critic_optimizer,
-        alpha_optimizer=alpha_optimizer,
-        buffer=buffer,
-    )

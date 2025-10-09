@@ -2,16 +2,22 @@ from functools import partial
 from typing import Any, Callable
 
 import chex
-import flashbax as fbx
-import gymnax
 import jax
 import jax.numpy as jnp
+import flax.linen as nn
 import optax
 from flax import core
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 
-from memory_rl.networks import Network, heads
+from memory_rl.utils.typing import (
+    Array,
+    Buffer,
+    BufferState,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
+from memory_rl.networks import Network
 from memory_rl.utils import Transition
 
 
@@ -32,8 +38,8 @@ class DQNConfig:
     learning_starts: int
     train_frequency: int
     buffer: Any
-    feature_extractor: Any
-    torso: Any
+    feature_extractor: nn.Module
+    torso: nn.Module
     double: bool
 
 
@@ -44,12 +50,12 @@ class DQNState:
     """
 
     step: int
-    obs: chex.Array
-    env_state: gymnax.EnvState
+    obs: Array
+    env_state: EnvState
     params: core.FrozenDict[str, Any]
     target_params: core.FrozenDict[str, Any]
     optimizer_state: optax.OptState
-    buffer_state: fbx.trajectory_buffer.TrajectoryBufferState
+    buffer_state: BufferState
 
 
 @chex.dataclass(frozen=True)
@@ -58,32 +64,26 @@ class DQN:
     Deep Q-Network (DQN) reinforcement learning algorithm.
     """
 
-    cfg: DictConfig
-    env: gymnax.environments.environment.Environment
-    env_params: gymnax.EnvParams
+    cfg: DQNConfig
+    env: Environment
+    env_params: EnvParams
     q_network: Network
     optimizer: optax.GradientTransformation
-    buffer: fbx.trajectory_buffer.TrajectoryBuffer
+    buffer: Buffer
     epsilon_schedule: optax.Schedule
 
-    def _greedy_action(
-        self, key: chex.PRNGKey, state: DQNState
-    ) -> tuple[chex.PRNGKey, chex.Array]:
+    def _greedy_action(self, key: Key, state: DQNState) -> tuple[Key, Array]:
         q_values = self.q_network.apply(state.params, state.obs)
         action = jnp.argmax(q_values, axis=-1)
         return key, action
 
-    def _random_action(
-        self, key: chex.PRNGKey, state: DQNState
-    ) -> tuple[chex.PRNGKey, chex.Array]:
+    def _random_action(self, key: Key, state: DQNState) -> tuple[Key, Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
         return key, action
 
-    def _epsilon_greedy_action(
-        self, key: chex.PRNGKey, state: DQNState
-    ) -> tuple[chex.PRNGKey, chex.Array]:
+    def _epsilon_greedy_action(self, key: Key, state: DQNState) -> tuple[Key, Array]:
 
         key, random_action = self._random_action(key, state)
 
@@ -100,7 +100,7 @@ class DQN:
 
     def _step(
         self, carry, _, *, policy: Callable, write_to_buffer: bool = True
-    ) -> tuple[chex.PRNGKey, DQNState]:
+    ) -> tuple[Key, DQNState]:
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
@@ -133,9 +133,7 @@ class DQN:
         )
         return (key, state), transition
 
-    def _update(
-        self, key: chex.PRNGKey, state: DQNState
-    ) -> tuple[DQNState, chex.Array, chex.Array]:
+    def _update(self, key: Key, state: DQNState) -> tuple[DQNState, Array, Array]:
 
         key, sample_key = jax.random.split(key)
         batch = self.buffer.sample(state.buffer_state, sample_key).experience
@@ -193,8 +191,8 @@ class DQN:
         return key, state, loss, q_value.mean()
 
     def _learn(
-        self, carry: tuple[chex.PRNGKey, DQNState], _
-    ) -> tuple[tuple[chex.PRNGKey, DQNState], dict]:
+        self, carry: tuple[Key, DQNState], _
+    ) -> tuple[tuple[Key, DQNState], dict]:
 
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
@@ -210,7 +208,7 @@ class DQN:
         return (key, state), transitions.replace(obs=None, next_obs=None)
 
     @partial(jax.jit, static_argnames=["self"])
-    def init(self, key) -> tuple[chex.PRNGKey, DQNState, chex.Array, gymnax.EnvState]:
+    def init(self, key) -> tuple[Key, DQNState, Array, EnvState]:
         key, env_key, q_key = jax.random.split(key, 3)
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
@@ -243,9 +241,7 @@ class DQN:
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(
-        self, key: chex.PRNGKey, state: DQNState, num_steps: int
-    ) -> tuple[chex.PRNGKey, DQNState]:
+    def warmup(self, key: Key, state: DQNState, num_steps: int) -> tuple[Key, DQNState]:
 
         (key, state), _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
@@ -257,10 +253,10 @@ class DQN:
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(
         self,
-        key: chex.PRNGKey,
+        key: Key,
         state: DQNState,
         num_steps: int,
-    ) -> tuple[chex.PRNGKey, DQNState, dict]:
+    ) -> tuple[Key, DQNState, dict]:
         (key, state), transitions = jax.lax.scan(
             self._learn,
             (key, state),
@@ -269,9 +265,7 @@ class DQN:
         return key, state, transitions
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(
-        self, key: chex.PRNGKey, state: DQNState, num_steps: int
-    ) -> tuple[chex.PRNGKey, Any]:
+    def evaluate(self, key: Key, state: DQNState, num_steps: int) -> tuple[Key, Any]:
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
@@ -287,41 +281,3 @@ class DQN:
         )
 
         return key, transitions.replace(obs=None, next_obs=None)
-
-
-def make(cfg, env, env_params) -> DQN:
-    """
-    Factory function to construct a DQN agent from Args.
-
-    Args:
-        args: Experiment configuration.
-
-    Returns:
-        An initialized DQN instance ready for training.
-    """
-
-    dqn_config = DQNConfig(**cfg.algorithm)
-
-    q_network = Network(
-        feature_extractor=instantiate(dqn_config.feature_extractor),
-        torso=instantiate(dqn_config.torso),
-        head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
-    )
-
-    buffer = instantiate(dqn_config.buffer)
-    optimizer = optax.adam(learning_rate=dqn_config.learning_rate)
-    epsilon_schedule = optax.linear_schedule(
-        dqn_config.start_e,
-        dqn_config.end_e,
-        int(dqn_config.exploration_fraction * cfg.total_timesteps),
-        dqn_config.learning_starts,
-    )
-    return DQN(
-        cfg=dqn_config,  # type: ignore
-        env=env,  # type: ignore
-        env_params=env_params,  # type: ignore
-        q_network=q_network,  # type: ignore
-        optimizer=optimizer,  # type: ignore
-        buffer=buffer,  # type: ignore
-        epsilon_schedule=epsilon_schedule,  # type: ignore
-    )

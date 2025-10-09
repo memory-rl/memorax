@@ -4,8 +4,7 @@ from memory_rl.networks.mlp import MLP
 from memory_rl.networks.networks import Network, RecurrentNetwork
 from memory_rl.networks.recurrent import (
     FFMCell,
-    GPTConfig,
-    GPTRNNCell,
+    GPT2Cell,
     MaskedRNN,
     mLSTMBlock,
     sLSTMCell,

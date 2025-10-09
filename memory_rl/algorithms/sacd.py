@@ -70,7 +70,7 @@ class SACDState:
 
 @chex.dataclass(frozen=True)
 class SACD:
-    cfg: DictConfig
+    cfg: SACDConfig
     env: Any
     env_params: Any
     actor_network: nn.Module

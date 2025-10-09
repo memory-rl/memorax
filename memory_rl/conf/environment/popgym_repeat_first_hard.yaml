@@ -1,2 +1,0 @@
-_target_: memory_rl.environments.popjaxrl.make
-env_id: RepeatFirstHard

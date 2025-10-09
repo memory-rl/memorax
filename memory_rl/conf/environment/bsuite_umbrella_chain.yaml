@@ -1,9 +1,0 @@
-_target_: memory_rl.environments.gymnax.make
-env_id: UmbrellaChain-bsuite
-
-wrappers:
- - _target_: memory_rl.utils.wrapper.BSuiteWrapper
-
-parameters:
-  chain_length: 10
-  max_steps_in_episode: ${eval:${.chain_length}+1}

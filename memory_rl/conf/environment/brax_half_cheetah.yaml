@@ -1,2 +1,0 @@
-_target_: memory_rl.environments.brax.make
-env_id: halfcheetah-F

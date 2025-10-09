@@ -1,4 +1,3 @@
-import jax
 import gxm
 from gymnax.environments import spaces, EnvParams
 
@@ -6,7 +5,7 @@ from memory_rl.utils.wrappers import GymnaxWrapper
 
 
 class GxmGymnaxWrapper(GymnaxWrapper):
-    def __init__(self, env, key):
+    def __init__(self, env):
         super().__init__(env)
 
     def reset(self, key, params):
@@ -31,8 +30,9 @@ class GxmGymnaxWrapper(GymnaxWrapper):
         return EnvParams(max_steps_in_episode=1000)
 
 
-def make(env_id: str, key: jax.Array, **kwargs):
-    env = gxm.make(env_id)
-    env = GxmGymnaxWrapper(env, key)
+def make(cfg):
+    kwargs = cfg.kwargs or {}
+    env = gxm.make(cfg.env_id, **kwargs)
+    env = GxmGymnaxWrapper(env)
     env_params = env.default_params
     return env, env_params

@@ -1,20 +1,19 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Core reinforcement-learning components live under `memory_rl/`: algorithms, buffers, environments, networks, loggers, and utilities. PopGym baselines and wrappers are grouped in `popjaxrl/`. Tests reside in `tests/`; run-time artifacts and checkpoints accumulate in `outputs/` (timestamped) and visualizations in `plots/`. Packaging metadata lives in `pyproject.toml` and `uv.lock`; hyperparameter sweeps are defined in `memory_rl/sweep.yaml`.
+Core source lives in `memory_rl/`, grouped by responsibility: `algorithms/` packages training loops for DQN, PPO, SAC, and memory-augmented variants; `networks/` houses recurrent cells and policy/value heads; `buffers/` and `utils/` provide rollout storage and shared helpers; `environments/` and `loggers/` wrap task definitions and logging sinks. The `popjaxrl/` tree mirrors experimental PopGym baselines with its own `algorithms/`, `envs/`, and `run_popgym.py`. Keep new tests under `tests/`, and direct generated checkpoints or Hydra logs to `outputs/`; long-form analysis lives in `plots/`.
 
 ## Build, Test, and Development Commands
-- `uv sync` installs the pinned Python ≥3.11 toolchain; add `--extra cuda` when targeting GPU builds.
-- `uv run main algorithm=dqn environment=cartpole` launches a reference training job using Hydra overrides.
-- `uv run sweep --project memory-rl` coordinates Optuna/W&B sweeps defined in `memory_rl/sweep.yaml`.
-- `uv run pytest` executes the test suite; add `-k algorithm` to focus on specific blocks.
-- `uv run pre-commit run --all-files` enforces formatters and linters before pushing.
+- `uv sync` installs the core CPU stack specified in `pyproject.toml`; add `--extra cuda` to fetch GPU builds.
+- `uv run main algorithm=dqn environment=cartpole` launches a reference experiment; override parameters Hydra-style (e.g., `logger=wandb seed=42`).
+- `uv run python popjaxrl/run_popgym.py --num-runs 4 --env AliasPrevAction --arch s5` exercises the PopGym baselines.
+- `uv run pytest` executes the full test suite; target individual files with `uv run pytest tests/test_algorithms.py`.
 
 ## Coding Style & Naming Conventions
-Follow Black (line length 88) and 4-space indentation; keep modules and functions in `snake_case`, classes in `PascalCase`, and constants in `UPPER_SNAKE_CASE`. Sorting imports via isort’s Black profile is automatic; resist manual reordering. Flake8 (with Bugbear and comprehensions), Ruff, and MyPy run through pre-commit—address warnings instead of silencing them. Use type hints liberally for new surfaces, and prefer Hydra configs or dataclasses for structured settings.
+Format Python with Black (line-length 88) and isort (`--profile black`); enforce linting through Flake8, Ruff, and MyPy (`--ignore-missing-imports`). Four-space indentation is standard, with type annotations expected on public APIs. Modules and functions use `snake_case`, classes use `PascalCase`, and constants remain `UPPER_CASE`. Run `pre-commit run --all-files` before committing to apply the configured checks and prettier formatting for Markdown.
 
 ## Testing Guidelines
-Pytest powers the suite; new tests belong under `tests/test_<feature>.py` with descriptive method names (e.g., `test_rppo_handles_bptt_masks`). Build dummy environments or fixtures, mirroring `tests/test_algorithms.py`, to keep stochastic behaviour deterministic. Ensure integration tests seed `jax.random` for reproducibility. For features needing accelerator hardware, guard them with `pytest.mark.skipif`.
+Write pytest cases named `test_<feature>.py`, grouping scenario-specific helpers in fixtures. Favor deterministic seeds via JAX PRNG keys so regressions surface reliably. Exercise new environments or algorithms with smoke tests that verify forward passes and training loops complete a small rollout. Store any large artifacts under `outputs/` and exclude them from assertions. Use `uv run pytest -k "ppo"` when narrowing failures locally.
 
 ## Commit & Pull Request Guidelines
-Commit history favours short, imperative subjects (`Update deps`, `Move out benchmarks`). Keep the first line ≤72 characters and expand rationale in the body if necessary. Before opening a PR, confirm `uv run pytest` and `uv run pre-commit run --all-files` pass, link relevant issues, and summarise experiment results (include `outputs/<timestamp>/main.log` snippets or W&B links). Request reviews when you have clear reproduction steps and attach configuration diffs or command lines used.
+Repository history favors concise, imperative subjects (e.g., `Update models`, `Fix s/m/xLSTM`). Keep bodies short and reference issues when available. Before opening a pull request, confirm `uv run pytest` and `pre-commit run --all-files` pass, summarize the experiment command or config overrides you validated, and attach relevant WandB run links or plots. Highlight configuration or API changes in the PR description so downstream experiment scripts can be updated promptly.

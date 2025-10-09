@@ -1,20 +1,16 @@
-from __future__ import annotations
-
 from collections import defaultdict
 from dataclasses import field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, DefaultDict, Mapping, Optional
 
-import chex
-import jax
-import numpy as np
+from flax import struct
 from omegaconf import DictConfig, OmegaConf
 
 from .logger import BaseLogger, BaseLoggerState, PyTree
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class FileLoggerState(BaseLoggerState):
     base: Path
     paths: dict[int, Path]
@@ -23,7 +19,7 @@ class FileLoggerState(BaseLoggerState):
     )
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class FileLogger(BaseLogger[FileLoggerState]):
     algorithm: str
     environment: str

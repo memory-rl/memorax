@@ -1,8 +1,8 @@
 from typing import Any
 
-import chex
 import jax
 import jax.numpy as jnp
+from flax import struct
 import optax
 from flax import core
 
@@ -16,7 +16,7 @@ from memory_rl.networks import RecurrentNetwork
 from memory_rl.utils import generalized_advantage_estimatation, Transition
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class RPPOContinuousConfig:
     name: str
     learning_rate: float
@@ -43,7 +43,7 @@ class RPPOContinuousConfig:
         return self.num_envs * self.num_steps
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class RPPOContinuousState:
     step: int
     obs: Array
@@ -57,7 +57,7 @@ class RPPOContinuousState:
     critic_optimizer_state: optax.OptState
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class RPPOContinuous:
     cfg: RPPOContinuousConfig
     env: Environment

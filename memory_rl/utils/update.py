@@ -1,15 +1,16 @@
-import chex
 import jax
 from optax import incremental_update, periodic_update
 from optax._src import base
+
+from memory_rl.utils.typing import Array
 
 
 def periodic_incremental_update(
     new_tensors: base.Params,
     old_tensors: base.Params,
-    steps: chex.Array,
+    steps: Array,
     update_period: int,
-    step_size: chex.Numeric,
+    step_size: int,
 ) -> base.Params:
     """Periodically perform Polyak-style incremental updates.
 
@@ -42,7 +43,7 @@ def delayed_update(
     old_tensors: base.Params,
     new_opt_state: base.OptState,
     old_opt_state: base.OptState,
-    steps: chex.Array,
+    steps: Array,
     start_step: int,
 ) -> base.Params:
     """Update all parameters only after a given timestep is reached.

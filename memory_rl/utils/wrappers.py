@@ -1,10 +1,11 @@
 from functools import partial
 from typing import Any, Optional, Tuple, Union
 
-import chex
 import jax
 import jax.numpy as jnp
 from gymnax.environments import environment, spaces
+
+from memory_rl.utils.typing import Array, Key
 
 
 class GymnaxWrapper(object):
@@ -44,8 +45,8 @@ class MaskObservationWrapper(GymnaxWrapper):
 
     @partial(jax.jit, static_argnums=(0, -1))
     def reset(
-        self, key: chex.PRNGKey, params: Optional[environment.EnvParams] = None
-    ) -> Tuple[chex.Array, environment.EnvState]:
+        self, key: Key, params: Optional[environment.EnvParams] = None
+    ) -> Tuple[Array, environment.EnvState]:
         obs, state = self._env.reset(key, params)
         obs = obs[self.mask_dims]
         return obs, state
@@ -53,11 +54,11 @@ class MaskObservationWrapper(GymnaxWrapper):
     @partial(jax.jit, static_argnums=(0, -1))
     def step(
         self,
-        key: chex.PRNGKey,
+        key: Key,
         state: environment.EnvState,
         action: Union[int, float],
         params: Optional[environment.EnvParams] = None,
-    ) -> Tuple[chex.Array, environment.EnvState, float, bool, dict]:
+    ) -> Tuple[Array, environment.EnvState, float, bool, dict]:
         obs, state, reward, done, info = self._env.step(key, state, action, params)
         obs = obs[self.mask_dims]
         return obs, state, reward, done, info

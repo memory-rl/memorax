@@ -1,8 +1,7 @@
 from functools import partial
 from typing import Any, Callable
 
-import chex
-import gymnax
+from flax import struct
 import jax
 import jax.numpy as jnp
 import optax
@@ -10,6 +9,7 @@ from flax import core
 
 from memory_rl.networks import Network
 from memory_rl.utils import Transition
+from memory_rl.utils.typing import Array, Key, EnvState, EnvParams, Environment
 
 
 def boltzmann_policy(q, tau: float):
@@ -20,7 +20,7 @@ def boltzmann_policy(q, tau: float):
     return pi, log_pi, entropy
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class SoftPQNConfig:
     name: str
     learning_rate: float
@@ -47,15 +47,15 @@ class SoftPQNConfig:
         return self.num_envs * self.num_steps
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class SoftPQNState:
     """
     Immutable container for training state of SoftPQN algorithm.
     """
 
     step: int
-    obs: chex.Array
-    env_state: gymnax.EnvState
+    obs: Array
+    env_state: EnvState
     params: core.FrozenDict[str, Any]
     alpha: core.FrozenDict[str, Any]
     beta: core.FrozenDict[str, Any]
@@ -64,15 +64,15 @@ class SoftPQNState:
     beta_optimizer_state: optax.OptState
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class SoftPQN:
     """
     Deep Q-Network (SoftPQN) reinforcement learning algorithm.
     """
 
     cfg: SoftPQNConfig
-    env: gymnax.environments.environment.Environment
-    env_params: gymnax.EnvParams
+    env: Environment
+    env_params: EnvParams
     q_network: Network
     alpha_network: Network
     beta_network: Network
@@ -82,14 +82,12 @@ class SoftPQN:
     target_entropy: float
     target_kl: float
 
-    def _deterministic_action(
-        self, key: chex.PRNGKey, state: SoftPQNState
-    ) -> tuple[chex.PRNGKey, chex.Array]:
+    def _deterministic_action(self, key: Key, state: SoftPQNState) -> tuple[Key, Array]:
         q_values = self.q_network.apply(state.params, state.obs)
         action = jnp.argmax(q_values, axis=-1)
         return key, action, q_values, None
 
-    def _stochastic_action(self, key: chex.PRNGKey, state: SoftPQNState):
+    def _stochastic_action(self, key: Key, state: SoftPQNState):
         num_envs = state.obs.shape[0]
         key, policy_key = jax.random.split(key)
         policy_keys = jax.random.split(policy_key, num_envs)
@@ -103,7 +101,7 @@ class SoftPQN:
         )
         return key, action, q_values, log_pi
 
-    def _step(self, carry, _, *, policy: Callable) -> tuple[chex.PRNGKey, SoftPQNState]:
+    def _step(self, carry, _, *, policy: Callable) -> tuple[Key, SoftPQNState]:
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
@@ -173,9 +171,7 @@ class SoftPQN:
         )
         return (key, state, transitions, lambda_targets), aux
 
-    def _update_minibatch(
-        self, carry, xs
-    ) -> tuple[SoftPQNState, chex.Array, chex.Array]:
+    def _update_minibatch(self, carry, xs) -> tuple[SoftPQNState, Array, Array]:
         key, state = carry
         minibatch, target = xs
 
@@ -258,8 +254,8 @@ class SoftPQN:
         return (key, state), (loss, alpha_loss, beta_loss, q_value, entropy, kl)
 
     def _learn(
-        self, carry: tuple[chex.PRNGKey, SoftPQNState], _
-    ) -> tuple[tuple[chex.PRNGKey, SoftPQNState], dict]:
+        self, carry: tuple[Key, SoftPQNState], _
+    ) -> tuple[tuple[Key, SoftPQNState], dict]:
 
         key, state = carry
 
@@ -310,9 +306,7 @@ class SoftPQN:
         return (key, state), transitions
 
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
-    def init(
-        self, key
-    ) -> tuple[chex.PRNGKey, SoftPQNState, chex.Array, gymnax.EnvState]:
+    def init(self, key) -> tuple[Key, SoftPQNState, Array, EnvState]:
         """
         Initialize environment, network parameters, optimizer, and replay buffer.
 
@@ -356,8 +350,8 @@ class SoftPQN:
 
     @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key"])
     def warmup(
-        self, key: chex.PRNGKey, state: SoftPQNState, num_steps: int
-    ) -> tuple[chex.PRNGKey, SoftPQNState]:
+        self, key: Key, state: SoftPQNState, num_steps: int
+    ) -> tuple[Key, SoftPQNState]:
         return key, state
 
     @partial(
@@ -365,10 +359,10 @@ class SoftPQN:
     )
     def train(
         self,
-        key: chex.PRNGKey,
+        key: Key,
         state: SoftPQNState,
         num_steps: int,
-    ) -> tuple[chex.PRNGKey, SoftPQNState, dict]:
+    ) -> tuple[Key, SoftPQNState, dict]:
         """
         Run training loop for specified number of steps.
 
@@ -400,8 +394,8 @@ class SoftPQN:
         jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
     )
     def evaluate(
-        self, key: chex.PRNGKey, state: SoftPQNState, num_steps: int
-    ) -> tuple[chex.PRNGKey, dict]:
+        self, key: Key, state: SoftPQNState, num_steps: int
+    ) -> tuple[Key, dict]:
         """
         Evaluate current policy for a fixed number of steps without exploration.
 

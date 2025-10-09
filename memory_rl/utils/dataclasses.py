@@ -1,16 +1,18 @@
 from typing import Optional
-import chex
+from flax import struct
+
+from memory_rl.utils.typing import Array
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class Transition:
-    obs: Optional[chex.Array] = None
-    action: Optional[chex.Array] = None
-    reward: Optional[chex.Array] = None
-    done: Optional[chex.Array] = None
+    obs: Optional[Array] = None
+    action: Optional[Array] = None
+    reward: Optional[Array] = None
+    done: Optional[Array] = None
     info: Optional[dict] = None
-    prev_done: Optional[chex.Array] = None
-    next_obs: Optional[chex.Array] = None
-    log_prob: Optional[chex.Array] = None
-    value: Optional[chex.Array] = None
-    env_state: Optional[chex.Array] = None
+    prev_done: Optional[Array] = None
+    next_obs: Optional[Array] = None
+    log_prob: Optional[Array] = None
+    value: Optional[Array] = None
+    env_state: Optional[Array] = None

@@ -1,7 +1,6 @@
 from functools import partial
 from typing import Any, Callable
-import chex
-import flax.linen as nn
+from flax import struct
 import jax
 import jax.numpy as jnp
 import optax
@@ -18,7 +17,7 @@ from memory_rl.networks import RecurrentNetwork
 from memory_rl.utils import generalized_advantage_estimatation, Transition
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class RPPOConfig:
     name: str
     learning_rate: float
@@ -45,7 +44,7 @@ class RPPOConfig:
         return self.num_envs * self.mode.length
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class RPPOState:
     step: int
     obs: Array
@@ -59,7 +58,7 @@ class RPPOState:
     critic_optimizer_state: optax.OptState
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class RPPO:
     cfg: RPPOConfig
     env: Environment

@@ -1,9 +1,9 @@
 from functools import partial
 from typing import Any, Callable, Optional
 
-import chex
 import jax
 import jax.numpy as jnp
+from flax import struct
 import flax.linen as nn
 import optax
 from flax import core
@@ -21,7 +21,7 @@ from memory_rl.networks import RecurrentNetwork
 from memory_rl.utils import periodic_incremental_update, Transition
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class DRQNConfig:
     name: str
     learning_rate: float
@@ -47,7 +47,7 @@ class DRQNConfig:
     # mask: bool
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class DRQNState:
     step: int
     obs: Array
@@ -60,7 +60,7 @@ class DRQNState:
     buffer_state: BufferState
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class DRQN:
     cfg: DRQNConfig
     env: Environment

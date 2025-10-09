@@ -291,7 +291,7 @@ class SAC:
                 self.env.action_space(self.env_params).shape[0],
             )
         )
-        _, _, reward, done, _ = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
+        _, _, reward, done, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
 
@@ -305,8 +305,8 @@ class SAC:
         alpha_params = self.alpha_network.init(alpha_key)
         alpha_optimizer_state = self.alpha_optimizer.init(alpha_params)
 
-        transition = Transition(obs=obs[0], done=done[0], action=action[0], reward=reward[0])  # type: ignore
-        buffer_state = self.buffer.init(transition)
+        transition = Transition(obs=obs, action=action, reward=reward, done=done, info=info)  # type: ignore
+        buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
 
         return key, SACState(
             step=0,

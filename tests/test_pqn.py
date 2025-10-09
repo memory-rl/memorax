@@ -17,16 +17,13 @@ def test_pqn_init_and_train(
         num_envs=2,
         num_eval_envs=1,
         num_steps=2,
-        anneal_lr=False,
         gamma=0.99,
-        gae_lambda=0.9,
+        td_lambda=0.9,
         num_minibatches=1,
+        start_e=1.0,
+        end_e=0.05,
+        exploration_fraction=0.1,
         update_epochs=1,
-        normalize_advantage=True,
-        clip_coef=0.2,
-        clip_vloss=True,
-        ent_coef=0.0,
-        vf_coef=0.5,
         max_grad_norm=0.5,
         learning_starts=0,
         actor=None,
@@ -44,6 +41,6 @@ def test_pqn_init_and_train(
 
     key, state = algorithm.init(rng_key)
     key, state = algorithm.warmup(key, state, num_steps=cfg.batch_size)
-    train_steps = cfg.batch_size
-    key, state, transitions = algorithm.train(key, state, num_steps=train_steps)
+    rollout_steps = cfg.num_envs * cfg.num_steps
+    key, state, transitions = algorithm.train(key, state, num_steps=rollout_steps)
     eval_key, eval_transitions = algorithm.evaluate(key, state, num_steps=2)

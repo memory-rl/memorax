@@ -141,7 +141,9 @@ class DummyContinuousEnv:
         state: DummyContinuousEnvState,
         action: jax.Array,
         params: DummyContinuousEnvParams,
-    ) -> tuple[jax.Array, DummyContinuousEnvState, jax.Array, jax.Array, dict[str, jax.Array]]:
+    ) -> tuple[
+        jax.Array, DummyContinuousEnvState, jax.Array, jax.Array, dict[str, jax.Array]
+    ]:
         del key
         next_step = state.step + 1
         done = next_step >= params.max_steps_in_episode
@@ -153,7 +155,7 @@ class DummyContinuousEnv:
         pad_size = max(0, params.obs_dim - params.action_dim)
         padding = jnp.zeros((pad_size,), dtype=jnp.float32)
         next_obs = jnp.concatenate([action, padding])[: params.obs_dim]
-        info = None
+        info = {}
 
         return (
             next_obs.astype(jnp.float32),
@@ -163,7 +165,9 @@ class DummyContinuousEnv:
             info,
         )
 
-    def action_space(self, params: DummyContinuousEnvParams) -> DummyContinuousActionSpace:
+    def action_space(
+        self, params: DummyContinuousEnvParams
+    ) -> DummyContinuousActionSpace:
         return DummyContinuousActionSpace(
             params.action_dim, params.action_low, params.action_high
         )

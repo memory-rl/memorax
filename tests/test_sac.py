@@ -55,6 +55,6 @@ def test_sac_init_and_train(
     )
 
     key, state = algorithm.init(rng_key)
-    key, state = algorithm.warmup(key, state, num_steps=cfg.batch_size)
-    key, state, info = algorithm.train(key, state, num_steps=0)
+    key, state = algorithm.warmup(key, state, num_steps=cfg.learning_starts)
+    key, state, info = algorithm.train(key, state, num_steps=cfg.train_frequency)
     eval_key, eval_transitions = algorithm.evaluate(key, state, num_steps=2)

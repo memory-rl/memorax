@@ -1,22 +1,14 @@
-from typing import Any, Callable
-
 from functools import partial
+from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
-from flax import struct
 import optax
-from flax import core
+from flax import core, struct
 
-from memory_rl.utils.typing import (
-    Array,
-    Environment,
-    EnvParams,
-    EnvState,
-    Key,
-)
 from memory_rl.networks import Network
-from memory_rl.utils import generalized_advantage_estimatation, Transition
+from memory_rl.utils import Transition, generalized_advantage_estimatation
+from memory_rl.utils.typing import Array, Environment, EnvParams, EnvState, Key
 
 
 @struct.dataclass(frozen=True)

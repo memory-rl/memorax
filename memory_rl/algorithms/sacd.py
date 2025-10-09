@@ -2,12 +2,12 @@ from functools import partial
 from typing import Any, Callable
 
 import flax.linen as nn
-from flax import struct
 import jax
 import jax.numpy as jnp
 import optax
-from flax import core
+from flax import core, struct
 
+from memory_rl.utils import Transition, periodic_incremental_update
 from memory_rl.utils.typing import (
     Array,
     Buffer,
@@ -17,7 +17,6 @@ from memory_rl.utils.typing import (
     EnvState,
     Key,
 )
-from memory_rl.utils import periodic_incremental_update, Transition
 
 
 @struct.dataclass
@@ -296,7 +295,7 @@ class SACD:
 
         transitions.info.update(update_info)
 
-        return (key, state), transitions.replace(obs=None, next_obs=None)
+        return (key, state), transitions
 
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
     def init(self, key):

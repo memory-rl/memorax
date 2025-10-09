@@ -1,13 +1,13 @@
 from functools import partial
 from typing import Any, Callable
 
-from flax import struct
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
-from flax import core
+from flax import core, struct
 
+from memory_rl.utils import Transition, periodic_incremental_update
 from memory_rl.utils.typing import (
     Array,
     Buffer,
@@ -17,7 +17,6 @@ from memory_rl.utils.typing import (
     EnvState,
     Key,
 )
-from memory_rl.utils import periodic_incremental_update, Transition
 
 
 @struct.dataclass
@@ -57,6 +56,10 @@ class SACConfig:
     actor: Any
     critic: Any
     buffer: Any
+
+    @property
+    def target_entropy_multiplier(self) -> float:
+        return self.target_entropy_scale
 
 
 @struct.dataclass(frozen=True)
@@ -137,7 +140,7 @@ class SAC:
         return (key, state), transition
 
     @partial(jax.jit, static_argnames=["self"])
-    def _update_alpha(self, state: SACState, entropy: float):
+    def _update_alpha(self, state: SACState):
         action_dim = self.env.action_space(self.env_params).shape[0]
         target_entropy = -self.cfg.target_entropy_multiplier * action_dim
 
@@ -170,6 +173,7 @@ class SAC:
         log_alpha = self.alpha_network.apply(state.alpha_params)
         alpha = jnp.exp(log_alpha)
 
+        actions = batch.first.action
         q1, q2 = self.critic_network.apply(
             state.critic_params, batch.first.obs, actions
         )
@@ -249,12 +253,12 @@ class SAC:
         return state, info
 
     def _update(self, key, state):
-        key, batch_key = jax.random.split(key)
+        key, batch_key, critic_key, actor_key = jax.random.split(key, 4)
         batch = self.buffer.sample(state.buffer_state, batch_key).experience
 
-        state, critic_info = self._update_critic(state, batch)
-        state, actor_info = self._update_actor(state, batch)
-        state, alpha_info = self._update_alpha(state, batch)
+        state, critic_info = self._update_critic(critic_key, state, batch)
+        state, actor_info = self._update_actor(actor_key, state, batch)
+        state, alpha_info = self._update_alpha(state)
 
         info = {**critic_info, **actor_info, **alpha_info}
         return state, info
@@ -268,6 +272,7 @@ class SAC:
 
         key, update_key = jax.random.split(key)
         state, update_info = self._update(update_key, state)
+
         transitions.info.update(update_info)
 
         return (key, state), transitions

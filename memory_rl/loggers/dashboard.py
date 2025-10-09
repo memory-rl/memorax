@@ -1,11 +1,8 @@
-from __future__ import annotations
-
-import time
 from collections import defaultdict
 from dataclasses import field
 from typing import Any, DefaultDict, Mapping, Optional
 
-import chex
+from flax import struct
 
 from rich import box
 from rich.console import Console
@@ -16,7 +13,7 @@ from rich.table import Table
 from .logger import BaseLogger, BaseLoggerState, PyTree
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class DashboardLoggerState(BaseLoggerState):
     console: Console
     live: Live
@@ -35,7 +32,7 @@ class DashboardLoggerState(BaseLoggerState):
     )
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class DashboardLogger(BaseLogger[DashboardLoggerState]):
     title: Optional[str] = None
     name: Optional[str] = None

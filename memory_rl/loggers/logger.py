@@ -4,20 +4,20 @@ from typing import Any, Generic, TypeVar, TypeAlias
 
 import jax
 import jax.numpy as jnp
-import chex
+from flax import struct
 from omegaconf import DictConfig
 
 PyTree: TypeAlias = Any
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class BaseLoggerState: ...
 
 
 StateT = TypeVar("StateT", bound=BaseLoggerState)
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class BaseLogger(Generic[StateT], ABC):
 
     @abstractmethod
@@ -33,12 +33,12 @@ class BaseLogger(Generic[StateT], ABC):
         return None
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class LoggerState(BaseLoggerState):
     logger_states: dict[str, BaseLoggerState]
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class Logger(BaseLogger[LoggerState]):
     loggers: dict[str, BaseLogger[Any]]
 
@@ -164,7 +164,6 @@ class Logger(BaseLogger[LoggerState]):
         _, disc_returns_at_done = jax.lax.scan(step, init, (r, done))
         return disc_returns_at_done.sum() / Logger.get_num_episodes(transitions)
 
-
     @staticmethod
     def get_losses(transitions):
         return {
@@ -277,7 +276,9 @@ class Logger(BaseLogger[LoggerState]):
 
         init = (jnp.zeros_like(r[0]), jnp.ones_like(r[0]))
         _, disc_returns_at_done = jax.lax.scan(step, init, (r, done))
-        return jnp.max(disc_returns_at_done, initial=jnp.min(disc_returns_at_done), where=done)
+        return jnp.max(
+            disc_returns_at_done, initial=jnp.min(disc_returns_at_done), where=done
+        )
 
     @staticmethod
     @jax.jit

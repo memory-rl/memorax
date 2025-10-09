@@ -1,9 +1,8 @@
 from functools import partial
 from typing import Any, Callable
 
-import chex
+from flax import struct
 import flax.linen as nn
-import gymnax
 import jax
 import jax.numpy as jnp
 import optax
@@ -22,7 +21,7 @@ from memory_rl.utils.typing import (
 from memory_rl.utils import periodic_incremental_update, Transition
 
 
-@chex.dataclass
+@struct.dataclass
 class Batch:
     """Data structure for a batch of transitions sampled from the replay buffer."""
 
@@ -40,7 +39,7 @@ class Batch:
     """Batch of next done flags with shape [batch_size]"""
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class RSACDConfig:
     name: str
     actor_lr: float
@@ -63,7 +62,7 @@ class RSACDConfig:
     mode: Any
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class RSACDState:
     step: int
     env_state: EnvState
@@ -81,7 +80,7 @@ class RSACDState:
     done: Array
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class RSACD:
     cfg: RSACConfig
     env: Environment

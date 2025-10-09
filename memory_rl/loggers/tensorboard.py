@@ -1,15 +1,14 @@
 from collections import defaultdict
 from dataclasses import field
-from typing import Any, Optional
 
-import chex
+from flax import struct
 
 from .logger import BaseLogger, BaseLoggerState, PyTree
 
 from tensorboardX import SummaryWriter
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class TensorBoardLoggerState(BaseLoggerState):
     writers: dict[int, SummaryWriter]
     buffer: defaultdict[int, dict[str, PyTree]] = field(
@@ -17,7 +16,7 @@ class TensorBoardLoggerState(BaseLoggerState):
     )
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class TensorBoardLogger(BaseLogger[TensorBoardLoggerState]):
     log_dir: str = "tensorboard"
 

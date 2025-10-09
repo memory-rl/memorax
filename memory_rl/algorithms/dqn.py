@@ -1,10 +1,10 @@
 from functools import partial
 from typing import Any, Callable
 
-import chex
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
+from flax import struct
 import optax
 from flax import core
 
@@ -21,7 +21,7 @@ from memory_rl.networks import Network
 from memory_rl.utils import Transition
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class DQNConfig:
     name: str
     learning_rate: float
@@ -43,7 +43,7 @@ class DQNConfig:
     double: bool
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class DQNState:
     """
     Immutable container for training state of DQN algorithm.
@@ -58,7 +58,7 @@ class DQNState:
     buffer_state: BufferState
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class DQN:
     """
     Deep Q-Network (DQN) reinforcement learning algorithm.

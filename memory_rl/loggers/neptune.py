@@ -2,13 +2,13 @@ from collections import defaultdict
 from dataclasses import field
 from typing import Any, Optional
 
-import chex
+from flax import struct
 from neptune_scale import Run
 
 from .logger import BaseLogger, BaseLoggerState, PyTree
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class NeptuneLoggerState(BaseLoggerState):
     runs: dict[int, Run]
     buffer: defaultdict[int, dict[str, PyTree]] = field(
@@ -16,7 +16,7 @@ class NeptuneLoggerState(BaseLoggerState):
     )
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class NeptuneLogger(BaseLogger[NeptuneLoggerState]):
     workspace: Optional[str] = None
     project: Optional[str] = None

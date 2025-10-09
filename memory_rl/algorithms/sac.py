@@ -1,8 +1,7 @@
 from functools import partial
 from typing import Any, Callable
 
-import chex
-import flashbax as fbx
+from flax import struct
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -21,7 +20,7 @@ from memory_rl.utils.typing import (
 from memory_rl.utils import periodic_incremental_update, Transition
 
 
-@chex.dataclass
+@struct.dataclass
 class Batch:
     """Data structure for a batch of transitions sampled from the replay buffer."""
 
@@ -35,7 +34,7 @@ class Batch:
     """Batch of done flags with shape [batch_size]"""
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class SACConfig:
     """Configuration for SAC algorithm."""
 
@@ -60,7 +59,7 @@ class SACConfig:
     buffer: Any
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class SACState:
     step: int
     env_state: EnvState
@@ -75,7 +74,7 @@ class SACState:
     obs: Array
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class SAC:
     cfg: SACConfig
     env: Environment

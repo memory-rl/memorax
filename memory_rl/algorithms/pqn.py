@@ -1,9 +1,9 @@
 from functools import partial
 from typing import Any, Callable
 
-import chex
 import jax
 import jax.numpy as jnp
+from flax import struct
 import optax
 from flax import core
 
@@ -18,7 +18,7 @@ from memory_rl.networks import Network
 from memory_rl.utils import Transition
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class PQNConfig:
     name: str
     learning_rate: float
@@ -45,7 +45,7 @@ class PQNConfig:
         return self.num_envs * self.num_steps
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class PQNState:
     """
     Immutable container for training state of PQN algorithm.
@@ -58,7 +58,7 @@ class PQNState:
     optimizer_state: optax.OptState
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class PQN:
     """
     Deep Q-Network (PQN) reinforcement learning algorithm.

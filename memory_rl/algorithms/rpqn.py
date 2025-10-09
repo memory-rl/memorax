@@ -1,7 +1,7 @@
 from functools import partial
 from typing import Any, Callable
 
-import chex
+from flax import struct
 import gymnax
 import jax
 import jax.numpy as jnp
@@ -19,7 +19,7 @@ from memory_rl.networks import RecurrentNetwork
 from memory_rl.utils import Transition
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class RPQNConfig:
     name: str
     learning_rate: float
@@ -46,7 +46,7 @@ class RPQNConfig:
         return self.num_envs * self.num_steps
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class RPQNState:
     """
     Immutable container for training state of RPQN algorithm.
@@ -61,7 +61,7 @@ class RPQNState:
     optimizer_state: optax.OptState
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class RPQN:
     """
     Deep Q-Network (RPQN) reinforcement learning algorithm.

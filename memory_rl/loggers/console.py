@@ -1,25 +1,21 @@
-from __future__ import annotations
-
-import time
 from collections import defaultdict
 from dataclasses import field
 from typing import Any, DefaultDict, Mapping, Optional
 
-import jax
-import chex
+from flax import struct
 from omegaconf import DictConfig, OmegaConf
 
 from .logger import BaseLogger, BaseLoggerState, PyTree
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class ConsoleLoggerState(BaseLoggerState):
     buffer: DefaultDict[int, dict[str, PyTree]] = field(
         default_factory=lambda: defaultdict(dict)
     )
 
 
-@chex.dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class ConsoleLogger(BaseLogger[ConsoleLoggerState]):
 
     def init(self, cfg: dict) -> ConsoleLoggerState:

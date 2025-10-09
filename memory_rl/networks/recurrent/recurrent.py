@@ -4,7 +4,6 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
-
 class MaskedRNN(nn.RNN):
     return_carry_history: bool = False
     burn_in_length: int = 0
@@ -101,8 +100,10 @@ class MaskedRNN(nn.RNN):
         return self.cell.initialize_carry(init_key, input_shape)
 
     def _build_scan(
-        self, slice_carry: bool, return_carry_history: bool, time_axis: int
+        self, slice_carry: bool, return_carry_history: bool, inputs, time_axis: int
     ):
+        input_shape = inputs.shape[:time_axis] + inputs.shape[time_axis + 1 :]
+        initial_carry = self.cell.initialize_carry(jax.random.key(0), input_shape)
         def scan_fn(cell, carry, x, mask):
             carry = jax.tree.map(
                 lambda initial_carry, carry: jnp.where(
@@ -110,7 +111,7 @@ class MaskedRNN(nn.RNN):
                     initial_carry,
                     carry,
                 ),
-                self.cell.initialize_carry(jax.random.key(0), x.shape),
+                initial_carry,
                 carry,
             )
             carry, y = cell(carry, x)
@@ -195,8 +196,6 @@ class MaskedRNN(nn.RNN):
             carry_after_burn = carry
         return carries_burn, outputs_burn, carry_after_burn
 
-    # --------------------------- main call ---------------------------
-
     def __call__(
         self,
         inputs: jax.Array,
@@ -213,7 +212,6 @@ class MaskedRNN(nn.RNN):
         burn_in_length=None,
         detach_after_burn_in=None,
     ):
-        # Resolve options
         (
             return_carry,
             return_carry_history,
@@ -232,10 +230,8 @@ class MaskedRNN(nn.RNN):
             detach_after_burn_in,
         )
 
-        # Axes / batch dims
         time_axis, batch_dims = self._infer_time_axis_and_batch_dims(inputs, time_major)
 
-        # Optional reverse
         inputs, mask = self._maybe_reverse(
             inputs,
             mask,
@@ -245,14 +241,11 @@ class MaskedRNN(nn.RNN):
             reverse=reverse,
         )
 
-        # Carry init
         carry: Any = self._initialize_carry(initial_carry, init_key, inputs, time_axis)
 
-        # Whether we must slice carry by seq lengths
         slice_carry = seq_lengths is not None and return_carry
 
-        # Scanned recurrent fn
-        scan = self._build_scan(slice_carry, return_carry_history, time_axis)
+        scan = self._build_scan(slice_carry, return_carry_history, inputs, time_axis)
 
         has_learn = (int(inputs.shape[time_axis]) - int(burn_in_length)) > 0
 
@@ -275,25 +268,36 @@ class MaskedRNN(nn.RNN):
 
         carries_learn = outputs_learn = None
         if has_learn:
-            learn_out = scan(
-                self.cell,
-                carry_learn,
-                self._slice_time(inputs, burn_in_length, None, time_axis),
-                self._slice_time(mask, burn_in_length, None, time_axis),
+            use_parallel = hasattr(self.cell, "apply_parallel") and inputs.shape[time_axis] > 1 and not (
+                slice_carry or return_carry_history
             )
-            if slice_carry or return_carry_history:
-                _, (carries_learn, outputs_learn) = learn_out
+            if use_parallel:
+
+                inputs_learn = self._slice_time(inputs, burn_in_length, None, time_axis)
+                mask_learn = self._slice_time(mask, burn_in_length, None, time_axis)
+                carries_learn, outputs_learn = self.cell.apply_parallel(
+                    carry_learn,
+                    inputs_learn,
+                    mask_learn,
+                )
+                carry_learn_final = carries_learn
             else:
-                carry_learn_final, outputs_learn = learn_out
+                learn_out = scan(
+                    self.cell,
+                    carry_learn,
+                    self._slice_time(inputs, burn_in_length, None, time_axis),
+                    self._slice_time(mask, burn_in_length, None, time_axis),
+                )
+                if slice_carry or return_carry_history:
+                    _, (carries_learn, outputs_learn) = learn_out
+                else:
+                    carry_learn_final, outputs_learn = learn_out
         else:
             carry_learn_final = carry_learn
 
-        # Assemble outputs / carry
         if slice_carry:
             assert seq_lengths is not None
-            carries_full = self._concat_time(
-                carries_burn, carries_learn, axis=0
-            )  # time-first for carries
+            carries_full = self._concat_time(carries_burn, carries_learn, axis=0)
             outputs = self._concat_time(outputs_burn, outputs_learn, axis=time_axis)
             carry_final = nn._select_last_carry(carries_full, seq_lengths)
         elif return_carry_history:
@@ -304,7 +308,6 @@ class MaskedRNN(nn.RNN):
             outputs = self._concat_time(outputs_burn, outputs_learn, axis=time_axis)
             carry_final = carry_learn_final
 
-        # Restore order if requested
         outputs = self._restore_order_if_needed(
             outputs,
             reverse=reverse,
@@ -314,7 +317,6 @@ class MaskedRNN(nn.RNN):
             time_major=time_major,
         )
 
-        # Return
         if return_carry or return_carry_history:
             return carry_final, outputs
         else:

@@ -1,4 +1,0 @@
-_target_: memory_rl.networks.CNN
-kernel_sizes: [[3, 3]]
-strides: [[1, 1]]
-

@@ -281,6 +281,10 @@ class PQN:
                 // (self.cfg.algorithm.num_steps * self.cfg.algorithm.num_envs)
             ),
         )
+
+        transitions = jax.tree.map(lambda x: jnp.swapaxes(x, -1, 1), transitions)
+        transitions = jax.tree.map(lambda x: x.reshape((-1,) + x.shape[2:]), transitions)
+
         return key, state, transitions
 
     @partial(

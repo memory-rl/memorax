@@ -81,11 +81,12 @@ class MuJoCoGymnaxWrapper(GymnaxWrapper):
         )
 
 
-def make(env_id: str, **kwargs):
-    env = registry.load(env_id)
-    cfg = registry.get_default_config(env_id)
-    cfg["max_steps_in_episode"] = cfg.episode_length + 1
-    env = TimeLimitWrapper(env, cfg.episode_length)
+def make(cfg):
+    kwargs = cfg.kwargs or {}
+    env = registry.load(cfg.env_id, **kwargs)
+    env_params = registry.get_default_config(cfg.env_id)
+    env_params["max_steps_in_episode"] = env_params.episode_length + 1
+    env = TimeLimitWrapper(env, env_params.episode_length)
     env = AutoResetWrapper(env)
     env = MuJoCoGymnaxWrapper(env)
-    return env, FrozenConfigDict(cfg)
+    return env, FrozenConfigDict(env_params)

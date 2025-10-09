@@ -1,3 +1,0 @@
-cpus_per_task: 4        # how many threads you allow each run
-gpus_per_node: 1        # 0 if CPU-only
-timeout_min: 1440

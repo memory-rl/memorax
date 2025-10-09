@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages   = ["memory_rl", "popjaxrl"]
+packages   = ["memory_rl", "popjaxrl", "tests"]
 py-modules = ["main", "sweep"] 
 
 [project]

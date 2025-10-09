@@ -7,10 +7,8 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 
-from memory_rl.networks import Network, heads
+from memory_rl.networks import Network
 from memory_rl.utils import Transition
 
 
@@ -20,6 +18,33 @@ def boltzmann_policy(q, tau: float):
     log_pi = jax.nn.log_softmax(logits, axis=-1)
     entropy = -(pi * log_pi).sum(axis=-1)
     return pi, log_pi, entropy
+
+
+@chex.dataclass(frozen=True)
+class SoftPQNConfig:
+    name: str
+    learning_rate: float
+    num_envs: int
+    num_eval_envs: int
+    num_steps: int
+    anneal_lr: bool
+    gamma: float
+    gae_lambda: float
+    num_minibatches: int
+    update_epochs: int
+    normalize_advantage: bool
+    clip_coef: float
+    clip_vloss: bool
+    ent_coef: float
+    vf_coef: float
+    max_grad_norm: float
+    learning_starts: int
+    actor: Any
+    critic: Any
+
+    @property
+    def batch_size(self):
+        return self.num_envs * self.num_steps
 
 
 @chex.dataclass(frozen=True)
@@ -45,7 +70,7 @@ class SoftPQN:
     Deep Q-Network (SoftPQN) reinforcement learning algorithm.
     """
 
-    cfg: DictConfig
+    cfg: SoftPQNConfig
     env: gymnax.environments.environment.Environment
     env_params: gymnax.EnvParams
     q_network: Network
@@ -404,53 +429,3 @@ class SoftPQN:
         )
 
         return key, transitions
-
-
-def make(cfg, env, env_params) -> SoftPQN:
-    """
-    Factory function to construct a SoftPQN agent from Args.
-
-    Args:
-        args: Experiment configuration.
-
-    Returns:
-        An initialized SoftPQN instance ready for training.
-    """
-
-    q_network = Network(
-        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        torso=instantiate(cfg.algorithm.torso),
-        head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
-    )
-    alpha_network = heads.Alpha(initial_alpha=cfg.algorithm.initial_alpha)
-    beta_network = heads.Beta(initial_beta=cfg.algorithm.initial_beta)
-
-    optimizer = optax.chain(
-        optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
-        optax.radam(learning_rate=cfg.algorithm.learning_rate),
-    )
-    alpha_optimizer = optax.chain(
-        optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
-        optax.adam(learning_rate=cfg.algorithm.alpha_lr),
-    )
-    beta_optimizer = optax.chain(
-        optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
-        optax.adam(learning_rate=cfg.algorithm.beta_lr),
-    )
-
-    target_entropy = 0.5 * jnp.log(env.action_space(env_params).n).item()
-    target_kl = cfg.algorithm.kl_target
-
-    return SoftPQN(
-        cfg=cfg,  # type: ignore
-        env=env,  # type: ignore
-        env_params=env_params,  # type: ignore
-        q_network=q_network,  # type: ignore
-        alpha_network=alpha_network,  # type: ignore
-        beta_network=beta_network,  # type: ignore
-        optimizer=optimizer,  # type: ignore
-        alpha_optimizer=alpha_optimizer,  # type: ignore
-        beta_optimizer=beta_optimizer,  # type: ignore
-        target_entropy=target_entropy,  # type: ignore
-        target_kl=target_kl,  # type: ignore
-    )

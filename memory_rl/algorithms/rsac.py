@@ -7,9 +7,16 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from hydra.utils import instantiate
 
-from memory_rl.networks import RecurrentNetwork, heads
+from memory_rl.utils.typing import (
+    Array,
+    Buffer,
+    BufferState,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
 from memory_rl.utils import periodic_incremental_update, Transition
 
 
@@ -17,52 +24,74 @@ from memory_rl.utils import periodic_incremental_update, Transition
 class Batch:
     """Data structure for a batch of transitions sampled from the replay buffer."""
 
-    obs: chex.Array
+    obs: Array
     """Batch of obs with shape [batch_size, obs_dim]"""
-    done: chex.Array
+    done: Array
     """Batch of done flags with shape [batch_size]"""
-    action: chex.Array
+    action: Array
     """Batch of actions with shape [batch_size, action_dim]"""
-    reward: chex.Array
+    reward: Array
     """Batch of rewards with shape [batch_size]"""
-    next_obs: chex.Array
+    next_obs: Array
     """Batch of next obs with shape [batch_size, obs_dim]"""
-    next_done: chex.Array
+    next_done: Array
     """Batch of next done flags with shape [batch_size]"""
 
 
-# Keep the network definitions (StochasticActor, Critic, DoubleCritic, Temperature) the same
+@chex.dataclass(frozen=True)
+class RSACConfig:
+    """Configuration for SAC algorithm."""
+
+    name: str
+    actor_lr: float
+    critic_lr: float
+    alpha_lr: float
+    num_envs: int
+    num_eval_envs: int
+    buffer_size: int
+    gamma: float
+    tau: float
+    train_frequency: int
+    target_update_frequency: int
+    batch_size: int
+    initial_alpha: float
+    target_entropy_scale: float
+    learning_starts: int
+    max_grad_norm: float
+    actor: Any
+    critic: Any
+    buffer: Any
 
 
 @chex.dataclass(frozen=True)
 class RSACState:
     step: int
-    env_state: Any
-    buffer_state: Any
-    actor_params: core.FrozenDict[str, chex.ArrayTree]
-    critic_params: core.FrozenDict[str, chex.ArrayTree]
-    critic_target_params: core.FrozenDict[str, chex.ArrayTree]
-    temp_params: core.FrozenDict[str, chex.ArrayTree]
+    env_state: EnvState
+    buffer_state: BufferState
+    actor_params: core.FrozenDict[str, Any]
+    critic_params: core.FrozenDict[str, Any]
+    critic_target_params: core.FrozenDict[str, Any]
+    temp_params: core.FrozenDict[str, Any]
     actor_optimizer_state: optax.OptState
     critic_optimizer_state: optax.OptState
     temp_optimizer_state: optax.OptState
-    obs: chex.Array
-    done: chex.Array
-    hidden_state: chex.Array
+    obs: Array
+    done: Array
+    hidden_state: Array
 
 
 @chex.dataclass(frozen=True)
 class RSAC:
-    cfg: Any  # Full config object
-    env: Any
-    env_params: Any
+    cfg: RSACConfig
+    env: Environment
+    env_params: EnvParams
     actor_network: nn.Module
     critic_network: nn.Module
     temp_network: nn.Module
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
     temp_optimizer: optax.GradientTransformation
-    buffer: Any
+    buffer: Buffer
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -135,9 +164,7 @@ class RSAC:
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(
-        self, key, state: RSACState, num_steps: int
-    ) -> tuple[chex.PRNGKey, RSACState]:
+    def warmup(self, key, state: RSACState, num_steps: int) -> tuple[Key, RSACState]:
         def step(carry, _):
 
             key, state = carry
@@ -309,7 +336,7 @@ class RSAC:
         return state, info
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def train(self, key: chex.PRNGKey, state: RSACState, num_steps: int):
+    def train(self, key: Key, state: RSACState, num_steps: int):
         def step(carry, _):
             key, state = carry
             key, sample_key, action_key = jax.random.split(key, 3)
@@ -399,7 +426,7 @@ class RSAC:
         return key, state, info
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: chex.PRNGKey, state: RSACState, num_steps: int):
+    def evaluate(self, key: Key, state: RSACState, num_steps: int):
         # Reinitialize environment state with num_eval_envs
         key, env_key = jax.random.split(key)
         env_keys = jax.random.split(env_key, self.cfg.algorithm.num_eval_envs)
@@ -466,64 +493,3 @@ class RSAC:
         )
 
         return key, transitions
-
-
-def make(cfg, env, env_params) -> RSAC:
-
-    action_dim = env.action_space(env_params).shape[0]
-
-    # Define networks
-    actor_network = RecurrentNetwork(
-        feature_extractor=instantiate(cfg.algorithm.actor.feature_extractor),
-        torso=instantiate(cfg.algorithm.actor.torso),
-        head=heads.SquashedGaussian(action_dim=action_dim),
-    )
-
-    critic_network = nn.vmap(
-        RecurrentNetwork,
-        variable_axes={"params": 0},
-        split_rngs={"params": True},
-        in_axes=None,
-        out_axes=0,
-        axis_size=2,
-    )(
-        feature_extractor=instantiate(cfg.algorithm.critic.feature_extractor),
-        torso=instantiate(cfg.algorithm.critic.torso),
-        head=heads.VNetwork(),
-    )
-    temp_network = heads.Temperature(initial_temperature=cfg.algorithm.init_temperature)
-
-    # Define optimizers
-    actor_optimizer = optax.chain(
-        optax.clip_by_global_norm(10.0),
-        optax.adam(learning_rate=cfg.algorithm.policy_lr),
-    )
-    critic_optimizer = optax.chain(
-        optax.clip_by_global_norm(10.0),
-        optax.adam(learning_rate=cfg.algorithm.q_lr),
-    )
-    temp_optimizer = optax.chain(
-        optax.clip_by_global_norm(10.0),
-        optax.adam(learning_rate=cfg.algorithm.temp_lr),
-    )
-
-    sample_sequence_length = (
-        cfg.algorithm.mode.length or env_params.max_steps_in_episode
-    )
-    buffer = instantiate(
-        cfg.algorithm.buffer,
-        sample_sequence_length=sample_sequence_length,
-    )
-
-    return RSAC(
-        cfg=cfg,
-        env=env,
-        env_params=env_params,
-        actor_network=actor_network,
-        critic_network=critic_network,
-        temp_network=temp_network,
-        actor_optimizer=actor_optimizer,
-        critic_optimizer=critic_optimizer,
-        temp_optimizer=temp_optimizer,
-        buffer=buffer,
-    )

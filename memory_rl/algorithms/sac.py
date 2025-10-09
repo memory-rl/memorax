@@ -4,15 +4,20 @@ from typing import Any, Callable
 import chex
 import flashbax as fbx
 import flax.linen as nn
-import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 
-from memory_rl.networks import Network, heads
+from memory_rl.utils.typing import (
+    Array,
+    Buffer,
+    BufferState,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
 from memory_rl.utils import periodic_incremental_update, Transition
 
 
@@ -20,13 +25,13 @@ from memory_rl.utils import periodic_incremental_update, Transition
 class Batch:
     """Data structure for a batch of transitions sampled from the replay buffer."""
 
-    obs: chex.Array
+    obs: Array
     """Batch of obs with shape [batch_size, obs_dim]"""
-    action: chex.Array
+    action: Array
     """Batch of actions with shape [batch_size, action_dim]"""
-    reward: chex.Array
+    reward: Array
     """Batch of rewards with shape [batch_size]"""
-    done: chex.Array
+    done: Array
     """Batch of done flags with shape [batch_size]"""
 
 
@@ -58,30 +63,30 @@ class SACConfig:
 @chex.dataclass(frozen=True)
 class SACState:
     step: int
-    env_state: gymnax.EnvState
-    buffer_state: Any
-    actor_params: core.FrozenDict[str, chex.ArrayTree]
-    critic_params: core.FrozenDict[str, chex.ArrayTree]
-    critic_target_params: core.FrozenDict[str, chex.ArrayTree]
-    alpha_params: core.FrozenDict[str, chex.ArrayTree]
+    env_state: EnvState
+    buffer_state: BufferState
+    actor_params: core.FrozenDict[str, Any]
+    critic_params: core.FrozenDict[str, Any]
+    critic_target_params: core.FrozenDict[str, Any]
+    alpha_params: core.FrozenDict[str, Any]
     actor_optimizer_state: optax.OptState
     critic_optimizer_state: optax.OptState
     alpha_optimizer_state: optax.OptState
-    obs: chex.Array
+    obs: Array
 
 
 @chex.dataclass(frozen=True)
 class SAC:
     cfg: SACConfig
-    env: Any
-    env_params: Any
+    env: Environment
+    env_params: EnvParams
     actor_network: nn.Module
     critic_network: nn.Module
     alpha_network: nn.Module
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
     alpha_optimizer: optax.GradientTransformation
-    buffer: Any
+    buffer: Buffer
 
     def _deterministic_action(self, key, state: SACState):
         dist = self.actor_network.apply(state.actor_params, state.obs)
@@ -314,9 +319,7 @@ class SAC:
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(
-        self, key, state: SACState, num_steps: int
-    ) -> tuple[chex.PRNGKey, SACState]:
+    def warmup(self, key, state: SACState, num_steps: int) -> tuple[Key, SACState]:
 
         (key, state), _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
@@ -326,7 +329,7 @@ class SAC:
         return key, state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def train(self, key: chex.PRNGKey, state: SACState, num_steps: int):
+    def train(self, key: Key, state: SACState, num_steps: int):
 
         (key, state), info = jax.lax.scan(
             self._update_step,
@@ -337,7 +340,7 @@ class SAC:
         return key, state, info
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: chex.PRNGKey, state: SACState, num_steps: int):
+    def evaluate(self, key: Key, state: SACState, num_steps: int):
 
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
@@ -355,59 +358,3 @@ class SAC:
         )
 
         return key, transitions
-
-
-def make(cfg, env, env_params) -> SAC:
-
-    sac_cfg = SACConfig(**cfg.algorithm)
-
-    action_dim = env.action_space(env_params).shape[0]
-
-    actor_network = Network(
-        feature_extractor=instantiate(sac_cfg.actor.feature_extractor),
-        torso=instantiate(sac_cfg.actor.torso),
-        head=heads.SquashedGaussian(
-            action_dim=action_dim,
-        ),
-    )
-
-    critic_network = nn.vmap(
-        Network,
-        variable_axes={"params": 0},
-        split_rngs={"params": True},
-        in_axes=None,
-        out_axes=0,
-        axis_size=2,
-    )(
-        feature_extractor=instantiate(sac_cfg.critic.feature_extractor),
-        torso=instantiate(sac_cfg.critic.torso),
-        head=heads.ContinuousQNetwork(),
-    )
-
-    alpha_network = heads.Alpha(initial_alpha=sac_cfg.init_alpha)
-
-    actor_optimizer = optax.adam(learning_rate=sac_cfg.policy_lr)
-    critic_optimizer = optax.adam(learning_rate=sac_cfg.q_lr)
-    alpha_optimizer = optax.adam(learning_rate=sac_cfg.alpha_lr)
-
-    buffer = fbx.make_flat_buffer(
-        add_batch_size=sac_cfg.num_envs,
-        sample_batch_size=sac_cfg.batch_size,
-        min_length=sac_cfg.batch_size,
-        max_length=sac_cfg.buffer_size,
-        add_sequences=False,
-    )
-
-    return SAC(
-        cfg=sac_cfg,
-        env=env,
-        env_params=env_params,
-        actor_network=actor_network,
-        critic_network=critic_network,
-        alpha_network=alpha_network,
-        actor_optimizer=actor_optimizer,
-        critic_optimizer=critic_optimizer,
-        alpha_optimizer=alpha_optimizer,
-        buffer=buffer,
-        logger=logger,
-    )

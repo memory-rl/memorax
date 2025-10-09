@@ -2,17 +2,47 @@ from functools import partial
 from typing import Any, Callable
 
 import chex
-import flashbax as fbx
-import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 
-from memory_rl.networks import Network, heads
+from memory_rl.utils.typing import (
+    Array,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
+from memory_rl.networks import Network
 from memory_rl.utils import Transition
+
+
+@chex.dataclass(frozen=True)
+class PQNConfig:
+    name: str
+    learning_rate: float
+    num_envs: int
+    num_eval_envs: int
+    num_steps: int
+    anneal_lr: bool
+    gamma: float
+    gae_lambda: float
+    num_minibatches: int
+    update_epochs: int
+    normalize_advantage: bool
+    clip_coef: float
+    clip_vloss: bool
+    ent_coef: float
+    vf_coef: float
+    max_grad_norm: float
+    learning_starts: int
+    actor: Any
+    critic: Any
+
+    @property
+    def batch_size(self):
+        return self.num_envs * self.num_steps
 
 
 @chex.dataclass(frozen=True)
@@ -22,8 +52,8 @@ class PQNState:
     """
 
     step: int
-    obs: chex.Array
-    env_state: gymnax.EnvState
+    obs: Array
+    env_state: EnvState
     params: core.FrozenDict[str, Any]
     optimizer_state: optax.OptState
 
@@ -34,31 +64,25 @@ class PQN:
     Deep Q-Network (PQN) reinforcement learning algorithm.
     """
 
-    cfg: DictConfig
-    env: gymnax.environments.environment.Environment
-    env_params: gymnax.EnvParams
+    cfg: PQNConfig
+    env: Environment
+    env_params: EnvParams
     q_network: Network
     optimizer: optax.GradientTransformation
     epsilon_schedule: optax.Schedule
 
-    def _greedy_action(
-        self, key: chex.PRNGKey, state: PQNState
-    ) -> tuple[chex.PRNGKey, chex.Array]:
+    def _greedy_action(self, key: Key, state: PQNState) -> tuple[Key, Array]:
         q_values = self.q_network.apply(state.params, state.obs)
         action = jnp.argmax(q_values, axis=-1)
         return key, action, q_values
 
-    def _random_action(
-        self, key: chex.PRNGKey, state: PQNState
-    ) -> tuple[chex.PRNGKey, chex.Array]:
+    def _random_action(self, key: Key, state: PQNState) -> tuple[Key, Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
         return key, action, None
 
-    def _epsilon_greedy_action(
-        self, key: chex.PRNGKey, state: PQNState
-    ) -> tuple[chex.PRNGKey, chex.Array]:
+    def _epsilon_greedy_action(self, key: Key, state: PQNState) -> tuple[Key, Array]:
 
         key, random_action, _ = self._random_action(key, state)
 
@@ -73,7 +97,7 @@ class PQN:
         )
         return key, action, q_values
 
-    def _step(self, carry, _, *, policy: Callable) -> tuple[chex.PRNGKey, PQNState]:
+    def _step(self, carry, _, *, policy: Callable) -> tuple[Key, PQNState]:
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
@@ -142,7 +166,7 @@ class PQN:
         )
         return (key, state, transitions, lambda_targets), (loss, q_value)
 
-    def _update_minibatch(self, carry, xs) -> tuple[PQNState, chex.Array, chex.Array]:
+    def _update_minibatch(self, carry, xs) -> tuple[PQNState, Array, Array]:
         key, state = carry
         minibatch, target = xs
 
@@ -170,8 +194,8 @@ class PQN:
         return (key, state), (loss, q_value.mean())
 
     def _learn(
-        self, carry: tuple[chex.PRNGKey, PQNState], _
-    ) -> tuple[tuple[chex.PRNGKey, PQNState], dict]:
+        self, carry: tuple[Key, PQNState], _
+    ) -> tuple[tuple[Key, PQNState], dict]:
 
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
@@ -208,7 +232,7 @@ class PQN:
         return (key, state), transitions.replace(obs=None, next_obs=None)
 
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
-    def init(self, key) -> tuple[chex.PRNGKey, PQNState, chex.Array, gymnax.EnvState]:
+    def init(self, key) -> tuple[Key, PQNState, Array, EnvState]:
         """
         Initialize environment, network parameters, optimizer, and replay buffer.
 
@@ -242,9 +266,7 @@ class PQN:
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key"])
-    def warmup(
-        self, key: chex.PRNGKey, state: PQNState, num_steps: int
-    ) -> tuple[chex.PRNGKey, PQNState]:
+    def warmup(self, key: Key, state: PQNState, num_steps: int) -> tuple[Key, PQNState]:
         return key, state
 
     @partial(
@@ -252,10 +274,10 @@ class PQN:
     )
     def train(
         self,
-        key: chex.PRNGKey,
+        key: Key,
         state: PQNState,
         num_steps: int,
-    ) -> tuple[chex.PRNGKey, PQNState, dict]:
+    ) -> tuple[Key, PQNState, dict]:
         """
         Run training loop for specified number of steps.
 
@@ -283,16 +305,16 @@ class PQN:
         )
 
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, -1, 1), transitions)
-        transitions = jax.tree.map(lambda x: x.reshape((-1,) + x.shape[2:]), transitions)
+        transitions = jax.tree.map(
+            lambda x: x.reshape((-1,) + x.shape[2:]), transitions
+        )
 
         return key, state, transitions
 
     @partial(
         jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
     )
-    def evaluate(
-        self, key: chex.PRNGKey, state: PQNState, num_steps: int
-    ) -> tuple[chex.PRNGKey, dict]:
+    def evaluate(self, key: Key, state: PQNState, num_steps: int) -> tuple[Key, dict]:
         """
         Evaluate current policy for a fixed number of steps without exploration.
 
@@ -320,40 +342,3 @@ class PQN:
         )
 
         return key, transitions.replace(obs=None, next_obs=None)
-
-
-def make(cfg, env, env_params) -> PQN:
-    """
-    Factory function to construct a PQN agent from Args.
-
-    Args:
-        args: Experiment configuration.
-
-    Returns:
-        An initialized PQN instance ready for training.
-    """
-
-    q_network = Network(
-        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        torso=instantiate(cfg.algorithm.torso),
-        head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
-    )
-
-    optimizer = optax.chain(
-        optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
-        optax.adam(learning_rate=cfg.algorithm.learning_rate),
-    )
-
-    epsilon_schedule = optax.linear_schedule(
-        cfg.algorithm.start_e,
-        cfg.algorithm.end_e,
-        int(cfg.algorithm.exploration_fraction * cfg.total_timesteps),
-    )
-    return PQN(
-        cfg=cfg,  # type: ignore
-        env=env,  # type: ignore
-        env_params=env_params,  # type: ignore
-        q_network=q_network,  # type: ignore
-        optimizer=optimizer,  # type: ignore
-        epsilon_schedule=epsilon_schedule,  # type: ignore
-    )

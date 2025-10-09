@@ -3,16 +3,19 @@ from typing import Any, Callable
 from functools import partial
 
 import chex
-import flax.linen as nn
-import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 
-from memory_rl.networks import Network, heads
+from memory_rl.utils.typing import (
+    Array,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
+from memory_rl.networks import Network
 from memory_rl.utils import generalized_advantage_estimatation, Transition
 
 
@@ -46,8 +49,8 @@ class PPOContinuousConfig:
 @chex.dataclass(frozen=True)
 class PPOContinuousState:
     step: int
-    obs: chex.Array
-    env_state: chex.Array
+    obs: Array
+    env_state: EnvState
     actor_params: core.FrozenDict[str, Any]
     actor_optimizer_state: optax.OptState
     critic_params: core.FrozenDict[str, Any]
@@ -56,9 +59,9 @@ class PPOContinuousState:
 
 @chex.dataclass(frozen=True)
 class PPOContinuous:
-    cfg: DictConfig
-    env: gymnax.environments.environment.Environment
-    env_params: gymnax.EnvParams
+    cfg: PPOContinuousConfig
+    env: Environment
+    env_params: EnvParams
     actor: Network
     critic: Network
     optimizer: optax.GradientTransformation
@@ -71,8 +74,8 @@ class PPOContinuous:
         return key, action, log_prob, value
 
     def _stochastic_action(
-        self, key: chex.PRNGKey, state: PPOContinuousState
-    ) -> tuple[chex.PRNGKey, chex.Array, chex.Array, chex.Array]:
+        self, key: Key, state: PPOContinuousState
+    ) -> tuple[Key, Array, Array, Array]:
         key, action_key = jax.random.split(key)
         probs = self.actor.apply(state.actor_params, state.obs)
         action = probs.sample(seed=action_key)
@@ -310,49 +313,3 @@ class PPOContinuous:
         )
 
         return key, transitions.replace(obs=None, next_obs=None)
-
-
-def make(cfg, env, env_params):
-
-    ppo_config = PPOContinuousConfig(**cfg.algorithm)
-
-    actor = Network(
-        feature_extractor=instantiate(ppo_config.actor.feature_extractor),
-        torso=instantiate(ppo_config.actor.torso),
-        head=heads.Gaussian(
-            action_dim=env.action_space(env_params).shape[0],
-            kernel_init=nn.initializers.orthogonal(scale=0.01),
-        ),
-    )
-
-    critic = Network(
-        feature_extractor=instantiate(ppo_config.critic.feature_extractor),
-        torso=instantiate(ppo_config.critic.torso),
-        head=heads.VNetwork(kernel_init=nn.initializers.orthogonal(scale=1.0)),
-    )
-
-    if ppo_config.anneal_lr:
-        learning_rate = optax.linear_schedule(
-            init_value=ppo_config.learning_rate,
-            end_value=0.0,
-            transition_steps=(
-                cfg.total_timesteps // ppo_config.num_envs // cfg.algorithm.num_steps
-            )
-            * ppo_config.update_epochs
-            * ppo_config.num_minibatches,
-        )
-    else:
-        learning_rate = ppo_config.learning_rate
-    optimizer = optax.chain(
-        optax.clip_by_global_norm(ppo_config.max_grad_norm),
-        optax.adam(learning_rate=learning_rate, eps=1e-5),
-    )
-
-    return PPOContinuous(
-        cfg=ppo_config,
-        env=env,
-        env_params=env_params,
-        actor=actor,
-        critic=critic,
-        optimizer=optimizer,
-    )

@@ -1,7 +1,6 @@
-from typing import TYPE_CHECKING, Callable, Generic, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from chex import PRNGKey
-from typing_extensions import NamedTuple
 
 if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
     from dataclasses import dataclass

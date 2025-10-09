@@ -2,17 +2,21 @@ from functools import partial
 from typing import Any, Callable
 
 import chex
-import flashbax as fbx
 import flax.linen as nn
-import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 
-from memory_rl.networks import Network, heads
+from memory_rl.utils.typing import (
+    Array,
+    Buffer,
+    BufferState,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
 from memory_rl.utils import periodic_incremental_update, Transition
 
 
@@ -20,13 +24,13 @@ from memory_rl.utils import periodic_incremental_update, Transition
 class Batch:
     """Data structure for a batch of transitions sampled from the replay buffer."""
 
-    obs: chex.Array
+    obs: Array
     """Batch of obs with shape [batch_size, obs_dim]"""
-    action: chex.Array
+    action: Array
     """Batch of actions with shape [batch_size, action_dim]"""
-    reward: chex.Array
+    reward: Array
     """Batch of rewards with shape [batch_size]"""
-    done: chex.Array
+    done: Array
     """Batch of done flags with shape [batch_size]"""
 
 
@@ -50,29 +54,29 @@ class SACDConfig:
     max_grad_norm: float
     actor: Any
     critic: Any
-    buffer: Any
+    buffer: Buffer
 
 
 @chex.dataclass(frozen=True)
 class SACDState:
     step: int
-    env_state: gymnax.EnvState
-    buffer_state: Any
-    actor_params: core.FrozenDict[str, chex.ArrayTree]
-    critic_params: core.FrozenDict[str, chex.ArrayTree]
-    critic_target_params: core.FrozenDict[str, chex.ArrayTree]
-    alpha_params: core.FrozenDict[str, chex.ArrayTree]
+    env_state: EnvState
+    buffer_state: BufferState
+    actor_params: core.FrozenDict[str, Any]
+    critic_params: core.FrozenDict[str, Any]
+    critic_target_params: core.FrozenDict[str, Any]
+    alpha_params: core.FrozenDict[str, Any]
     actor_optimizer_state: optax.OptState
     critic_optimizer_state: optax.OptState
     alpha_optimizer_state: optax.OptState
-    obs: chex.Array
+    obs: Array
 
 
 @chex.dataclass(frozen=True)
 class SACD:
     cfg: SACDConfig
-    env: Any
-    env_params: Any
+    env: Environment
+    env_params: EnvParams
     actor_network: nn.Module
     critic_network: nn.Module
     alpha_network: nn.Module
@@ -82,23 +86,23 @@ class SACD:
     buffer: Any
 
     def _deterministic_action(
-        self, key: chex.PRNGKey, state: SACDState
-    ) -> tuple[chex.PRNGKey, SACDState, chex.Array, chex.Array]:
+        self, key: Key, state: SACDState
+    ) -> tuple[Key, SACDState, Array, Array]:
         dist = self.actor_network.apply(state.actor_params, state.obs)
         action = dist.mode()
         return key, action
 
     def _stochastic_action(
-        self, key: chex.PRNGKey, state: SACDState
-    ) -> tuple[chex.PRNGKey, SACDState, chex.Array, chex.Array]:
+        self, key: Key, state: SACDState
+    ) -> tuple[Key, SACDState, Array, Array]:
         key, sample_key = jax.random.split(key)
         dist = self.actor_network.apply(state.actor_params, state.obs)
         action = dist.sample(seed=sample_key)
         return key, action
 
     def _random_action(
-        self, key: chex.PRNGKey, state: SACDState
-    ) -> tuple[chex.PRNGKey, SACDState, chex.Array, chex.Array]:
+        self, key: Key, state: SACDState
+    ) -> tuple[Key, SACDState, Array, Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
@@ -106,7 +110,7 @@ class SACD:
 
     def _step(
         self, carry, _, *, policy: Callable, write_to_buffer: bool = True
-    ) -> tuple[chex.PRNGKey, SACDState]:
+    ) -> tuple[Key, SACDState]:
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
@@ -338,9 +342,7 @@ class SACD:
     @partial(
         jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
     )
-    def warmup(
-        self, key, state: SACDState, num_steps: int
-    ) -> tuple[chex.PRNGKey, SACDState]:
+    def warmup(self, key, state: SACDState, num_steps: int) -> tuple[Key, SACDState]:
 
         (key, state), _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
@@ -352,7 +354,7 @@ class SACD:
     @partial(
         jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
     )
-    def train(self, key: chex.PRNGKey, state: SACDState, num_steps: int):
+    def train(self, key: Key, state: SACDState, num_steps: int):
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
@@ -364,7 +366,7 @@ class SACD:
     @partial(
         jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
     )
-    def evaluate(self, key: chex.PRNGKey, state: SACDState, num_steps: int):
+    def evaluate(self, key: Key, state: SACDState, num_steps: int):
 
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
@@ -382,69 +384,3 @@ class SACD:
         )
 
         return key, transitions.replace(obs=None, next_obs=None)
-
-
-def make(cfg, env, env_params) -> SACD:
-
-    sacd_config = SACDConfig(**cfg.algorithm)
-
-    action_dim = env.action_space(env_params).n
-
-    # Define networks
-    actor_network = Network(
-        feature_extractor=instantiate(sacd_config.actor.feature_extractor),
-        torso=instantiate(sacd_config.actor.torso),
-        head=heads.Categorical(
-            action_dim=action_dim,
-        ),
-    )
-
-    critic_network = nn.vmap(
-        Network,
-        variable_axes={"params": 0},
-        split_rngs={"params": True},
-        in_axes=None,
-        out_axes=0,
-        axis_size=2,
-    )(
-        feature_extractor=instantiate(sacd_config.critic.feature_extractor),
-        torso=instantiate(sacd_config.critic.torso),
-        head=heads.DiscreteQNetwork(env.action_space(env_params).n),
-    )
-
-    alpha_network = heads.Alpha(initial_alpha=sacd_config.initial_alpha)
-
-    # Define optimizers
-    actor_optimizer = optax.chain(
-        optax.clip_by_global_norm(sacd_config.max_grad_norm),
-        optax.adam(learning_rate=sacd_config.actor_lr),
-    )
-    critic_optimizer = optax.chain(
-        optax.clip_by_global_norm(sacd_config.max_grad_norm),
-        optax.adam(learning_rate=sacd_config.critic_lr),
-    )
-    alpha_optimizer = optax.chain(
-        optax.clip_by_global_norm(sacd_config.max_grad_norm),
-        optax.adam(learning_rate=sacd_config.alpha_lr),
-    )
-
-    buffer = fbx.make_flat_buffer(
-        add_batch_size=sacd_config.num_envs,
-        sample_batch_size=sacd_config.batch_size,
-        min_length=sacd_config.batch_size,
-        max_length=sacd_config.buffer_size,
-        add_sequences=False,
-    )
-
-    return SACD(
-        cfg=sacd_config,
-        env=env,
-        env_params=env_params,
-        actor_network=actor_network,
-        critic_network=critic_network,
-        alpha_network=alpha_network,
-        actor_optimizer=actor_optimizer,
-        critic_optimizer=critic_optimizer,
-        alpha_optimizer=alpha_optimizer,
-        buffer=buffer,
-    )

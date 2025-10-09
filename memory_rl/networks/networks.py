@@ -19,11 +19,13 @@ class Network(nn.Module):
         action: Optional[jnp.ndarray] = None,
         reward: Optional[jnp.ndarray] = None,
         done: Optional[jnp.ndarray] = None,
-        temperature: float = 1.0,
+        **kwargs,
     ):
-        x = self.feature_extractor(observation, action=action, reward=reward, done=done)
-        x = self.torso(x)
-        return self.head(x, temperature=temperature)
+        x = self.feature_extractor(
+            observation, action=action, reward=reward, done=done, **kwargs
+        )
+        x = self.torso(x, **kwargs)
+        return self.head(x, **kwargs)
 
 
 class RecurrentNetwork(nn.Module):
@@ -39,11 +41,11 @@ class RecurrentNetwork(nn.Module):
         action: Optional[jnp.ndarray] = None,
         reward: Optional[jnp.ndarray] = None,
         done: Optional[jnp.ndarray] = None,
-        initial_carry: Optional[jnp.ndarray] = None,
-        return_carry_history: bool = False,
-        temperature: float = 1.0,
+        **kwargs,
     ):
-        x = self.feature_extractor(observation, action=action, reward=reward, done=done)
+        x = self.feature_extractor(
+            observation, action=action, reward=reward, done=done, **kwargs
+        )
 
         hidden_state, x = MaskedRNN(
             self.torso,
@@ -55,10 +57,9 @@ class RecurrentNetwork(nn.Module):
         )(
             x,
             mask,
-            initial_carry=initial_carry,
-            return_carry_history=return_carry_history,
+            **kwargs,
         )
-        return hidden_state, self.head(x, temperature=temperature)
+        return hidden_state, self.head(x, **kwargs)
 
     def initialize_carry(self, input_shape):
         key = jax.random.key(0)

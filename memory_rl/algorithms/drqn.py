@@ -1,17 +1,23 @@
 from functools import partial
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import chex
-import flashbax as fbx
-import gymnax
 import jax
 import jax.numpy as jnp
+import flax.linen as nn
 import optax
 from flax import core
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 
-from memory_rl.networks import RecurrentNetwork, heads
+from memory_rl.utils.typing import (
+    Array,
+    Buffer,
+    BufferState,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
+from memory_rl.networks import RecurrentNetwork
 from memory_rl.utils import periodic_incremental_update, Transition
 
 
@@ -33,37 +39,40 @@ class DRQNConfig:
     learning_starts: int
     train_frequency: int
     buffer: Any
-    feature_extractor: Any
-    torso: Any
+    feature_extractor: nn.Module
+    torso: nn.Module
     mode: Any
+    # sequence_length: Optional[int]
+    # burn_in_length: int
+    # mask: bool
 
 
 @chex.dataclass(frozen=True)
 class DRQNState:
     step: int
-    obs: chex.Array
-    done: chex.Array
+    obs: Array
+    done: Array
     hidden_state: tuple
-    env_state: gymnax.EnvState
+    env_state: EnvState
     params: core.FrozenDict[str, Any]
     target_params: core.FrozenDict[str, Any]
     optimizer_state: optax.OptState
-    buffer_state: Any
+    buffer_state: BufferState
 
 
 @chex.dataclass(frozen=True)
 class DRQN:
-    cfg: DictConfig
-    env: gymnax.environments.environment.Environment
-    env_params: gymnax.EnvParams
+    cfg: DRQNConfig
+    env: Environment
+    env_params: EnvParams
     q_network: RecurrentNetwork
     optimizer: optax.GradientTransformation
-    buffer: fbx.trajectory_buffer.TrajectoryBuffer
+    buffer: Buffer
     epsilon_schedule: optax.Schedule
 
     def _greedy_action(
-        self, key: chex.PRNGKey, state: DRQNState
-    ) -> tuple[chex.PRNGKey, DRQNState, chex.Array]:
+        self, key: Key, state: DRQNState
+    ) -> tuple[Key, DRQNState, Array]:
         key, memory_key = jax.random.split(key)
         hidden_state, q_values = self.q_network.apply(
             state.params,
@@ -77,16 +86,16 @@ class DRQN:
         return key, state, action
 
     def _random_action(
-        self, key: chex.PRNGKey, state: DRQNState
-    ) -> tuple[chex.PRNGKey, DRQNState, chex.Array]:
+        self, key: Key, state: DRQNState
+    ) -> tuple[Key, DRQNState, Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
         return key, state, action
 
     def _epsilon_greedy_action(
-        self, key: chex.PRNGKey, state: DRQNState
-    ) -> tuple[chex.PRNGKey, DRQNState, chex.Array]:
+        self, key: Key, state: DRQNState
+    ) -> tuple[Key, DRQNState, Array]:
 
         key, state, random_action = self._random_action(key, state)
 
@@ -103,7 +112,7 @@ class DRQN:
 
     def _step(
         self, carry, _, *, policy: Callable, write_to_buffer: bool = True
-    ) -> tuple[chex.PRNGKey, DRQNState]:
+    ) -> tuple[Key, DRQNState]:
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
@@ -138,9 +147,7 @@ class DRQN:
         )
         return (key, state), transition
 
-    def _update(
-        self, key: chex.PRNGKey, state: DRQNState
-    ) -> tuple[DRQNState, chex.Array, chex.Array]:
+    def _update(self, key: Key, state: DRQNState) -> tuple[DRQNState, Array, Array]:
 
         batch = self.buffer.sample(state.buffer_state, key)
 
@@ -189,8 +196,6 @@ class DRQN:
             terminal = (episode_idx == 1) & batch.experience.prev_done
             mask *= (episode_idx == 0) | terminal
 
-        # if self.cfg.burn_in:
-        #     pass
         def loss_fn(params):
             hidden_state, q_value = self.q_network.apply(
                 params,
@@ -302,8 +307,8 @@ class DRQN:
         jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
     )
     def warmup(
-        self, key: chex.PRNGKey, state: DRQNState, num_steps: int
-    ) -> tuple[chex.PRNGKey, DRQNState]:
+        self, key: Key, state: DRQNState, num_steps: int
+    ) -> tuple[Key, DRQNState]:
 
         (key, state), _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
@@ -317,7 +322,7 @@ class DRQN:
     )
     def train(
         self,
-        key: chex.PRNGKey,
+        key: Key,
         state: DRQNState,
         num_steps: int,
     ):
@@ -335,9 +340,7 @@ class DRQN:
     @partial(
         jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
     )
-    def evaluate(
-        self, key: chex.PRNGKey, state: DRQNState, num_steps: int
-    ) -> tuple[chex.PRNGKey, dict]:
+    def evaluate(self, key: Key, state: DRQNState, num_steps: int) -> tuple[Key, dict]:
 
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
@@ -356,43 +359,3 @@ class DRQN:
         )
 
         return key, transitions.replace(obs=None, next_obs=None)
-
-
-def make(cfg, env, env_params) -> DRQN:
-
-    drqn_config = DRQNConfig(**cfg.algorithm)
-
-    q_network = RecurrentNetwork(
-        feature_extractor=instantiate(drqn_config.feature_extractor),
-        torso=instantiate(drqn_config.torso),
-        head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
-    )
-
-    sample_sequence_length = min_length_time_axis = (
-        drqn_config.mode.length or env_params.max_steps_in_episode
-    )
-    buffer = instantiate(
-        drqn_config.buffer,
-        sample_sequence_length=sample_sequence_length,
-        min_length_time_axis=min_length_time_axis,
-    )
-    optimizer = optax.chain(
-        optax.clip_by_global_norm(1.0),
-        optax.adam(learning_rate=drqn_config.learning_rate),
-    )
-    epsilon_schedule = optax.linear_schedule(
-        drqn_config.start_e,
-        drqn_config.end_e,
-        int(drqn_config.exploration_fraction * cfg.total_timesteps),
-        drqn_config.learning_starts,
-    )
-
-    return DRQN(
-        cfg=drqn_config,  # type: ignore
-        env=env,  # type: ignore
-        env_params=env_params,  # type: ignore
-        q_network=q_network,  # type: ignore
-        optimizer=optimizer,  # type: ignore
-        buffer=buffer,  # type: ignore
-        epsilon_schedule=epsilon_schedule,  # type: ignore
-    )

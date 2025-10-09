@@ -2,17 +2,48 @@ from functools import partial
 from typing import Any, Callable
 
 import chex
-import flashbax as fbx
 import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax import core
-from hydra.utils import instantiate
-from omegaconf import DictConfig
 
-from memory_rl.networks import RecurrentNetwork, heads
+from memory_rl.utils.typing import (
+    Array,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
+from memory_rl.networks import RecurrentNetwork
 from memory_rl.utils import Transition
+
+
+@chex.dataclass(frozen=True)
+class RPQNConfig:
+    name: str
+    learning_rate: float
+    num_envs: int
+    num_eval_envs: int
+    num_steps: int
+    anneal_lr: bool
+    gamma: float
+    gae_lambda: float
+    num_minibatches: int
+    update_epochs: int
+    normalize_advantage: bool
+    clip_coef: float
+    clip_vloss: bool
+    ent_coef: float
+    vf_coef: float
+    max_grad_norm: float
+    learning_starts: int
+    actor: Any
+    critic: Any
+
+    @property
+    def batch_size(self):
+        return self.num_envs * self.num_steps
 
 
 @chex.dataclass(frozen=True)
@@ -22,11 +53,11 @@ class RPQNState:
     """
 
     step: int
-    obs: chex.Array
-    done: chex.Array
-    env_state: gymnax.EnvState
+    obs: Array
+    done: Array
+    env_state: EnvState
     params: core.FrozenDict[str, Any]
-    hidden_state: chex.Array
+    hidden_state: Array
     optimizer_state: optax.OptState
 
 
@@ -36,16 +67,16 @@ class RPQN:
     Deep Q-Network (RPQN) reinforcement learning algorithm.
     """
 
-    cfg: DictConfig
-    env: gymnax.environments.environment.Environment
-    env_params: gymnax.EnvParams
+    cfg: RPQNConfig
+    env: Environment
+    env_params: EnvParams
     q_network: RecurrentNetwork
     optimizer: optax.GradientTransformation
     epsilon_schedule: optax.Schedule
 
     def _greedy_action(
-        self, key: chex.PRNGKey, state: RPQNState
-    ) -> tuple[chex.PRNGKey, RPQNState, chex.Array]:
+        self, key: Key, state: RPQNState
+    ) -> tuple[Key, RPQNState, Array]:
         key, memory_key = jax.random.split(key)
         hidden_state, q_values = self.q_network.apply(
             state.params,
@@ -59,16 +90,16 @@ class RPQN:
         return key, state, action, q_values
 
     def _random_action(
-        self, key: chex.PRNGKey, state: RPQNState
-    ) -> tuple[chex.PRNGKey, RPQNState, chex.Array]:
+        self, key: Key, state: RPQNState
+    ) -> tuple[Key, RPQNState, Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
         return key, state, action, None
 
     def _epsilon_greedy_action(
-        self, key: chex.PRNGKey, state: RPQNState
-    ) -> tuple[chex.PRNGKey, RPQNState, chex.Array]:
+        self, key: Key, state: RPQNState
+    ) -> tuple[Key, RPQNState, Array]:
 
         key, state, random_action, _ = self._random_action(key, state)
 
@@ -83,7 +114,7 @@ class RPQN:
         )
         return key, state, action, q_values
 
-    def _step(self, carry, _, *, policy: Callable) -> tuple[chex.PRNGKey, RPQNState]:
+    def _step(self, carry, _, *, policy: Callable) -> tuple[Key, RPQNState]:
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
@@ -159,9 +190,7 @@ class RPQN:
             q_value,
         )
 
-    def _update_minibatch(
-        self, carry, minibatch
-    ) -> tuple[RPQNState, chex.Array, chex.Array]:
+    def _update_minibatch(self, carry, minibatch) -> tuple[RPQNState, Array, Array]:
         key, state = carry
 
         hidden_state, transitions, target = minibatch
@@ -195,8 +224,8 @@ class RPQN:
         return (key, state), (loss, q_value.mean())
 
     def _learn(
-        self, carry: tuple[chex.PRNGKey, RPQNState], _
-    ) -> tuple[tuple[chex.PRNGKey, RPQNState], dict]:
+        self, carry: tuple[Key, RPQNState], _
+    ) -> tuple[tuple[Key, RPQNState], dict]:
         key, state = carry
 
         initial_hidden_state = state.hidden_state
@@ -246,7 +275,7 @@ class RPQN:
         return (key, state), transitions.replace(obs=None, next_obs=None)
 
     @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
-    def init(self, key) -> tuple[chex.PRNGKey, RPQNState, chex.Array, gymnax.EnvState]:
+    def init(self, key) -> tuple[Key, RPQNState, Array, gymnax.EnvState]:
         """
         Initialize environment, network parameters, optimizer, and replay buffer.
 
@@ -290,8 +319,8 @@ class RPQN:
 
     @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key"])
     def warmup(
-        self, key: chex.PRNGKey, state: RPQNState, num_steps: int
-    ) -> tuple[chex.PRNGKey, RPQNState]:
+        self, key: Key, state: RPQNState, num_steps: int
+    ) -> tuple[Key, RPQNState]:
         return key, state
 
     @partial(
@@ -299,10 +328,10 @@ class RPQN:
     )
     def train(
         self,
-        key: chex.PRNGKey,
+        key: Key,
         state: RPQNState,
         num_steps: int,
-    ) -> tuple[chex.PRNGKey, RPQNState, dict]:
+    ) -> tuple[Key, RPQNState, dict]:
         """
         Run training loop for specified number of steps.
 
@@ -330,16 +359,16 @@ class RPQN:
             ),
         )
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, -1, 1), transitions)
-        transitions = jax.tree.map(lambda x: x.reshape((-1,) + x.shape[2:]), transitions)
+        transitions = jax.tree.map(
+            lambda x: x.reshape((-1,) + x.shape[2:]), transitions
+        )
 
         return key, state, transitions
 
     @partial(
         jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
     )
-    def evaluate(
-        self, key: chex.PRNGKey, state: RPQNState, num_steps: int
-    ) -> tuple[chex.PRNGKey, dict]:
+    def evaluate(self, key: Key, state: RPQNState, num_steps: int) -> tuple[Key, dict]:
         """
         Evaluate current policy for a fixed number of steps without exploration.
 
@@ -371,39 +400,3 @@ class RPQN:
         )
 
         return key, transitions.replace(obs=None, next_obs=None)
-
-
-def make(cfg, env, env_params) -> RPQN:
-    """
-    Factory function to construct a RPQN agent from Args.
-
-    Args:
-        args: Experiment configuration.
-
-    Returns:
-        An initialized RPQN instance ready for training.
-    """
-
-    q_network = RecurrentNetwork(
-        feature_extractor=instantiate(cfg.algorithm.feature_extractor),
-        torso=instantiate(cfg.algorithm.torso),
-        head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
-    )
-
-    optimizer = optax.chain(
-        optax.clip_by_global_norm(cfg.algorithm.max_grad_norm),
-        optax.adam(learning_rate=cfg.algorithm.learning_rate),
-    )
-    epsilon_schedule = optax.linear_schedule(
-        cfg.algorithm.start_e,
-        cfg.algorithm.end_e,
-        int(cfg.algorithm.exploration_fraction * cfg.total_timesteps),
-    )
-    return RPQN(
-        cfg=cfg,  # type: ignore
-        env=env,  # type: ignore
-        env_params=env_params,  # type: ignore
-        q_network=q_network,  # type: ignore
-        optimizer=optimizer,  # type: ignore
-        epsilon_schedule=epsilon_schedule,  # type: ignore
-    )

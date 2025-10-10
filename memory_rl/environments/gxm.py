@@ -9,25 +9,25 @@ class GxmGymnaxWrapper(GymnaxWrapper):
         super().__init__(env)
 
     def reset(self, key, params):
-        state = self._env.init(key)
-        return state.obs, state
+        state, timestep = self._env.init(key)
+        return timestep.obs, state
 
     def step(self, key, state, action, params):
-        next_state = self._env.step(key, state, action)
+        next_state, timestep = self._env.step(key, state, action)
         return (
-            next_state.obs,
+            timestep.obs,
             next_state,
-            next_state.reward,
-            next_state.done,
-            next_state.info,
+            timestep.reward,
+            timestep.done,
+            timestep.info,
         )
 
     def action_space(self, params):
-        return spaces.Discrete(num_categories=self._env.n)
+        return spaces.Discrete(num_categories=self._env.action_space.n)
 
     @property
     def default_params(self):
-        return EnvParams(max_steps_in_episode=1000)
+        return EnvParams(max_steps_in_episode=27_000)
 
 
 def make(cfg):

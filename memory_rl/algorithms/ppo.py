@@ -251,7 +251,7 @@ class PPO:
 
         return (key, state), transitions.replace(obs=None, next_obs=None)
 
-    @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
+    @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
         key, env_key, actor_key, critic_key = jax.random.split(key, 4)
 
@@ -279,14 +279,12 @@ class PPO:
             ),
         )
 
-    @partial(jax.jit, static_argnames=["self"], donate_argnames=["key", "state"])
+    @partial(jax.jit, static_argnames=["self"])
     def warmup(self, key, state, num_steps):
         """No warmup needed for PPO"""
         return key, state
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(self, key, state, num_steps):
 
         (key, state), transitions = jax.lax.scan(
@@ -302,9 +300,7 @@ class PPO:
 
         return key, state, transitions
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key, state, num_steps):
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)

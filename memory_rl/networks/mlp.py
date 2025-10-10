@@ -21,6 +21,6 @@ class MLP(nn.Module):
                 feature, kernel_init=self.kernel_init, bias_init=self.bias_init
             )(x)
             if self.normalizer is not None:
-                x = self.normalizer(x)
+                x = self.normalizer()(x)
             x = self.activation(x)
         return x

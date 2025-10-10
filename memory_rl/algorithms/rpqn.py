@@ -1,22 +1,15 @@
 from functools import partial
 from typing import Any, Callable
 
-from flax import struct
 import gymnax
 import jax
 import jax.numpy as jnp
 import optax
-from flax import core
+from flax import core, struct
 
-from memory_rl.utils.typing import (
-    Array,
-    Environment,
-    EnvParams,
-    EnvState,
-    Key,
-)
 from memory_rl.networks import RecurrentNetwork
 from memory_rl.utils import Transition
+from memory_rl.utils.typing import Array, Environment, EnvParams, EnvState, Key
 
 
 @struct.dataclass(frozen=True)
@@ -38,8 +31,8 @@ class RPQNConfig:
     vf_coef: float
     max_grad_norm: float
     learning_starts: int
-    actor: Any
-    critic: Any
+    feature_extractor: Any
+    torso: Any
 
     @property
     def batch_size(self):
@@ -93,7 +86,7 @@ class RPQN:
         self, key: Key, state: RPQNState
     ) -> tuple[Key, RPQNState, Array]:
         key, action_key = jax.random.split(key)
-        action_key = jax.random.split(action_key, self.cfg.algorithm.num_envs)
+        action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
         return key, state, action, None
 
@@ -137,7 +130,7 @@ class RPQN:
         )
 
         state = state.replace(
-            step=state.step + self.cfg.algorithm.num_envs,
+            step=state.step + self.cfg.num_envs,
             obs=next_obs,  # type: ignore
             done=done,  # type: ignore
             env_state=env_state,  # type: ignore
@@ -148,15 +141,11 @@ class RPQN:
         lambda_return, next_q_value = carry
 
         target_bootstrap = (
-            transition.reward
-            + self.cfg.algorithm.gamma * (1.0 - transition.done) * next_q_value
+            transition.reward + self.cfg.gamma * (1.0 - transition.done) * next_q_value
         )
 
         delta = lambda_return - next_q_value
-        lambda_return = (
-            target_bootstrap
-            + self.cfg.algorithm.gamma * self.cfg.algorithm.td_lambda * delta
-        )
+        lambda_return = target_bootstrap + self.cfg.gamma * self.cfg.td_lambda * delta
 
         lambda_return = (
             1.0 - transition.done
@@ -169,15 +158,13 @@ class RPQN:
         key, state, initial_hidden_state, transitions, lambda_targets = carry
 
         key, permutation_key = jax.random.split(key)
-        permutation = jax.random.permutation(
-            permutation_key, self.cfg.algorithm.num_envs
-        )
+        permutation = jax.random.permutation(permutation_key, self.cfg.num_envs)
         batch = (initial_hidden_state, transitions, lambda_targets)
         shuffled_batch = jax.tree.map(lambda x: jnp.take(x, permutation, axis=0), batch)
         minibatches = jax.tree.map(
             lambda x: jnp.reshape(
                 x,
-                [self.cfg.algorithm.num_minibatches, -1] + list(x.shape[1:]),
+                [self.cfg.num_minibatches, -1] + list(x.shape[1:]),
             ),
             shuffled_batch,
         )
@@ -232,7 +219,7 @@ class RPQN:
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
             (key, state),
-            length=self.cfg.algorithm.mode.length,
+            length=self.cfg.mode.length,
         )
 
         key, memory_key = jax.random.split(key)
@@ -248,9 +235,7 @@ class RPQN:
             1.0 - state.done
         )
 
-        initial_lambda_return = (
-            transitions.reward[-1] + self.cfg.algorithm.gamma * final_q_value
-        )
+        initial_lambda_return = transitions.reward[-1] + self.cfg.gamma * final_q_value
         _, targets = jax.lax.scan(
             self._lambda_backscan,
             (initial_lambda_return, final_q_value),
@@ -266,7 +251,7 @@ class RPQN:
             self._update_epoch,
             (key, state, initial_hidden_state, transitions, lambda_targets),
             None,
-            self.cfg.algorithm.update_epochs,
+            self.cfg.update_epochs,
         )
 
         transitions.info["losses/loss"] = loss
@@ -289,12 +274,12 @@ class RPQN:
             env_state: Initial environment state.
         """
         key, env_key, q_key, memory_key = jax.random.split(key, 4)
-        env_keys = jax.random.split(env_key, self.cfg.algorithm.num_envs)
+        env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        done = jnp.zeros(self.cfg.algorithm.num_envs, dtype=bool)
+        done = jnp.zeros(self.cfg.num_envs, dtype=bool)
         hidden_state = self.q_network.initialize_carry(obs.shape)
         params = self.q_network.init(
             {"params": q_key, "memory": memory_key},
@@ -353,10 +338,7 @@ class RPQN:
         (key, state), transitions = jax.lax.scan(
             self._learn,
             (key, state),
-            length=(
-                num_steps
-                // (self.cfg.algorithm.mode.length * self.cfg.algorithm.num_envs)
-            ),
+            length=(num_steps // (self.cfg.mode.length * self.cfg.num_envs)),
         )
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, -1, 1), transitions)
         transitions = jax.tree.map(
@@ -382,11 +364,11 @@ class RPQN:
             info: Evaluation metrics (rewards, episode lengths, etc.).
         """
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.algorithm.num_eval_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        done = jnp.zeros(self.cfg.algorithm.num_eval_envs, dtype=bool)
+        done = jnp.zeros(self.cfg.num_eval_envs, dtype=bool)
         hidden_state = self.q_network.initialize_carry(obs.shape)
 
         state = state.replace(

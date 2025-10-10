@@ -451,14 +451,12 @@ class RPPO:
             ),
         )
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key, state, num_steps):
         """No warmup needed for RPPO"""
         return key, state
 
-    @partial(jax.jit, static_argnums=(0, 3), donate_argnames=["key", "state"])
+    @partial(jax.jit, static_argnums=(0, 3))
     def train(self, key, state, num_steps):
 
         (key, state), transitions = jax.lax.scan(
@@ -474,9 +472,7 @@ class RPPO:
 
         return key, state, transitions
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key, state, num_steps):
 
         key, reset_key = jax.random.split(key)

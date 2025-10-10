@@ -297,7 +297,7 @@ class SACD:
 
         return (key, state), transitions
 
-    @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
+    @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
         key, env_key, actor_key, critic_key, alpha_key = jax.random.split(key, 5)
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
@@ -338,9 +338,7 @@ class SACD:
             obs=obs,
         )
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key, state: SACDState, num_steps: int) -> tuple[Key, SACDState]:
 
         (key, state), _ = jax.lax.scan(
@@ -350,9 +348,7 @@ class SACD:
         )
         return key, state
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(self, key: Key, state: SACDState, num_steps: int):
         (key, state), transitions = jax.lax.scan(
             self._update_step,
@@ -362,9 +358,7 @@ class SACD:
 
         return key, state, transitions
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: Key, state: SACDState, num_steps: int):
 
         key, reset_key = jax.random.split(key)

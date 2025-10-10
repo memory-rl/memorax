@@ -8,7 +8,6 @@ import jax.numpy as jnp
 import optax
 from flax import core
 
-from memory_rl.algorithms.rsac import RSACConfig
 from memory_rl.utils.typing import (
     Array,
     Buffer,
@@ -56,10 +55,12 @@ class RSACDConfig:
     initial_alpha: float
     target_entropy_scale: float
     learning_starts: int
+    sequence_length: int
+    burn_in_length: int
+    mask: bool
     actor: Any
     critic: Any
     buffer: Any
-    mode: Any
 
 
 @struct.dataclass(frozen=True)
@@ -82,7 +83,7 @@ class RSACDState:
 
 @struct.dataclass(frozen=True)
 class RSACD:
-    cfg: RSACConfig
+    cfg: RSACDConfig
     env: Environment
     env_params: EnvParams
     actor_network: nn.Module
@@ -209,7 +210,7 @@ class RSACD:
         alpha = jnp.exp(log_alpha)
 
         mask = jnp.ones_like(batch.reward)
-        if self.cfg.mode.mask:
+        if self.cfg.mask:
             episode_idx = jnp.cumsum(batch.prev_done, axis=1)
             terminal = (episode_idx == 1) & batch.prev_done
             mask = (episode_idx == 0) | terminal
@@ -263,7 +264,7 @@ class RSACD:
         target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * soft_state_values
 
         mask = jnp.ones_like(batch.reward)
-        if self.cfg.mode.mask:
+        if self.cfg.mask:
             episode_idx = jnp.cumsum(batch.prev_done, axis=1)
             terminal = (episode_idx == 1) & batch.prev_done
             mask = (episode_idx == 0) | terminal
@@ -349,7 +350,7 @@ class RSACD:
 
         return (key, state), transitions.replace(obs=None, next_obs=None)
 
-    @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
+    @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
         key, env_key, actor_key, critic_key, alpha_key = jax.random.split(key, 5)
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
@@ -406,9 +407,7 @@ class RSACD:
             critic_hidden_state=critic_hidden_state,
         )
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key, state: RSACDState, num_steps: int) -> tuple[Key, RSACDState]:
 
         (key, state), _ = jax.lax.scan(
@@ -418,9 +417,7 @@ class RSACD:
         )
         return key, state
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(self, key: Key, state: RSACDState, num_steps: int):
 
         (key, state), transitions = jax.lax.scan(
@@ -431,9 +428,7 @@ class RSACD:
 
         return key, state, transitions
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: Key, state: RSACDState, num_steps: int):
 
         key, reset_key = jax.random.split(key)

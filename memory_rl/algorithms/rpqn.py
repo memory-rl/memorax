@@ -259,7 +259,7 @@ class RPQN:
 
         return (key, state), transitions.replace(obs=None, next_obs=None)
 
-    @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
+    @partial(jax.jit, static_argnames=["self"])
     def init(self, key) -> tuple[Key, RPQNState, Array, gymnax.EnvState]:
         """
         Initialize environment, network parameters, optimizer, and replay buffer.
@@ -302,15 +302,13 @@ class RPQN:
             ),
         )
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key"])
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(
         self, key: Key, state: RPQNState, num_steps: int
     ) -> tuple[Key, RPQNState]:
         return key, state
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(
         self,
         key: Key,
@@ -347,9 +345,7 @@ class RPQN:
 
         return key, state, transitions
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: Key, state: RPQNState, num_steps: int) -> tuple[Key, dict]:
         """
         Evaluate current policy for a fixed number of steps without exploration.

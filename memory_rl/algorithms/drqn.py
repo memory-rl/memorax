@@ -41,10 +41,9 @@ class DRQNConfig:
     buffer: Any
     feature_extractor: nn.Module
     torso: nn.Module
-    mode: Any
-    # sequence_length: Optional[int]
-    # burn_in_length: int
-    # mask: bool
+    sequence_length: Optional[int]
+    burn_in_length: int
+    mask: bool
 
 
 @struct.dataclass(frozen=True)
@@ -191,7 +190,7 @@ class DRQN:
         )
 
         mask = jnp.ones_like(td_target)
-        if self.cfg.mode.mask:
+        if self.cfg.mask:
             episode_idx = jnp.cumsum(batch.experience.prev_done, axis=1)
             terminal = (episode_idx == 1) & batch.experience.prev_done
             mask *= (episode_idx == 0) | terminal
@@ -260,7 +259,6 @@ class DRQN:
         _, _, reward, done, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
-        done = jnp.zeros_like(done)
         carry = self.q_network.initialize_carry(obs.shape)
 
         params = self.q_network.init(

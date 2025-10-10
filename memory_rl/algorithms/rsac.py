@@ -60,7 +60,9 @@ class RSACConfig:
     actor: Any
     critic: Any
     buffer: Any
-    mode: Any
+    sequence_length: int
+    burn_in_length: int
+    mask: bool
     backup_entropy: bool
 
 
@@ -95,26 +97,23 @@ class RSAC:
     buffer: Buffer
 
     def _deterministic_action(self, key, state: RSACState):
-        obs = jnp.expand_dims(state.obs, axis=1)
-        prev_done = jnp.expand_dims(state.done, axis=1)
+        key, sample_key = jax.random.split(key)
         next_hidden_state, dist = self.actor_network.apply(
             state.actor_params,
-            obs,
-            prev_done,
+            jnp.expand_dims(state.obs, 1),
+            mask=jnp.expand_dims(state.done, 1),
             initial_carry=state.actor_hidden_state,
             temperature=0.0,
         )
-        action = dist.mode().squeeze(1)
+        action = dist.sample(seed=sample_key).squeeze(1)
         return key, (action, next_hidden_state)
 
     def _stochastic_action(self, key, state: RSACState):
         key, sample_key = jax.random.split(key)
-        obs = jnp.expand_dims(state.obs, axis=1)
-        prev_done = jnp.expand_dims(state.done, axis=1)
         next_hidden_state, dist = self.actor_network.apply(
             state.actor_params,
-            obs,
-            prev_done,
+            jnp.expand_dims(state.obs, 1),
+            mask=jnp.expand_dims(state.done, 1),
             initial_carry=state.actor_hidden_state,
         )
         action = dist.sample(seed=sample_key).squeeze(1)
@@ -146,17 +145,18 @@ class RSAC:
         )(env_keys, state.env_state, action, self.env_params)
 
         transition = Transition(
-            obs=jnp.expand_dims(state.obs, axis=1),  # type: ignore
-            prev_done=jnp.expand_dims(state.done, axis=1),  # type: ignore
-            action=jnp.expand_dims(action, axis=1),  # type: ignore
-            reward=jnp.expand_dims(reward, axis=1),  # type: ignore
-            next_obs=jnp.expand_dims(next_obs, axis=1),  # type: ignore
-            done=jnp.expand_dims(done, axis=1),  # type: ignore
+            obs=state.obs,  # type: ignore
+            prev_done=state.done,  # type: ignore
+            action=action,  # type: ignore
+            reward=reward,  # type: ignore
+            next_obs=next_obs,  # type: ignore
+            done=done,  # type: ignore
             info=info,  # type: ignore
         )
 
         buffer_state = state.buffer_state
         if write_to_buffer:
+            transition = jax.tree.map(lambda x: jnp.expand_dims(x, 1), transition)
             buffer_state = self.buffer.add(buffer_state, transition)
 
         state = state.replace(
@@ -177,40 +177,34 @@ class RSAC:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        prev_done = jnp.zeros((self.cfg.num_envs,), dtype=bool)
-        action = jnp.zeros(
-            (
-                self.cfg.num_envs,
-                self.env.action_space(self.env_params).shape[0],
-            )
-        )
+        env_keys = jax.random.split(env_key, self.cfg.num_envs)
+        action = jax.vmap(self.env.action_space(self.env_params).sample)(env_keys)
         _, _, reward, done, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
 
-        obs_t = jnp.expand_dims(obs, axis=1)
-        prev_done_t = jnp.expand_dims(prev_done, axis=1)
-        action_t = jnp.expand_dims(action, axis=1)
-
+        actor_carry = self.actor_network.initialize_carry(obs.shape)
         actor_params = self.actor_network.init(
             actor_key,
-            obs_t,
-            prev_done_t,
+            observation=jnp.expand_dims(obs, 1),
+            mask=jnp.expand_dims(done, 1),
+            initial_carry=actor_carry,
         )
         actor_optimizer_state = self.actor_optimizer.init(actor_params)
         actor_hidden_state = self.actor_network.initialize_carry(obs.shape)
 
+        critic_carry = self.critic_network.initialize_carry(obs.shape)
         critic_params = self.critic_network.init(
             critic_key,
-            obs_t,
-            prev_done_t,
-            action_t,
+            jnp.expand_dims(obs, 1),
+            jnp.expand_dims(done, 1),
+            critic_carry,
         )
         critic_target_params = self.critic_network.init(
             critic_key,
-            obs_t,
-            prev_done_t,
-            action_t,
+            jnp.expand_dims(obs, 1),
+            jnp.expand_dims(done, 1),
+            critic_carry,
         )
         critic_optimizer_state = self.critic_optimizer.init(critic_params)
 
@@ -218,12 +212,12 @@ class RSAC:
         alpha_optimizer_state = self.alpha_optimizer.init(alpha_params)
 
         transition = Transition(
-            obs=obs_t,
-            prev_done=prev_done_t,
-            action=action_t,
-            reward=jnp.expand_dims(reward, axis=1),
-            next_obs=jnp.expand_dims(obs, axis=1),
-            done=jnp.expand_dims(done, axis=1),
+            obs=obs,
+            prev_done=done,
+            action=action,
+            reward=reward,
+            next_obs=obs,
+            done=done,
             info=info,
         )
         buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
@@ -245,9 +239,15 @@ class RSAC:
         )
 
     @partial(jax.jit, static_argnames=["self"])
-    def _update_alpha(self, state: RSACState, entropy: Array):
+    def _update_alpha(self, key, state: RSACState):
         action_dim = self.env.action_space(self.env_params).shape[0]
         target_entropy = -self.cfg.target_entropy_scale * action_dim
+
+        _, dist = self.actor_network.apply(state.actor_params, state.obs, state.done)
+
+        key, sample_key = jax.random.split(key)
+        actions = dist.sample(seed=sample_key)
+        entropy = (-dist.log_prob(actions)).mean()
 
         def alpha_loss_fn(alpha_params):
             alpha = self.alpha_network.apply(alpha_params)
@@ -272,7 +272,7 @@ class RSAC:
     def _update_actor(self, key, state: RSACState, batch: Batch):
         alpha = self.alpha_network.apply(state.alpha_params)
         mask = jnp.ones_like(batch.prev_done, dtype=bool)
-        if getattr(self.cfg.mode, "mask", False):
+        if self.cfg.mask:
             episode_idx = jnp.cumsum(batch.prev_done.astype(jnp.int32), axis=1)
             terminal = (episode_idx == 1) & batch.prev_done
             mask = (episode_idx == 0) | terminal
@@ -324,7 +324,7 @@ class RSAC:
         target_q = jax.lax.stop_gradient(target_q)
 
         mask = jnp.ones_like(batch.prev_done, dtype=bool)
-        if getattr(self.cfg.mode, "mask", False):
+        if self.cfg.mask:
             episode_idx = jnp.cumsum(batch.prev_done.astype(jnp.int32), axis=1)
             terminal = (episode_idx == 1) & batch.prev_done
             mask = (episode_idx == 0) | terminal
@@ -367,12 +367,12 @@ class RSAC:
         return state, info
 
     def _update(self, key, state: RSACState):
-        key, batch_key, critic_key, actor_key = jax.random.split(key, 4)
+        key, batch_key, critic_key, actor_key, alpha_key = jax.random.split(key, 5)
         batch = self.buffer.sample(state.buffer_state, batch_key).experience
 
         state, critic_info = self._update_critic(critic_key, state, batch)
         state, actor_info = self._update_actor(actor_key, state, batch)
-        state, alpha_info = self._update_alpha(state, actor_info["entropy"])
+        state, alpha_info = self._update_alpha(alpha_key, state)
 
         info = {**critic_info, **actor_info, **alpha_info}
         return state, info

@@ -3,6 +3,7 @@ from typing import Any, Callable
 
 import gymnax
 import jax
+import flax.linen as nn
 import jax.numpy as jnp
 import optax
 from flax import core, struct
@@ -19,20 +20,18 @@ class RPQNConfig:
     num_envs: int
     num_eval_envs: int
     num_steps: int
-    anneal_lr: bool
     gamma: float
-    gae_lambda: float
+    td_lambda: float
     num_minibatches: int
     update_epochs: int
-    normalize_advantage: bool
-    clip_coef: float
-    clip_vloss: bool
-    ent_coef: float
-    vf_coef: float
+    td_lambda: float
     max_grad_norm: float
     learning_starts: int
-    feature_extractor: Any
-    torso: Any
+    start_e: float
+    end_e: float
+    exploration_fraction: float
+    feature_extractor: nn.Module
+    torso: nn.Module
 
     @property
     def batch_size(self):
@@ -219,7 +218,7 @@ class RPQN:
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
             (key, state),
-            length=self.cfg.mode.length,
+            length=self.cfg.num_steps,
         )
 
         key, memory_key = jax.random.split(key)
@@ -336,7 +335,7 @@ class RPQN:
         (key, state), transitions = jax.lax.scan(
             self._learn,
             (key, state),
-            length=(num_steps // (self.cfg.mode.length * self.cfg.num_envs)),
+            length=(num_steps // (self.cfg.num_steps * self.cfg.num_envs)),
         )
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, -1, 1), transitions)
         transitions = jax.tree.map(

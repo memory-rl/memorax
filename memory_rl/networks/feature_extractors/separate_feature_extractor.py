@@ -27,6 +27,7 @@ class SeparateFeatureExtractor(nn.Module):
         action: Optional[jnp.ndarray] = None,
         reward: Optional[jnp.ndarray] = None,
         done: Optional[jnp.ndarray] = None,
+        **kwargs,
     ) -> jnp.ndarray:
         feats = [self.observation_extractor(observation)]
         self.extract(feats, self.action_extractor, action)

@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 from flax import struct
 import jax
 import jax.numpy as jnp
@@ -23,6 +23,7 @@ class RPPOConfig:
     learning_rate: float
     num_envs: int
     num_eval_envs: int
+    num_steps: int
     anneal_lr: bool
     gamma: float
     gae_lambda: float
@@ -37,11 +38,10 @@ class RPPOConfig:
     learning_starts: int
     actor: Any
     critic: Any
-    mode: Any
 
     @property
     def batch_size(self):
-        return self.num_envs * self.mode.length
+        return self.num_envs * self.num_steps
 
 
 @struct.dataclass(frozen=True)
@@ -334,7 +334,7 @@ class RPPO:
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),
             (key, state),
-            length=self.cfg.mode.length,
+            length=self.cfg.num_steps,
         )
 
         _, final_value = self.critic.apply(
@@ -462,7 +462,7 @@ class RPPO:
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
-            length=num_steps // (self.cfg.num_envs * self.cfg.mode.length),
+            length=num_steps // (self.cfg.num_envs * self.cfg.num_steps),
         )
 
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, -1, 1), transitions)

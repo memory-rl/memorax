@@ -64,7 +64,8 @@ class PPO:
     env_params: EnvParams
     actor: Network
     critic: Network
-    optimizer: optax.GradientTransformation
+    actor_optimizer: optax.GradientTransformation
+    critic_optimizer: optax.GradientTransformation
 
     def _deterministic_action(
         self, key: Key, state: PPOState
@@ -136,7 +137,7 @@ class PPO:
         (actor_loss, entropy), actor_grads = jax.value_and_grad(
             actor_loss_fn, has_aux=True
         )(state.actor_params)
-        actor_updates, actor_optimizer_state = self.optimizer.update(
+        actor_updates, actor_optimizer_state = self.actor_optimizer.update(
             actor_grads, state.actor_optimizer_state, state.actor_params
         )
         actor_params = optax.apply_updates(state.actor_params, actor_updates)
@@ -170,7 +171,7 @@ class PPO:
         critic_loss, critic_grads = jax.value_and_grad(critic_loss_fn)(
             state.critic_params
         )
-        critic_updates, critic_optimizer_state = self.optimizer.update(
+        critic_updates, critic_optimizer_state = self.critic_optimizer.update(
             critic_grads, state.critic_optimizer_state, state.critic_params
         )
         critic_params = optax.apply_updates(state.critic_params, critic_updates)
@@ -261,10 +262,10 @@ class PPO:
         )
 
         actor_params = self.actor.init(actor_key, obs)
-        actor_optimizer_state = self.optimizer.init(actor_params)
+        actor_optimizer_state = self.actor_optimizer.init(actor_params)
 
         critic_params = self.critic.init(critic_key, obs)
-        critic_optimizer_state = self.optimizer.init(critic_params)
+        critic_optimizer_state = self.critic_optimizer.init(critic_params)
 
         return (
             key,

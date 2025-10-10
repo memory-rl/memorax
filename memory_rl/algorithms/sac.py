@@ -91,8 +91,9 @@ class SAC:
     buffer: Buffer
 
     def _deterministic_action(self, key, state: SACState):
-        dist = self.actor_network.apply(state.actor_params, state.obs)
-        action = dist.mode()
+        key, sample_key = jax.random.split(key)
+        dist = self.actor_network.apply(state.actor_params, state.obs, temperature=0.0)
+        action = dist.sample(seed=sample_key)
         return key, action
 
     def _stochastic_action(self, key, state: SACState):
@@ -140,12 +141,15 @@ class SAC:
         return (key, state), transition
 
     @partial(jax.jit, static_argnames=["self"])
-    def _update_alpha(self, state: SACState):
+    def _update_alpha(self, key, state: SACState):
         action_dim = self.env.action_space(self.env_params).shape[0]
         target_entropy = -self.cfg.target_entropy_multiplier * action_dim
 
         dist = self.actor_network.apply(state.actor_params, state.obs)
-        entropy = dist.entropy().mean()
+
+        key, sample_key = jax.random.split(key)
+        actions = dist.sample(seed=sample_key)
+        entropy = (-dist.log_prob(actions)).mean()
 
         def alpha_loss_fn(alpha_params):
             log_alpha = self.alpha_network.apply(alpha_params)
@@ -253,12 +257,12 @@ class SAC:
         return state, info
 
     def _update(self, key, state):
-        key, batch_key, critic_key, actor_key = jax.random.split(key, 4)
+        key, batch_key, critic_key, actor_key, alpha_key = jax.random.split(key, 5)
         batch = self.buffer.sample(state.buffer_state, batch_key).experience
 
         state, critic_info = self._update_critic(critic_key, state, batch)
         state, actor_info = self._update_actor(actor_key, state, batch)
-        state, alpha_info = self._update_alpha(state)
+        state, alpha_info = self._update_alpha(alpha_key, state)
 
         info = {**critic_info, **actor_info, **alpha_info}
         return state, info

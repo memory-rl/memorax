@@ -248,7 +248,7 @@ class DRQN:
 
         return (key, state), transitions.replace(obs=None, next_obs=None)
 
-    @partial(jax.jit, static_argnames=["self"], donate_argnames=["key"])
+    @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
         key, env_key, q_key, memory_key = jax.random.split(key, 4)
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
@@ -303,9 +303,7 @@ class DRQN:
             ),
         )
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(
         self, key: Key, state: DRQNState, num_steps: int
     ) -> tuple[Key, DRQNState]:
@@ -317,9 +315,7 @@ class DRQN:
         )
         return key, state
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(
         self,
         key: Key,
@@ -337,9 +333,7 @@ class DRQN:
         )
         return key, state, transitions
 
-    @partial(
-        jax.jit, static_argnames=["self", "num_steps"], donate_argnames=["key", "state"]
-    )
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: Key, state: DRQNState, num_steps: int) -> tuple[Key, dict]:
 
         key, reset_key = jax.random.split(key)

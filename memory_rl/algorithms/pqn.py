@@ -3,6 +3,7 @@ from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
+import flax.linen as nn
 from flax import struct
 import optax
 from flax import core
@@ -35,8 +36,8 @@ class PQNConfig:
     start_e: float
     end_e: float
     exploration_fraction: float
-    actor: Any
-    critic: Any
+    feature_extractor: nn.Module
+    torso: nn.Module
 
     @property
     def batch_size(self):

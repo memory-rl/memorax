@@ -9,6 +9,7 @@ class CNN(nn.Module):
     features: Sequence[int]
     kernel_sizes: Sequence[tuple[int, int]]
     strides: Sequence[tuple[int, int]]
+    padding: str = "VALID"
     activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     normalizer: Optional[Union[nn.LayerNorm, nn.BatchNorm]] = None
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
@@ -23,11 +24,12 @@ class CNN(nn.Module):
                 feature,
                 kernel_size=kernel_size,
                 strides=stride,
+                padding=self.padding,
                 kernel_init=self.kernel_init,
                 bias_init=self.bias_init,
             )(x)
             if self.normalizer is not None:
-                x = self.normalizer(x)
+                x = self.normalizer()(x)
             x = self.activation(x)
         x = x.reshape((x.shape[0], -1))
         return x

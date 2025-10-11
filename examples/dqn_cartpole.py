@@ -78,17 +78,12 @@ key, state = agent.init(key)
 for i in range(0, total_timesteps, num_train_steps):
     key, state, transitions = agent.train(key, state, num_steps=num_train_steps)
 
-    training_statistics = Logger.get_episode_statistics(
-        transitions, cfg.gamma, "training"
-    )
-    losses = Logger.get_losses(transitions)
-    data = {**losses, **training_statistics}
+    training_statistics = Logger.get_episode_statistics(transitions, "training")
+    data = {**training_statistics, **transitions.losses}
     logger_state = logger.log(logger_state, data, step=state.step.item())
 
     key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
-    evaluation_statistics = Logger.get_episode_statistics(
-        transitions, cfg.gamma, "evaluation"
-    )
+    evaluation_statistics = Logger.get_episode_statistics(transitions, "evaluation")
     logger_state = logger.log(
         logger_state, evaluation_statistics, step=state.step.item()
     )

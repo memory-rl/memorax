@@ -1721,8 +1721,9 @@ popjym = [
 ]
 
 [package.dev-dependencies]
-commit = [
+development = [
     { name = "pre-commit" },
+    { name = "pytest" },
 ]
 
 [package.metadata]
@@ -1759,7 +1760,10 @@ requires-dist = [
 provides-extras = ["brax", "jumanji", "navix", "craftax", "popgym-arcade", "playground", "gxm", "popjym", "all", "cuda"]
 
 [package.metadata.requires-dev]
-commit = [{ name = "pre-commit", specifier = ">=4.2.0" }]
+development = [
+    { name = "pre-commit", specifier = ">=4.2.0" },
+    { name = "pytest" },
+]
 
 [[package]]
 name = "ml-collections"

@@ -6,7 +6,7 @@ from memory_rl.environments import (
     mujoco,
     navix,
     popgym_arcade,
-    popjaxrl,
+    popjym,
 )
 
 register = {
@@ -17,7 +17,7 @@ register = {
     "mujoco": mujoco.make,
     "navix": navix.make,
     "popgym_arcade": popgym_arcade.make,
-    "popjaxrl": popjaxrl.make,
+    "popjym": popjym.make,
 }
 
 

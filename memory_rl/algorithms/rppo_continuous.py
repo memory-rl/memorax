@@ -35,8 +35,6 @@ class RPPOContinuousConfig:
     vf_coef: float
     max_grad_norm: float
     learning_starts: int
-    actor: Any
-    critic: Any
 
     @property
     def batch_size(self):

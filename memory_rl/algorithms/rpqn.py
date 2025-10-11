@@ -30,8 +30,6 @@ class RPQNConfig:
     start_e: float
     end_e: float
     exploration_fraction: float
-    feature_extractor: nn.Module
-    torso: nn.Module
 
     @property
     def batch_size(self):

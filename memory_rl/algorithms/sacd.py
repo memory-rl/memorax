@@ -51,9 +51,6 @@ class SACDConfig:
     target_entropy_scale: float
     learning_starts: int
     max_grad_norm: float
-    actor: Any
-    critic: Any
-    buffer: Buffer
 
 
 @struct.dataclass(frozen=True)

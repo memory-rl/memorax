@@ -53,9 +53,6 @@ class SACConfig:
     target_entropy_scale: float
     learning_starts: int
     max_grad_norm: float
-    actor: Any
-    critic: Any
-    buffer: Any
 
     @property
     def target_entropy_multiplier(self) -> float:

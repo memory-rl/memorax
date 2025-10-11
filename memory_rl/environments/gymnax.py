@@ -59,11 +59,10 @@ class BSuiteWrapper(GymnaxWrapper):
         return obs, new_state, reward, done, info
 
 
-def make(cfg):
-    kwargs = cfg.kwargs or {}
-    env, env_params = gymnax.make(cfg.env_id, **kwargs)
+def make(env_id, **kwargs):
+    env, env_params = gymnax.make(env_id, **kwargs)
 
-    if "bsuite" in cfg.env_id:
+    if "bsuite" in env_id:
         env = BSuiteWrapper(env)
 
     return env, env_params

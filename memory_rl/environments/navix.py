@@ -30,8 +30,7 @@ class NavixGymnaxWrapper(GymnaxWrapper):
         )
 
 
-def make(cfg):
-    kwargs = cfg.kwargs or {}
-    env = nx.make(cfg.env_id, **kwargs)
+def make(env_id, **kwargs):
+    env = nx.make(env_id, **kwargs)
     env = NavixGymnaxWrapper(env)
     return env, None

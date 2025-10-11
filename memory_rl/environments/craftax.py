@@ -2,7 +2,7 @@ from typing import Any
 from flax.struct import dataclass
 import jax
 from craftax import craftax_env
-from gymnax.environments import spaces, EnvParams
+from gymnax.environments import spaces
 
 from memory_rl.utils.wrappers import GymnaxWrapper
 
@@ -49,6 +49,7 @@ class PixelCraftaxEnvWrapper(GymnaxWrapper):
             ),
         )
 
+
 class CraftaxWrapper(GymnaxWrapper):
 
     def reset(self, key, params):
@@ -60,23 +61,25 @@ class CraftaxWrapper(GymnaxWrapper):
         )
         return obs, new_state, reward, done, info
 
+
 @dataclass(frozen=True)
 class EnvParams:
     env_params: Any
     max_steps_in_episode: int
 
-def make(cfg):
-    kwargs = cfg.kwargs or {}
-    env = craftax_env.make_craftax_env_from_name(cfg.env_id, **kwargs)
 
-    if cfg.env_id == "Craftax-Pixels-v1":
+def make(env_id, **kwargs):
+    env = craftax_env.make_craftax_env_from_name(env_id, **kwargs)
+
+    if env_id == "Craftax-Pixels-v1":
         env = PixelCraftaxEnvWrapper(env)
 
     env = CraftaxWrapper(env)
 
     env_params = env.default_params
     env_params = EnvParams(
-        env_params=env_params, max_steps_in_episode=env_params.max_timesteps,
+        env_params=env_params,
+        max_steps_in_episode=env_params.max_timesteps,
     )
 
     return env, env_params

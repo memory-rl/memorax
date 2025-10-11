@@ -1,8 +1,4 @@
-# Memory-RL — Modular Recurrent RL in JAX/Flax
-
-*A plug-and-play reinforcement-learning stack that pairs standard algorithms with configurable memory, unified environments, and composable logging.*
-
----
+# Memory-RL: A High-Performance JAX Library for Memory-Augmented Reinforcement Learning
 
 ## Why this library?
 

@@ -60,9 +60,6 @@ def sac_components():
         target_entropy_scale=1.0,
         learning_starts=4,
         max_grad_norm=1.0,
-        actor=None,
-        critic=None,
-        buffer=None,
     )
 
     buffer = fbx.make_flat_buffer(

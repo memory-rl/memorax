@@ -52,8 +52,6 @@ def rppo_components():
         vf_coef=0.5,
         max_grad_norm=0.5,
         learning_starts=0,
-        actor=None,
-        critic=None,
     )
 
     optimizer = optax.adam(cfg.learning_rate)

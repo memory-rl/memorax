@@ -50,9 +50,6 @@ def dqn_components():
         exploration_fraction=0.5,
         learning_starts=0,
         train_frequency=4,
-        buffer=buffer,
-        feature_extractor=feature_extractor,
-        torso=torso,
         double=False,
     )
 

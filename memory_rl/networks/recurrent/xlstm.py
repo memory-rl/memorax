@@ -14,7 +14,6 @@ from flax.linen.recurrent import RNNCellBase
 from flax.typing import (
     PRNGKey,
 )
-from omegaconf import OmegaConf
 
 from .slstm import sLSTMBlock
 from .mlstm import mLSTMBlock
@@ -58,7 +57,11 @@ def initalize_mlstm_carry(
     C = carry_init(key_c, (batch_dims + (num_heads, head_dim, head_dim)), param_dtype)
     n = carry_init(key_n, (batch_dims + (num_heads, head_dim)), param_dtype)
     m = carry_init(key_m, (batch_dims + (num_heads,)), param_dtype)
-    conv_buf = carry_init(key_conv_buf, batch_dims + (up_features, max(conv_kernel_size - 1, 0)), param_dtype)
+    conv_buf = carry_init(
+        key_conv_buf,
+        batch_dims + (up_features, max(conv_kernel_size - 1, 0)),
+        param_dtype,
+    )
     return (C, n, m, conv_buf)
 
 
@@ -77,9 +80,13 @@ class xLSTMCell(RNNCellBase):
         cells = []
         for i, kind in enumerate(self.pattern):
             if kind == "s":
-                block = sLSTMBlock(self.features, name=f"sLSTMBlock_{i}", **self.s_kwargs)
+                block = sLSTMBlock(
+                    self.features, name=f"sLSTMBlock_{i}", **self.s_kwargs
+                )
             elif kind == "m":
-                block = mLSTMBlock(self.features, name=f"mLSTMBlock_{i}", **self.m_kwargs)
+                block = mLSTMBlock(
+                    self.features, name=f"mLSTMBlock_{i}", **self.m_kwargs
+                )
             else:
                 raise ValueError(f"Unknown kind {kind!r}")
             cell, x = block(carry[i], x)
@@ -100,8 +107,8 @@ class xLSTMCell(RNNCellBase):
             "carry_init": initializers.zeros_init(),
             "param_dtype": jnp.float32,
         }
-        s_kw = {**s_defaults, **OmegaConf.to_container(self.s_kwargs)}
-        m_kw = {**m_defaults, **OmegaConf.to_container(self.m_kwargs)}
+        s_kw = {**s_defaults, **self.s_kwargs}
+        m_kw = {**m_defaults, **self.m_kwargs}
 
         keys = random.split(rng, len(self.pattern))
         carries = []

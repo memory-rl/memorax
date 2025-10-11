@@ -37,9 +37,6 @@ class DQNConfig:
     exploration_fraction: float
     learning_starts: int
     train_frequency: int
-    buffer: Any
-    feature_extractor: nn.Module
-    torso: nn.Module
     double: bool
 
 

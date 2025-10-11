@@ -58,9 +58,6 @@ class RSACDConfig:
     sequence_length: int
     burn_in_length: int
     mask: bool
-    actor: Any
-    critic: Any
-    buffer: Any
 
 
 @struct.dataclass(frozen=True)

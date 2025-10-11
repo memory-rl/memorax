@@ -38,9 +38,6 @@ class DRQNConfig:
     double: bool
     learning_starts: int
     train_frequency: int
-    buffer: Any
-    feature_extractor: nn.Module
-    torso: nn.Module
     sequence_length: Optional[int]
     burn_in_length: int
     mask: bool

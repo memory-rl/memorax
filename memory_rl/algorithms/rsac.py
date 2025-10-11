@@ -57,9 +57,6 @@ class RSACConfig:
     target_entropy_scale: float
     learning_starts: int
     max_grad_norm: float
-    actor: Any
-    critic: Any
-    buffer: Any
     sequence_length: int
     burn_in_length: int
     mask: bool

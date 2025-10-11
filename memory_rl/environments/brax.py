@@ -66,13 +66,10 @@ class BraxGymnaxWrapper(GymnaxWrapper):
         )
 
 
-def make(cfg):
-    env_id, mask_mode = cfg.env_id.split("-")
-    backend = cfg.get("backend", "mjx")
-    kwargs = cfg.kwargs or {}
+def make(env_id, **kwargs):
+    env_id, mask_mode = env_id.split("-")
     env = BraxGymnaxWrapper(
         env_id,
-        backend,
         **kwargs,
     )
 

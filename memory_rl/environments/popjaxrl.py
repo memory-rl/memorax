@@ -141,12 +141,11 @@ class PopJaxRLWrapper(GymnaxWrapper):
         return obs, new_state, reward, done, info
 
 
-def make(cfg):
-    kwargs = cfg.kwargs or {}
-    env, env_params = make_popjaxrl_env(cfg.env_id, **kwargs)
+def make(env_id, **kwargs):
+    env, env_params = make_popjaxrl_env(env_id, **kwargs)
     env = AliasPrevActionV2(env)
     env = PopJaxRLWrapper(env)
     env_params = EnvParams(
-        env_params=env_params, max_steps_in_episode=max_steps_in_episode[cfg.env_id]
+        env_params=env_params, max_steps_in_episode=max_steps_in_episode[env_id]
     )
     return env, env_params

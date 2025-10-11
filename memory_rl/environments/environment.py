@@ -1,5 +1,3 @@
-from gymnax.wrappers import FlattenObservationWrapper
-
 from memory_rl.environments import (
     brax,
     craftax,
@@ -23,17 +21,12 @@ register = {
 }
 
 
-def make(cfg):
+def make(env_id):
+    namespace, env_id = env_id.split("::", 1)
 
-    if cfg.namespace not in register:
-        raise ValueError(f"Unknown namespace {cfg.namespace}")
+    if namespace not in register:
+        raise ValueError(f"Unknown namespace {namespace}")
 
-    env, env_params = register[cfg.namespace](cfg=cfg)
-
-    if cfg.get("flatten_obs", False):
-        env = FlattenObservationWrapper(env)
-
-    if env_params is not None and "env_params" in cfg:
-        env_params = env_params.replace(**cfg["env_params"])
+    env, env_params = register[namespace](env_id)
 
     return env, env_params

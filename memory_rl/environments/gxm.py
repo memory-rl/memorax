@@ -30,9 +30,8 @@ class GxmGymnaxWrapper(GymnaxWrapper):
         return EnvParams(max_steps_in_episode=27_000)
 
 
-def make(cfg):
-    kwargs = cfg.kwargs or {}
-    env = gxm.make(cfg.env_id, **kwargs)
+def make(env_id, **kwargs):
+    env = gxm.make(env_id, **kwargs)
     env = GxmGymnaxWrapper(env)
     env_params = env.default_params
     return env, env_params

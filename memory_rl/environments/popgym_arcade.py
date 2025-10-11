@@ -21,9 +21,8 @@ class PopGymArcadeWrapper(GymnaxWrapper):
         return self._env.step_env(key, state, action, params.env_params)
 
 
-def make(cfg):
-    kwargs = cfg.kwargs or {}
-    env, env_params = popgym_arcade.make(cfg.env_id, **kwargs)
+def make(env_id, **kwargs):
+    env, env_params = popgym_arcade.make(env_id, **kwargs)
     env = PopGymArcadeWrapper(env)
     env_params = EnvParams(
         env_params=env_params, max_steps_in_episode=env.max_steps_in_episode

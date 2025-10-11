@@ -37,23 +37,16 @@ def rpqn_components():
         num_envs=2,
         num_eval_envs=2,
         num_steps=4,
-        anneal_lr=False,
         gamma=0.99,
-        gae_lambda=0.95,
+        td_lambda=0.95,
         num_minibatches=2,
         update_epochs=2,
-        normalize_advantage=False,
-        clip_coef=0.2,
-        clip_vloss=False,
-        ent_coef=0.0,
-        vf_coef=0.5,
+        start_e=1.0,
+        end_e=0.1,
+        exploration_fraction=0.5,
         max_grad_norm=0.5,
         learning_starts=0,
-        feature_extractor=feature_extractor,
-        torso=torso,
     )
-    object.__setattr__(cfg, "mode", SimpleNamespace(length=4))
-    object.__setattr__(cfg, "td_lambda", 0.95)
 
     optimizer = optax.adam(cfg.learning_rate)
     epsilon_schedule = optax.linear_schedule(
@@ -91,7 +84,7 @@ def test_rpqn_warmup(rpqn_components):
 def test_rpqn_train(rpqn_components):
     agent = rpqn_components
     key, state = agent.init(jax.random.key(0))
-    rollout_steps = agent.cfg.mode.length * agent.cfg.num_envs
+    rollout_steps = agent.cfg.num_steps * agent.cfg.num_envs
     agent.train(key, state, num_steps=rollout_steps)
 
 

@@ -44,8 +44,6 @@ def pqn_components():
         start_e=1.0,
         end_e=0.1,
         exploration_fraction=0.5,
-        feature_extractor=feature_extractor,
-        torso=torso,
     )
 
     optimizer = optax.adam(cfg.learning_rate)

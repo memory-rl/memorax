@@ -54,9 +54,6 @@ def drqn_components():
         sequence_length=4,
         burn_in_length=0,
         mask=False,
-        buffer=buffer,
-        feature_extractor=feature_extractor,
-        torso=torso,
         double=False,
     )
 

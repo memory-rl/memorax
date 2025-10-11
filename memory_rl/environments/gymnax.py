@@ -1,4 +1,3 @@
-import jax
 import jax.numpy as jnp
 import gymnax
 from gymnax.environments import environment

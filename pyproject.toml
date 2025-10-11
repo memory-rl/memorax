@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages   = ["memory_rl", "tests"]
+packages = ["memory_rl", "tests"]
 
 [project]
 name = "memory-rl"
@@ -12,37 +12,47 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "jax===0.7.2",
-    "brax>=0.12.4",
+    "jax>=0.7.2",
+    "flax>=0.10.7",
     "distrax>=0.1.5",
     "flashbax>=0.1.3",
-    "flax>=0.10.7",
     "gymnax>=0.0.9",
-    "jumanji>=1.1.1",
-    "navix>=0.7.0",
     "wandb>=0.21.0",
-    "craftax>=1.5.0",
-    "gxm",
-    "playground>=0.0.5",
-    "tensorboard>=2.20.0",
-    "popgym-arcade>=0.0.4",
-    "warp-lang>=1.9.1",
-    "popjym",
     "neptune-scale>=0.27.0",
+    "tensorboardx>=2.6.4",
 ]
 
 [project.optional-dependencies]
-cuda = ["jax[cuda12]"]
+brax      = ["brax>=0.12.4"]
+jumanji   = ["jumanji>=1.1.1"]
+navix     = ["navix>=0.7.0"]
+craftax   = ["craftax>=1.5.0"]
+popgym-arcade    = ["popgym-arcade>=0.0.4"]
+playground= ["playground>=0.0.5", "warp-lang>=1.9.1"]
+gxm       = ["gxm"]
+popjym    = ["popjym"]
+
+all = [
+    "brax>=0.12.4",
+    "gymnax>=0.0.9",
+    "jumanji>=1.1.1",
+    "navix>=0.7.0",
+    "craftax>=1.5.0",
+    "popgym-arcade>=0.0.4",
+    "warp-lang>=1.9.1",
+    "playground>=0.0.5",
+    "gxm",
+    "popjym",
+]
+
+cuda = ["jax[cuda12]>=0.7.2"]
 
 [dependency-groups]
-commit = [
-    "pre-commit>=4.2.0",
-]
+commit = ["pre-commit>=4.2.0"]
 
 [tool.uv]
 package = true
 
 [tool.uv.sources]
-gxm = { git = "https://github.com/huterguier/gxm", rev = "dev" }
-popjym = { git = "https://github.com/EdanToledo/popjym.git" }
-
+gxm    = { git = "https://github.com/huterguier/gxm", rev = "dev", extra = "gxm" }
+popjym = { git = "https://github.com/EdanToledo/popjym.git",            extra = "popjym" }

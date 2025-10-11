@@ -6,7 +6,6 @@ import chex
 from typing import Any, Optional
 import wandb
 from wandb.sdk.wandb_run import Run
-from omegaconf import DictConfig, OmegaConf
 
 
 @chex.dataclass(frozen=True)

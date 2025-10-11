@@ -1,8 +1,6 @@
 from typing import Any
 from dataclasses import dataclass
 
-import popgym_arcade
-
 from memory_rl.utils.wrappers import GymnaxWrapper
 
 
@@ -22,6 +20,8 @@ class PopGymArcadeWrapper(GymnaxWrapper):
 
 
 def make(env_id, **kwargs):
+    import popgym_arcade
+
     env, env_params = popgym_arcade.make(env_id, **kwargs)
     env = PopGymArcadeWrapper(env)
     env_params = EnvParams(

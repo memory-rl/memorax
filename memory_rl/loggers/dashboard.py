@@ -34,7 +34,7 @@ class DashboardLoggerState(BaseLoggerState):
 
 @struct.dataclass(frozen=True)
 class DashboardLogger(BaseLogger[DashboardLoggerState]):
-    title: Optional[str] = None
+    title: Optional[str]
     name: Optional[str] = None
     total_timesteps: Optional[int] = None
     refresh_per_second: int = 10

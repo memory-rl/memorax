@@ -2,7 +2,7 @@
 
 ## Why this library?
 
-Modern RL lives under partial observability. State lives in memory. You want to swap `sLSTM ↔ GTrXL ↔ GPT2-cell` without rewriting your training loop, run the same code on `gymnax`, `brax`, or `mujoco`, and send metrics to any logger you like. That’s exactly what this repo does—clean interfaces, typed configs/states, fast JAX scans, and recurrent variants of the usual suspects.
+Modern RL lives under partial observability. State lives in memory. You want to swap `sLSTM ↔ GTrXL ↔ GPT2` without rewriting your training loop, run the same code on `gymnax`, `brax`, or `mujoco`, and send metrics to any logger you like. That’s exactly what this repo does—clean interfaces, typed configs/states, fast JAX scans, and recurrent variants of the usual suspects.
 
 ---
 

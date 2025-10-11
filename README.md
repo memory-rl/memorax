@@ -35,10 +35,10 @@ utils/        # GAE, target updates, Transition, decorators, typing protocol
 All implement:
 
 ```python
-init(config, rng) -> State
-warmup(state, env, logger) -> State
-train(state, env, logger, num_steps) -> (State, Metrics)
-evaluate(state, env, episodes) -> EvalMetrics
+init(key) -> Key, State
+warmup(key, state, num_steps) -> Key, State
+train(key, state, num_steps) -> Key, State, Transitions
+evaluate(key, state, num_steps) -> Key, State, Transitions
 ```
 
 ### Networks

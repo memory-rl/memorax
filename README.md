@@ -19,10 +19,10 @@ Modern RL lives under partial observability. State lives in memory. You want to 
 ## Package layout
 
 ```
-algorithms/   # training loops + configs for value/policy methods
+algorithms/   # training loops
 networks/     # MLP/CNN, heads, (Recurrent)Network orchestration + memory cells
 buffers/      # rollout storage (episode/trajectory via flashbax)
-environments/ # factory + wrappers (+ dated runs in environments/outputs/YYYY-MM-DD/)
+environments/ # factory + wrappers
 loggers/      # backends + composition
 utils/        # GAE, target updates, Transition, decorators, typing protocol
 ```

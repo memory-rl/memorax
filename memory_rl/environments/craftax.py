@@ -1,7 +1,5 @@
 from typing import Any
 from flax.struct import dataclass
-import jax
-from craftax import craftax_env
 from gymnax.environments import spaces
 
 from memory_rl.utils.wrappers import GymnaxWrapper
@@ -9,6 +7,7 @@ from memory_rl.utils.wrappers import GymnaxWrapper
 
 class PixelCraftaxEnvWrapper(GymnaxWrapper):
     def __init__(self, env, normalize: bool = False):
+
         super().__init__(env)
 
         self.renderer = None
@@ -69,6 +68,8 @@ class EnvParams:
 
 
 def make(env_id, **kwargs):
+    from craftax import craftax_env
+
     env = craftax_env.make_craftax_env_from_name(env_id, **kwargs)
 
     if env_id == "Craftax-Pixels-v1":

@@ -1,6 +1,4 @@
-import jax
-from gymnax.environments import spaces, EnvParams
-import navix as nx
+from gymnax.environments import spaces
 import numpy as np
 
 from memory_rl.utils.wrappers import GymnaxWrapper
@@ -31,6 +29,8 @@ class NavixGymnaxWrapper(GymnaxWrapper):
 
 
 def make(env_id, **kwargs):
+    import navix as nx
+
     env = nx.make(env_id, **kwargs)
     env = NavixGymnaxWrapper(env)
     return env, None

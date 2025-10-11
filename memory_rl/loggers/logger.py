@@ -5,7 +5,6 @@ from typing import Any, Generic, TypeVar, TypeAlias
 import jax
 import jax.numpy as jnp
 from flax import struct
-from omegaconf import DictConfig
 
 PyTree: TypeAlias = Any
 
@@ -21,7 +20,7 @@ StateT = TypeVar("StateT", bound=BaseLoggerState)
 class BaseLogger(Generic[StateT], ABC):
 
     @abstractmethod
-    def init(self, cfg: DictConfig) -> StateT: ...
+    def init(self, cfg) -> StateT: ...
 
     @abstractmethod
     def log(self, state: StateT, data: PyTree, step: PyTree) -> StateT: ...

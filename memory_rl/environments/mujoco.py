@@ -1,7 +1,5 @@
 import jax
 import jax.numpy as jnp
-from ml_collections import FrozenConfigDict
-from mujoco_playground import registry
 from gymnax.environments import spaces
 
 from memory_rl.utils.wrappers import GymnaxWrapper
@@ -82,6 +80,9 @@ class MuJoCoGymnaxWrapper(GymnaxWrapper):
 
 
 def make(env_id, **kwargs):
+    from ml_collections import FrozenConfigDict
+    from mujoco_playground import registry
+
     env = registry.load(env_id, **kwargs)
     env_params = registry.get_default_config(env_id)
     env_params["max_steps_in_episode"] = env_params.episode_length + 1

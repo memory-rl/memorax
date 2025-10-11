@@ -1,4 +1,3 @@
-import gxm
 from gymnax.environments import spaces, EnvParams
 
 from memory_rl.utils.wrappers import GymnaxWrapper
@@ -31,6 +30,8 @@ class GxmGymnaxWrapper(GymnaxWrapper):
 
 
 def make(env_id, **kwargs):
+    import gxm
+
     env = gxm.make(env_id, **kwargs)
     env = GxmGymnaxWrapper(env)
     env_params = env.default_params

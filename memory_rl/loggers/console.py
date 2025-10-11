@@ -3,7 +3,6 @@ from dataclasses import field
 from typing import Any, DefaultDict, Mapping, Optional
 
 from flax import struct
-from omegaconf import DictConfig, OmegaConf
 
 from .logger import BaseLogger, BaseLoggerState, PyTree
 
@@ -18,7 +17,7 @@ class ConsoleLoggerState(BaseLoggerState):
 @struct.dataclass(frozen=True)
 class ConsoleLogger(BaseLogger[ConsoleLoggerState]):
 
-    def init(self, cfg: dict) -> ConsoleLoggerState:
+    def init(self, cfg) -> ConsoleLoggerState:
         return ConsoleLoggerState()
 
     def log(

@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, DefaultDict, Mapping, Optional
 
 from flax import struct
-from omegaconf import DictConfig, OmegaConf
 
 from .logger import BaseLogger, BaseLoggerState, PyTree
 
@@ -58,7 +57,6 @@ class FileLogger(BaseLogger[FileLoggerState]):
                 / f"{datetime.now():%Y%m%d-%H%M%S}"
             )
         base_path.mkdir(exist_ok=True, parents=True)
-        OmegaConf.save(OmegaConf.create(cfg), base_path / "config.yaml")
 
         paths = {seed: (base_path / str(seed)) for seed in range(cfg["num_seeds"])}
 

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from gymnax.environments import spaces
 import jax
 import jax.numpy as jnp
-import popjym
 
 from memory_rl.utils.wrappers import GymnaxWrapper
 
@@ -142,6 +141,8 @@ class PopJaxRLWrapper(GymnaxWrapper):
 
 
 def make(env_id, **kwargs):
+    import popjym
+
     env, env_params = popjym.make(env_id, **kwargs)
     env = AliasPrevActionV2(env)
     env = PopJaxRLWrapper(env)

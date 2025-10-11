@@ -13,6 +13,8 @@ Environment: TypeAlias = gymnax.environments.environment.Environment
 EnvParams: TypeAlias = gymnax.EnvParams
 EnvState: TypeAlias = gymnax.EnvState
 
+Carry: TypeAlias = Any
+
 
 class Logger(Protocol):
     def init(self, config: dict[str, Any]) -> Any: ...

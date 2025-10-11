@@ -8,7 +8,7 @@ Modern RL lives under partial observability. State lives in memory. You want to 
 
 ## Highlights
 
-* **Memory is a first-class citizen.** Drop-in recurrent cells (`sLSTM`, `mLSTM`, `xLSTM`, `GTrXL`, `GPT2`-style, `S5`, `SHM`, `DNC`, `FFM`) with a `MaskedRNN` wrapper (burn-in, carry slicing/detach).
+* **Memory is a first-class citizen.** Drop-in recurrent cells (`sLSTM`, `mLSTM`, `xLSTM`, `GTrXL`, `GPT2`, `S5`, `SHM`, `DNC`, `FFM`) with a `MaskedRNN` wrapper.
 * **Recurrent algorithms.** `R*` counterparts of major methods for POMDPs (`DRQN`, `RPPO`, `RPQN`, `RSAC`, `RSACD`, …).
 * **Unified environments.** One factory, consistent spaces, identical `reset/step` signatures across `gymnax`, `brax`, `mujoco`, `craftax`, `navix`, `gxm`, `popgym_arcade`, `popjaxrl`.
 * **Pluggable logging.** Console/File, TensorBoard, Weights & Biases, Neptune, and a dashboard aggregator—same `Logger` API everywhere.

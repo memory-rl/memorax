@@ -4,7 +4,7 @@ from .rnn import RNN
 from .slstm import sLSTMCell, sLSTMBlock
 from .mlstm import mLSTMCell, mLSTMBlock
 from .xlstm import xLSTMCell
-from .gtrxl import GTrXLCell
+from .gtrxl import GTrXL
 from .shm import SHMCell
-from .s5 import S5Cell
+from .s5 import S5
 from .dnc import DNCCell

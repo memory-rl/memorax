@@ -9,43 +9,16 @@ from flax import struct
 from flax.linen.recurrent import Carry
 
 from memory_rl.networks.recurrent.utils import (
-    get_time_axis_and_input_shape,
-    mask_carry,
     get_attention_implementation,
 )
-
+from memory_rl.utils.typing import Array
 
 @struct.dataclass
 class KVCache:
-    idx: jnp.ndarray
-    key: jnp.ndarray
-    value: jnp.ndarray
-
-    @staticmethod
-    def read(kv_cache, context_length):
-        length = KVCache.length(kv_cache.idx, context_length)
-
-        start_idx = (kv_cache.idx - length) % context_length
-        positions = (
-            jnp.arange(context_length, dtype=jnp.int32)[None, :] + start_idx[:, None]
-        ) % context_length
-        k = jnp.take_along_axis(kv_cache.key, positions[:, :, None, None], axis=1)
-        v = jnp.take_along_axis(kv_cache.value, positions[:, :, None, None], axis=1)
-        return k, v, length
-
-    @staticmethod
-    def update(kv_cache, context_length, key, value):
-        idx = kv_cache.idx % context_length
-
-        key = jax.lax.dynamic_update_slice_in_dim(kv_cache.key, key, idx, axis=0)
-        value = jax.lax.dynamic_update_slice_in_dim(kv_cache.value, value, idx, axis=0)
-
-        return KVCache(idx + 1, key, value)
-
-    @staticmethod
-    def length(idx, context_length):
-        return jnp.minimum(idx, context_length)
-
+    position: Array
+    mask: Array
+    key: Array
+    value: Array
 
 class MultiHeadAttentionBlock(nn.Module):
     features: int
@@ -58,7 +31,7 @@ class MultiHeadAttentionBlock(nn.Module):
     dropout: float = 0.0
 
     @nn.compact
-    def __call__(self, x, mask, kv_cache=None):
+    def __call__(self, x, mask, kv_cache):
         head_dim = self.features // self.num_heads
 
         projection = partial(
@@ -74,47 +47,29 @@ class MultiHeadAttentionBlock(nn.Module):
         key = projection(name="key")(x)
         value = projection(name="value")(x)
 
-        if kv_cache is not None:
+        key = jnp.concatenate([kv_cache.key, key], axis=1)
+        value = jnp.concatenate([kv_cache.value, value], axis=1)
 
-            # def _add_time_axis(x):
-            #     return x[:, None, ...]
-            #
-            # query = _add_time_axis(query)
-            # key = _add_time_axis(key)
-            # value = _add_time_axis(value)
+        query_mask = mask.astype(jnp.int32)
+        query_input = jax.lax.cumsum(query_mask, axis=1, reverse=True) 
 
-            kv_cache = jax.vmap(KVCache.update, in_axes=(0, None, 0, 0))(
-                kv_cache, self.context_length, key, value
-            )
+        key_mask = jnp.concatenate([kv_cache.mask, mask], axis=1, dtype=jnp.int32)
+        key_input = jax.lax.cumsum(key_mask, axis=1, reverse=True)
 
-            key, value, key_value_seq_lengths = KVCache.read(
-                kv_cache, self.context_length
-            )
+        attention_mask = nn.make_attention_mask(
+            query_input, key_input, dtype=jnp.bool_, pairwise_fn=jnp.equal
+        )
+        B, _, T, S = attention_mask.shape
+        attention_mask = jnp.broadcast_to(attention_mask, (B, self.num_heads, T, S))
 
-            x = jax.nn.dot_product_attention(
-                query.astype(jnp.bfloat16),
-                key.astype(jnp.bfloat16),
-                value.astype(jnp.bfloat16),
-                key_value_seq_lengths=key_value_seq_lengths,
-                is_causal=True,
-                implementation=get_attention_implementation(),
-            )
-        else:
-            episode_idx = jnp.cumsum(mask, axis=1)
-            mask = nn.make_attention_mask(
-                episode_idx, episode_idx, pairwise_fn=jnp.equal
-            ).astype(jnp.bool_)
-            B, _, T, S = mask.shape
-            mask = jnp.broadcast_to(mask, (B, self.num_heads, T, S))
-
-            x = jax.nn.dot_product_attention(
-                query.astype(jnp.bfloat16),
-                key.astype(jnp.bfloat16),
-                value.astype(jnp.bfloat16),
-                is_causal=True,
-                mask=mask,
-                implementation=get_attention_implementation(),
-            )
+        x = jax.nn.dot_product_attention(
+            query.astype(jnp.bfloat16),
+            key.astype(jnp.bfloat16),
+            value.astype(jnp.bfloat16),
+            is_causal=True,
+            mask=attention_mask,
+            implementation=get_attention_implementation(),
+        )
 
         y = nn.DenseGeneral(
             self.features,
@@ -127,6 +82,13 @@ class MultiHeadAttentionBlock(nn.Module):
         )(x)
 
         y = nn.Dropout(rate=self.dropout)(y, deterministic=not self.has_rng("dropout"))
+
+        position = kv_cache.position + 1
+        mask = key_mask[:, -self.context_length:]
+        key = key[:, -self.context_length:, :]
+        value = value[:, -self.context_length:, :]
+        kv_cache = kv_cache.replace(position=position, mask=mask, key=key, value=value)
+
         return y, kv_cache
 
 
@@ -223,7 +185,8 @@ class GPT2(nn.Module):
     def initialize_carry(self, rng, input_shape):
         batch_size, *_ = input_shape
         head_dim = self.features // self.num_heads
-        idx = jnp.zeros(batch_size, dtype=jnp.int32)
+        position = jnp.zeros((batch_size, 1), dtype=jnp.int32)
+        mask = jnp.ones((batch_size, self.context_length), dtype=jnp.int32)
         key = jnp.zeros(
             (batch_size,) + (self.context_length, self.num_heads, head_dim),
             dtype=self.dtype,
@@ -232,10 +195,9 @@ class GPT2(nn.Module):
             (batch_size,) + (self.context_length, self.num_heads, head_dim),
             dtype=self.dtype,
         )
-        return tuple(KVCache(idx, key, value) for _ in range(self.num_layers))
+        return tuple(KVCache(position, mask, key, value) for _ in range(self.num_layers))
 
-    def _add_positional_embedding(self, inputs, mask, kv_cache: Carry | None = None):
-        _, T = mask.shape
+    def _add_positional_embedding(self, inputs, mask, carry: Carry):
         wpe = nn.Embed(
             num_embeddings=self.context_length,
             features=self.features,
@@ -244,13 +206,10 @@ class GPT2(nn.Module):
             param_dtype=self.param_dtype,
             name="wpe",
         )
-        if kv_cache is None:
-            t = jnp.arange(T, dtype=jnp.int32)[None, :]
-            last_start = jnp.maximum.accumulate(jnp.where(mask, t, 0), axis=1)
-            pos = (t - last_start) % self.context_length
-        else:
-            pos = kv_cache.idx[..., None] % self.context_length
+        kv_cache, *_ = carry
+        pos = kv_cache.position + jnp.cumsum(mask, axis=1, dtype=jnp.int32)
 
+        jnp.isnan(pos).any()
         inputs = inputs + wpe(pos)
         inputs = nn.Dropout(rate=self.dropout)(
             inputs, deterministic=not self.has_rng("dropout")
@@ -262,22 +221,15 @@ class GPT2(nn.Module):
         self,
         inputs: jax.Array,
         mask: jax.Array,
-        *,
-        initial_carry: Carry | None = None,
-        update: bool = False,
+        initial_carry: Carry,
+        **kwargs,
     ):
-        carry = initial_carry if not update else None
+        carry: Carry = initial_carry
 
-        if carry is not None:
-            _, input_shape = get_time_axis_and_input_shape(inputs)
-            initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
-            carry = mask_carry(mask, carry, initial_carry)
+        x = self._add_positional_embedding(inputs, mask, carry)
 
-        kv_cache = carry[0] if carry is not None else None
-        x = self._add_positional_embedding(inputs, mask, kv_cache)
         new_carry = []
-        for i in range(self.num_layers):
-            kv_cache = carry[i] if carry is not None else None
+        for layer_idx, kv_cache in enumerate(carry):
             x, kv_cache = GPT2Block(
                 features=self.features,
                 num_heads=self.num_heads,
@@ -287,7 +239,7 @@ class GPT2(nn.Module):
                 param_dtype=self.param_dtype,
                 kernel_init=self.kernel_init,
                 bias_init=self.bias_init,
-                name=f"layer_{i}",
+                name=f"layer_{layer_idx}",
             )(
                 x,
                 mask=mask,

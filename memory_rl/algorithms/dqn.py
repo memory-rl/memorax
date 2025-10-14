@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -38,6 +38,8 @@ class DQNConfig:
     learning_starts: int
     train_frequency: int
     double: bool
+    per_beta: Optional[float] = None
+    per_epsilon: float = 1e-6
 
 
 @struct.dataclass(frozen=True)
@@ -133,14 +135,17 @@ class DQN:
     def _update(self, key: Key, state: DQNState) -> tuple[DQNState, Array, Array]:
 
         key, sample_key = jax.random.split(key)
-        batch = self.buffer.sample(state.buffer_state, sample_key).experience
+        sample = self.buffer.sample(state.buffer_state, sample_key)
+        batch = sample.experience
 
-        next_target_q_values = self.q_network.apply(
-            state.target_params,
-            batch.second.obs,
-        )
+        def make_dqn_target():
+            next_target_q_values = self.q_network.apply(
+                state.target_params,
+                batch.second.obs,
+            )
+            return jnp.max(next_target_q_values, axis=-1)
 
-        if self.cfg.double:
+        def make_double_dqn_target():
             next_q_values = self.q_network.apply(
                 state.params,
                 batch.second.obs,
@@ -149,13 +154,23 @@ class DQN:
             next_target_q_value = jnp.take_along_axis(
                 next_target_q_values, jnp.expand_dims(next_action, -1), axis=-1
             ).squeeze(-1)
-        else:
-            next_target_q_value = jnp.max(next_target_q_values, axis=-1)
+            return next_target_q_value
+
+        next_target_q_value = (
+            make_dqn_target() if not self.cfg.double else make_double_dqn_target()
+        )
 
         td_target = (
             batch.first.reward
             + (1 - batch.first.done) * self.cfg.gamma * next_target_q_value
         )
+
+        if self.cfg.per_beta is not None:
+            probs = jnp.maximum(sample.priorities, 1e-12)
+            w = (1.0 / probs) ** self.cfg.per_beta
+            w = w / jnp.max(w)
+        else:
+            w = 1.0
 
         def loss_fn(params):
             q_value = self.q_network.apply(
@@ -164,10 +179,13 @@ class DQN:
             )
             action = jnp.expand_dims(batch.first.action, axis=-1)
             q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
-            loss = jnp.square(q_value - td_target).mean()
-            return loss, q_value
+            td_error = q_value - td_target
+            loss = (w * jnp.square(td_error)).mean()
+            return loss, (q_value, td_error)
 
-        (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
+        (loss, (q_value, td_error)), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+            state.params
+        )
         updates, optimizer_state = self.optimizer.update(
             grads, state.optimizer_state, state.params
         )
@@ -179,10 +197,18 @@ class DQN:
             self.cfg.target_network_frequency,
         )
 
+        buffer_state = state.buffer_state
+        if self.cfg.per_beta is not None:
+            priorities = jnp.abs(td_error) + self.cfg.per_epsilon
+            buffer_state = self.buffer.set_priorities(
+                state.buffer_state, sample.indices, priorities
+            )
+
         state = state.replace(
             params=params,
             target_params=target_params,
             optimizer_state=optimizer_state,
+            buffer_state=buffer_state,
         )
 
         return key, state, loss, q_value.mean()

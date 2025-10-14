@@ -3,89 +3,85 @@ import time
 import jax
 import flax.linen as nn
 import optax
-from memory_rl.algorithms.drqn import DRQN, DRQNConfig
-from memory_rl.buffers import make_episode_buffer
+from memory_rl.algorithms.rppo import RPPO, RPPOConfig
 from memory_rl.environments import environment
 from memory_rl.loggers import Logger, DashboardLogger
 from memory_rl.networks import (
     MLP,
     SequenceNetwork,
-    RNN,
     heads,
     SharedFeatureExtractor,
+    # S5Cell,
+    GPT2,
 )
 
-total_timesteps = 500_000
+total_timesteps = 1_000_000
 num_train_steps = 50_000
-num_eval_steps = 5_000
+num_eval_steps = 1_000
 
 env, env_params = environment.make("gymnax::MemoryChain-bsuite")
-
-cfg = DRQNConfig(
-    name="drqn",
-    learning_rate=3e-4,
-    num_envs=10,
-    num_eval_envs=10,
-    buffer_size=10_000,
-    gamma=0.99,
-    tau=1.0,
-    target_network_frequency=500,
-    batch_size=16,
-    start_e=1.0,
-    end_e=0.05,
-    exploration_fraction=0.5,
-    learning_starts=10_000,
-    train_frequency=10,
-    double=False,
-    sequence_length=6,
-    burn_in_length=0,
-    mask=False,
+memory_length = 5
+env_params = env_params.replace(
+    memory_length=memory_length, max_steps_in_episode=memory_length + 1
 )
 
-q_network = SequenceNetwork(
+cfg = RPPOConfig(
+    name="rppo",
+    learning_rate=3e-4,
+    num_envs=32,
+    num_eval_envs=16,
+    num_steps=6,
+    anneal_lr=True,
+    gamma=0.99,
+    gae_lambda=0.95,
+    num_minibatches=4,
+    update_epochs=4,
+    normalize_advantage=True,
+    clip_coef=0.2,
+    clip_vloss=True,
+    ent_coef=0.0,
+    vf_coef=0.5,
+    max_grad_norm=0.5,
+    learning_starts=0,
+)
+
+actor_network = SequenceNetwork(
     feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
-    torso=RNN(cell=nn.GRUCell(features=128), unroll=16),
-    head=heads.DiscreteQNetwork(
+    torso=GPT2(features=128),
+    head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
 )
-
-optimizer = optax.chain(
-    optax.clip_by_global_norm(5.0),
+actor_optimizer = optax.chain(
+    optax.clip_by_global_norm(cfg.max_grad_norm),
     optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
 )
 
-buffer = make_episode_buffer(
-    max_length=cfg.buffer_size,
-    min_length=cfg.batch_size,
-    sample_batch_size=cfg.batch_size,
-    add_sequences=True,
-    add_batch_size=cfg.num_envs,
-    sample_sequence_length=env_params.max_steps_in_episode,
-    min_length_time_axis=env_params.max_steps_in_episode,
+critic_network = SequenceNetwork(
+    feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
+    torso=GPT2(features=128),
+    head=heads.VNetwork(),
+)
+critic_optimizer = optax.chain(
+    optax.clip_by_global_norm(cfg.max_grad_norm),
+    optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
 )
 
-epsilon_schedule = optax.linear_schedule(
-    cfg.start_e,
-    cfg.end_e,
-    int(cfg.exploration_fraction * total_timesteps),
-    cfg.learning_starts,
-)
 
-key = jax.random.key(0)
+key = jax.random.key(1)
 
-agent = DRQN(
+agent = RPPO(
     cfg=cfg,
     env=env,
     env_params=env_params,
-    q_network=q_network,
-    optimizer=optimizer,
-    buffer=buffer,
-    epsilon_schedule=epsilon_schedule,
+    actor=actor_network,
+    critic=critic_network,
+    actor_optimizer=actor_optimizer,
+    critic_optimizer=critic_optimizer,
 )
 
 logger = Logger(
-    [DashboardLogger(title="DRQN Example", total_timesteps=total_timesteps)]
+    [DashboardLogger(title="RPPO bsuite Example", total_timesteps=total_timesteps)]
 )
 logger_state = logger.init(cfg)
 

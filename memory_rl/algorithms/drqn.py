@@ -17,7 +17,6 @@ from memory_rl.utils.typing import (
     EnvState,
     Key,
 )
-from memory_rl.networks import RecurrentNetwork
 from memory_rl.utils import periodic_incremental_update, Transition
 
 
@@ -41,6 +40,8 @@ class DRQNConfig:
     sequence_length: Optional[int]
     burn_in_length: int
     mask: bool
+    per_beta: Optional[float] = None
+    per_epsilon: float = 1e-6
 
 
 @struct.dataclass(frozen=True)
@@ -61,7 +62,7 @@ class DRQN:
     cfg: DRQNConfig
     env: Environment
     env_params: EnvParams
-    q_network: RecurrentNetwork
+    q_network: nn.Module
     optimizer: optax.GradientTransformation
     buffer: Buffer
     epsilon_schedule: optax.Schedule
@@ -159,31 +160,35 @@ class DRQN:
 
         key, memory_key, next_memory_key = jax.random.split(key, 3)
 
-        _, q_next_target = self.q_network.apply(
-            state.target_params,
-            batch.experience.next_obs,
-            mask=batch.experience.done,
-            rngs={"memory": next_memory_key},
-        )
-
-        if self.cfg.double:
-            memory_key, double_memory_key = jax.random.split(memory_key)
-            _, q_next_online = self.q_network.apply(
-                state.params,
+        def make_dqn_target():
+            _, next_target_q_values = self.q_network.apply(
+                state.target_params,
                 batch.experience.next_obs,
                 mask=batch.experience.done,
-                rngs={"memory": double_memory_key},
+                rngs={"memory": next_memory_key},
             )
-            next_actions = jnp.argmax(q_next_online, axis=-1)
-            q_next_target = jnp.take_along_axis(
-                q_next_target, jnp.expand_dims(next_actions, -1), axis=-1
+            return jnp.max(next_target_q_values, axis=-1)
+
+        def make_double_dqn_target():
+            _, next_q_values = self.q_network.apply(
+                state.target_params,
+                batch.experience.next_obs,
+                mask=batch.experience.done,
+                rngs={"memory": next_memory_key},
+            )
+            next_action = jnp.argmax(next_q_values, axis=-1)
+            next_target_q_value = jnp.take_along_axis(
+                next_target_q_values, jnp.expand_dims(next_action, -1), axis=-1
             ).squeeze(-1)
-        else:
-            q_next_target = jnp.max(q_next_target, axis=-1)
+            return next_target_q_value
+
+        next_target_q_value = (
+            make_dqn_target() if not self.cfg.double else make_double_dqn_target()
+        )
 
         td_target = (
             batch.experience.reward
-            + (1 - batch.experience.done) * self.cfg.gamma * q_next_target
+            + (1 - batch.experience.done) * self.cfg.gamma * next_target_q_value
         )
 
         mask = jnp.ones_like(td_target)
@@ -191,6 +196,13 @@ class DRQN:
             episode_idx = jnp.cumsum(batch.experience.prev_done, axis=1)
             terminal = (episode_idx == 1) & batch.experience.prev_done
             mask *= (episode_idx == 0) | terminal
+
+        if self.cfg.per_beta is not None:
+            probs = jnp.maximum(batch.priorities, 1e-12)
+            w = (1.0 / probs) ** self.cfg.per_beta
+            w = w / jnp.max(w)
+        else:
+            w = 1.0
 
         def loss_fn(params):
             hidden_state, q_value = self.q_network.apply(
@@ -202,10 +214,10 @@ class DRQN:
             action = jnp.expand_dims(batch.experience.action, axis=-1)
             q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
             td_error = q_value - td_target
-            loss = jnp.square(td_error).mean(where=mask.astype(jnp.bool_))
-            return loss, (q_value, hidden_state)
+            loss = (w * jnp.square(td_error)).mean(where=mask.astype(jnp.bool_))
+            return loss, (q_value, td_error, hidden_state)
 
-        (loss, (q_value, hidden_state)), grads = jax.value_and_grad(
+        (loss, (q_value, td_error, hidden_state)), grads = jax.value_and_grad(
             loss_fn, has_aux=True
         )(state.params)
         updates, optimizer_state = self.optimizer.update(
@@ -220,10 +232,18 @@ class DRQN:
             self.cfg.tau,
         )
 
+        buffer_state = state.buffer_state
+        if self.cfg.per_beta is not None:
+            priorities = jnp.abs(td_error) + self.cfg.per_epsilon
+            buffer_state = self.buffer.set_priorities(
+                state.buffer_state, batch.indices, priorities
+            )
+
         state = state.replace(
             params=params,
             target_params=target_params,
             optimizer_state=optimizer_state,
+            buffer_state=buffer_state,
         )
 
         return state, loss, q_value.mean()

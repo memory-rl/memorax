@@ -6,7 +6,14 @@ import jax.numpy as jnp
 import jax
 from flax import linen as nn
 from flax import struct
-from flax.linen.recurrent import RNNCellBase
+from flax.linen.recurrent import Carry
+
+from memory_rl.networks.recurrent.utils import (
+    get_time_axis_and_input_shape,
+    mask_carry,
+    get_attention_implementation,
+)
+
 
 @struct.dataclass
 class KVCache:
@@ -19,9 +26,10 @@ class KVCache:
         length = KVCache.length(kv_cache.idx, context_length)
 
         start_idx = (kv_cache.idx - length) % context_length
-        positions = (jnp.arange(context_length, dtype=jnp.int32)[None, :] +
-                 start_idx[:, None]) % context_length
-        k = jnp.take_along_axis(kv_cache.key,   positions[:, :, None, None], axis=1)
+        positions = (
+            jnp.arange(context_length, dtype=jnp.int32)[None, :] + start_idx[:, None]
+        ) % context_length
+        k = jnp.take_along_axis(kv_cache.key, positions[:, :, None, None], axis=1)
         v = jnp.take_along_axis(kv_cache.value, positions[:, :, None, None], axis=1)
         return k, v, length
 
@@ -29,8 +37,8 @@ class KVCache:
     def update(kv_cache, context_length, key, value):
         idx = kv_cache.idx % context_length
 
-        key = jax.lax.dynamic_update_slice(kv_cache.key, key, (idx, 0, 0))
-        value = jax.lax.dynamic_update_slice(kv_cache.value, value, (idx, 0, 0))
+        key = jax.lax.dynamic_update_slice_in_dim(kv_cache.key, key, idx, axis=0)
+        value = jax.lax.dynamic_update_slice_in_dim(kv_cache.value, value, idx, axis=0)
 
         return KVCache(idx + 1, key, value)
 
@@ -50,7 +58,7 @@ class MultiHeadAttentionBlock(nn.Module):
     dropout: float = 0.0
 
     @nn.compact
-    def __call__(self, x, kv_cache=None, dones=None):
+    def __call__(self, x, mask, kv_cache=None):
         head_dim = self.features // self.num_heads
 
         projection = partial(
@@ -62,36 +70,40 @@ class MultiHeadAttentionBlock(nn.Module):
             bias_init=self.bias_init,
         )
 
-
         query = projection(name="query")(x)
         key = projection(name="key")(x)
         value = projection(name="value")(x)
 
-
         if kv_cache is not None:
-            def _add_time_axis(x):
-                return x[:, None, :, :]
 
-            query = _add_time_axis(query)
-            key = _add_time_axis(key)
-            value = _add_time_axis(value)
+            # def _add_time_axis(x):
+            #     return x[:, None, ...]
+            #
+            # query = _add_time_axis(query)
+            # key = _add_time_axis(key)
+            # value = _add_time_axis(value)
 
             kv_cache = jax.vmap(KVCache.update, in_axes=(0, None, 0, 0))(
                 kv_cache, self.context_length, key, value
             )
 
-            key, value, key_value_seq_lengths = KVCache.read(kv_cache, self.context_length)
+            key, value, key_value_seq_lengths = KVCache.read(
+                kv_cache, self.context_length
+            )
 
             x = jax.nn.dot_product_attention(
                 query.astype(jnp.bfloat16),
                 key.astype(jnp.bfloat16),
                 value.astype(jnp.bfloat16),
                 key_value_seq_lengths=key_value_seq_lengths,
-                implementation="cudnn"
-            ).squeeze(axis=1)
-        elif dones is not None:
-            episode_idx = jnp.cumsum(dones, axis=1)
-            mask = nn.make_attention_mask(episode_idx, episode_idx, pairwise_fn=jnp.equal).astype(jnp.bool_)
+                is_causal=True,
+                implementation=get_attention_implementation(),
+            )
+        else:
+            episode_idx = jnp.cumsum(mask, axis=1)
+            mask = nn.make_attention_mask(
+                episode_idx, episode_idx, pairwise_fn=jnp.equal
+            ).astype(jnp.bool_)
             B, _, T, S = mask.shape
             mask = jnp.broadcast_to(mask, (B, self.num_heads, T, S))
 
@@ -101,10 +113,8 @@ class MultiHeadAttentionBlock(nn.Module):
                 value.astype(jnp.bfloat16),
                 is_causal=True,
                 mask=mask,
-                implementation="cudnn"
+                implementation=get_attention_implementation(),
             )
-        else:
-            raise ValueError("Either kv_cache or dones must be provided")
 
         y = nn.DenseGeneral(
             self.features,
@@ -157,7 +167,7 @@ class GPT2Block(nn.Module):
     bias_init: Any
 
     @nn.compact
-    def __call__(self, x, kv_cache=None, dones=None):
+    def __call__(self, x, mask, kv_cache=None):
         skip = x
         x = nn.LayerNorm(
             epsilon=1e-5,
@@ -172,7 +182,7 @@ class GPT2Block(nn.Module):
             param_dtype=self.param_dtype,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
-        )(x, kv_cache, dones)
+        )(x, mask, kv_cache)
         x = x + skip
         skip = x
         x = nn.LayerNorm(
@@ -192,14 +202,8 @@ class GPT2Block(nn.Module):
         return x, kv_cache
 
 
+class GPT2(nn.Module):
 
-class GPT2Cell(RNNCellBase):
-    """GPT-2 as a Flax Linen RNNCell with a per-layer KV ring buffer.
-
-    Carry: (k_cache, v_cache, t)
-      - k_cache, v_cache: [B, n_layer, T, H, Hd]
-      - t:                 [B] step counter (monotonic)
-    """
     features: int
     num_layers: int = 12
     num_heads: int = 12
@@ -210,7 +214,6 @@ class GPT2Cell(RNNCellBase):
     param_dtype: Dtype = jnp.float32
     kernel_init: Any = nn.initializers.normal(stddev=0.02)
     bias_init: Any = nn.initializers.zeros_init()
-    carry_init: Any = None  # unused; present for API parity
 
     @property
     def num_feature_axes(self) -> int:
@@ -231,30 +234,50 @@ class GPT2Cell(RNNCellBase):
         )
         return tuple(KVCache(idx, key, value) for _ in range(self.num_layers))
 
+    def _add_positional_embedding(self, inputs, mask, kv_cache: Carry | None = None):
+        _, T = mask.shape
+        wpe = nn.Embed(
+            num_embeddings=self.context_length,
+            features=self.features,
+            embedding_init=self.kernel_init,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="wpe",
+        )
+        if kv_cache is None:
+            t = jnp.arange(T, dtype=jnp.int32)[None, :]
+            last_start = jnp.maximum.accumulate(jnp.where(mask, t, 0), axis=1)
+            pos = (t - last_start) % self.context_length
+        else:
+            pos = kv_cache.idx[..., None] % self.context_length
+
+        inputs = inputs + wpe(pos)
+        inputs = nn.Dropout(rate=self.dropout)(
+            inputs, deterministic=not self.has_rng("dropout")
+        )
+        return inputs
 
     @nn.compact
-    def __call__(self, carry, x):
+    def __call__(
+        self,
+        inputs: jax.Array,
+        mask: jax.Array,
+        *,
+        initial_carry: Carry | None = None,
+        update: bool = False,
+    ):
+        carry = initial_carry if not update else None
 
-        def _add_positional_embedding(carry, x):
-            kv_cache, *_ = carry
-            wpe = nn.Embed(
-                num_embeddings=self.context_length,
-                features=self.features,
-                embedding_init=self.kernel_init,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="wpe",
-            )
+        if carry is not None:
+            _, input_shape = get_time_axis_and_input_shape(inputs)
+            initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
+            carry = mask_carry(mask, carry, initial_carry)
 
-            idx = kv_cache.idx % self.context_length
-            x = x + wpe(idx)
-            x = nn.Dropout(rate=self.dropout)(x, deterministic=not self.has_rng("dropout"))
-            return x
-
-        x = _add_positional_embedding(carry, x)
-
+        kv_cache = carry[0] if carry is not None else None
+        x = self._add_positional_embedding(inputs, mask, kv_cache)
         new_carry = []
-        for i, kv_cache in zip(range(self.num_layers), carry):
+        for i in range(self.num_layers):
+            kv_cache = carry[i] if carry is not None else None
             x, kv_cache = GPT2Block(
                 features=self.features,
                 num_heads=self.num_heads,
@@ -265,7 +288,11 @@ class GPT2Cell(RNNCellBase):
                 kernel_init=self.kernel_init,
                 bias_init=self.bias_init,
                 name=f"layer_{i}",
-            )(x, kv_cache=kv_cache)
+            )(
+                x,
+                mask=mask,
+                kv_cache=kv_cache,
+            )
             new_carry.append(kv_cache)
         new_carry = tuple(new_carry)
 
@@ -275,45 +302,3 @@ class GPT2Cell(RNNCellBase):
             param_dtype=self.param_dtype,
         )(x)
         return new_carry, x
-
-    @nn.compact
-    def apply_parallel(self, carry, x, dones):
-
-        def _add_positional_embedding(x, dones):
-            _, T = dones.shape
-            episode_starts = jnp.pad(dones[:, :-1], ((0, 0), (1, 0)))
-            t = jnp.arange(T)[None, :]
-            last_start = jnp.maximum.accumulate(jnp.where(episode_starts, t, 0), axis=1)
-            pos = (t - last_start) % self.context_length
-            wpe = nn.Embed(
-                num_embeddings=self.context_length,
-                features=self.features,
-                embedding_init=self.kernel_init,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                name="wpe",
-            )
-            x = x + wpe(pos)
-            x = nn.Dropout(rate=self.dropout)(x, deterministic=not self.has_rng("dropout"))
-            return x
-
-        x = _add_positional_embedding(x, dones)
-        for i in range(self.num_layers):
-            x, _ = GPT2Block(
-                features=self.features,
-                num_heads=self.num_heads,
-                hidden_dim=self.hidden_dim or 4 * self.features,
-                context_length=self.context_length,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                kernel_init=self.kernel_init,
-                bias_init=self.bias_init,
-                name=f"layer_{i}",
-            )(x, dones=dones)
-
-        x = nn.LayerNorm(
-            epsilon=1e-5,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )(x)
-        return carry, x

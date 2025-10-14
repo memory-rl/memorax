@@ -8,7 +8,6 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 
-from memory_rl.networks import RecurrentNetwork
 from memory_rl.utils import Transition
 from memory_rl.utils.typing import Array, Environment, EnvParams, EnvState, Key
 
@@ -60,7 +59,7 @@ class RPQN:
     cfg: RPQNConfig
     env: Environment
     env_params: EnvParams
-    q_network: RecurrentNetwork
+    q_network: nn.Module
     optimizer: optax.GradientTransformation
     epsilon_schedule: optax.Schedule
 

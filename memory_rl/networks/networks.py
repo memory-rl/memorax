@@ -1,8 +1,12 @@
 from typing import Optional
 
 import flax.linen as nn
+from flax.linen.recurrent import Carry
 import jax
 import jax.numpy as jnp
+
+from memory_rl.networks.recurrent.utils import get_time_axis_and_input_shape, mask_carry
+from memory_rl.utils.typing import Array
 
 
 class Network(nn.Module):
@@ -13,10 +17,10 @@ class Network(nn.Module):
     @nn.compact
     def __call__(
         self,
-        observation: jnp.ndarray,
-        action: Optional[jnp.ndarray] = None,
-        reward: Optional[jnp.ndarray] = None,
-        done: Optional[jnp.ndarray] = None,
+        observation: Array,
+        action: Optional[Array] = None,
+        reward: Optional[Array] = None,
+        done: Optional[Array] = None,
         **kwargs,
     ):
         x = self.feature_extractor(
@@ -34,18 +38,19 @@ class SequenceNetwork(nn.Module):
     @nn.compact
     def __call__(
         self,
-        observation: jnp.ndarray,
-        mask: jnp.ndarray,
-        action: Optional[jnp.ndarray] = None,
-        reward: Optional[jnp.ndarray] = None,
-        done: Optional[jnp.ndarray] = None,
+        observation: Array,
+        mask: Array,
+        action: Optional[Array] = None,
+        reward: Optional[Array] = None,
+        done: Optional[Array] = None,
+        initial_carry: Carry | None = None,
         **kwargs,
     ):
         x = self.feature_extractor(
             observation, action=action, reward=reward, done=done, **kwargs
         )
 
-        carry, x = self.torso(x, mask=mask, **kwargs)
+        carry, x = self.torso(x, mask=mask, initial_carry=initial_carry, **kwargs)
         # hidden_state, x = MaskedRNN(
         #     self.torso,
         #     time_major=False,
@@ -60,6 +65,7 @@ class SequenceNetwork(nn.Module):
         # )
         return carry, self.head(x, **kwargs)
 
+    @nn.nowrap
     def initialize_carry(self, input_shape):
         key = jax.random.key(0)
         return self.torso.initialize_carry(key, input_shape)

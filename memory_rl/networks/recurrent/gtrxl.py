@@ -23,6 +23,8 @@ from flax.typing import (
     Initializer,
 )
 
+from memory_rl.networks.recurrent.utils import get_attention_implementation
+
 A = TypeVar("A")
 Carry = Any
 CarryHistory = Any
@@ -97,7 +99,7 @@ class RelativeMultiHeadAttentionBlock(Module):
         relative_positional_embeddings: Array,
         memory: Array,
         episode_idx: Array,
-        dones: Optional[Array] = None,
+        mask: Array,
     ):
         B, T, *_ = x.shape
         _, M, *_ = memory.shape
@@ -138,15 +140,14 @@ class RelativeMultiHeadAttentionBlock(Module):
         bd = _relative_shift(bd)[..., -(M+T):]
 
         bias = (bd / jnp.sqrt(head_dim)).astype(self.param_dtype)
+        bias = jax.lax.stop_gradient(bias)
 
-        mask = None
-        if dones is not None:
-            query_input = episode_idx[:, -1:] + jnp.cumsum(dones, axis=1)
-            key_input = jnp.concatenate([episode_idx, query_input], axis=1)
-            attention_mask = nn.make_attention_mask(query_input, key_input, pairwise_fn=jnp.equal).astype(jnp.bool_)
+        query_input = episode_idx[:, -1:] + jnp.cumsum(mask, axis=1)
+        key_input = jnp.concatenate([episode_idx, query_input], axis=1)
+        attention_mask = nn.make_attention_mask(query_input, key_input, pairwise_fn=jnp.equal).astype(jnp.bool_)
 
-            casual_mask = nn.make_causal_mask(jnp.ones((B, M + T)), dtype=jnp.bool_)[..., -T:, :]
-            mask = nn.combine_masks(attention_mask, casual_mask).astype(jnp.bool_)
+        casual_mask = nn.make_causal_mask(jnp.ones((B, M + T)), dtype=jnp.bool_)[..., -T:, :]
+        mask = nn.combine_masks(attention_mask, casual_mask).astype(jnp.bool_)
 
         x = jax.nn.dot_product_attention(
             query_u.astype(jnp.bfloat16),
@@ -154,7 +155,7 @@ class RelativeMultiHeadAttentionBlock(Module):
             value.astype(jnp.bfloat16),
             mask=mask,
             bias=bias,
-            implementation="xla"
+            implementation=get_attention_implementation(),
         ).reshape(B, T, self.num_heads * head_dim)
 
 
@@ -211,7 +212,7 @@ class GTrXLBlock(Module):
         relative_positional_embedding: Array,
         memory: Array,
         episode_idx: Array,
-        dones: Optional[Array] = None,
+        mask: Array,
     ):
         gate = partial(
             GRUGating,
@@ -238,7 +239,7 @@ class GTrXLBlock(Module):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             kernel_init=self.kernel_init,
-        )(x, relative_positional_embedding, memory, episode_idx, dones)
+        )(x, relative_positional_embedding, memory, episode_idx, mask)
         x = gate(name="attn_gate")(skip, x)
         skip = x
         x = nn.LayerNorm(
@@ -258,7 +259,8 @@ class GTrXLBlock(Module):
         return x
 
 
-class GTrXLCell(RNNCellBase):
+
+class GTrXL(RNNCellBase):
     features: int
     num_layers: int
     num_heads: int
@@ -283,20 +285,26 @@ class GTrXLCell(RNNCellBase):
         pos_seq = jnp.arange(length - 1, -1, -1)
         return sinusoidal_positional_embedding(pos_seq, dim)
 
-    @compact
+    @nn.compact
     def __call__(
-        self, carry: tuple[Any, ...], x: Array
-    ) -> tuple[tuple[Any, ...], Array]:
+        self,
+        inputs: jax.Array,
+        mask: jax.Array,
+        initial_carry: Carry,
+        **kwargs,
+    ):
         head_dim = self.head_dim or (self.features // self.num_heads)
 
-        x = x[:, None, :]
-        _, sequence_length, _ = x.shape
+
+        _, sequence_length, _ = inputs.shape
         relative_positional_embedding = self._build_positional_embedding(
             self.memory_length, sequence_length, self.features
         )
 
         new_carry = []
-        for layer_idx, (memory, episode_idx) in zip(range(self.num_layers), carry):
+        x: Array = inputs
+        carry: Carry = initial_carry
+        for layer_idx, (memory, episode_idx) in enumerate(carry):
             x = GTrXLBlock(
                 features=self.features,
                 num_heads=self.num_heads,
@@ -307,46 +315,11 @@ class GTrXLCell(RNNCellBase):
                 kernel_init=self.kernel_init,
                 bias_init=self.bias_init,
                 name=f"layer_{layer_idx}",
-            )(x, relative_positional_embedding, memory, episode_idx)
+            )(x, relative_positional_embedding, memory, episode_idx, mask)
             memory = jnp.concatenate(
                 [memory, jax.lax.stop_gradient(x)], axis=1
             )[:, -self.memory_length :, :].astype(self.carry_dtype)
-
-
-            new_carry.append((memory, episode_idx))
-        new_carry = tuple(new_carry)
-
-        x = x.squeeze(axis=1)
-        return new_carry, x
-
-    @compact
-    def apply_parallel(
-        self, carry: tuple[Any, ...], x: Array, dones: Array
-    ) -> tuple[tuple[Any, ...], Array]:
-        head_dim = self.head_dim or (self.features // self.num_heads)
-
-        _, sequence_length, _ = x.shape
-        relative_positional_embedding = self._build_positional_embedding(
-            self.memory_length, sequence_length, self.features
-        )
-
-        new_carry = []
-        for layer_idx, (memory, episode_idx) in zip(range(self.num_layers), carry):
-            x = GTrXLBlock(
-                features=self.features,
-                num_heads=self.num_heads,
-                head_dim=head_dim,
-                hidden_dim=self.hidden_dim or 4 * self.features,
-                dtype=self.dtype,
-                param_dtype=self.param_dtype,
-                kernel_init=self.kernel_init,
-                bias_init=self.bias_init,
-                name=f"layer_{layer_idx}",
-            )(x, relative_positional_embedding, memory, episode_idx, dones)
-            memory = jnp.concatenate(
-                [memory, jax.lax.stop_gradient(x)], axis=1
-            )[:, -self.memory_length :, :].astype(self.carry_dtype)
-            query_input = episode_idx[:, -1:] + jnp.cumsum(dones, axis=1)
+            query_input = episode_idx[:, -1:] + jnp.cumsum(mask, axis=1)
             episode_idx = jnp.concatenate([episode_idx, query_input], axis=1)[:, -self.memory_length:]
             new_carry.append((memory, episode_idx))
         new_carry = tuple(new_carry)

@@ -9,9 +9,9 @@ from memory_rl.networks.recurrent import (
     mLSTMBlock,
     sLSTMCell,
     sLSTMBlock,
-    GTrXLCell,
+    GTrXL,
     SHMCell,
-    S5Cell,
+    S5,
 )
 from memory_rl.networks.feature_extractors import (
     SeparateFeatureExtractor,

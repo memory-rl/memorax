@@ -1,6 +1,7 @@
 from functools import partial
 from typing import Any, Callable, Optional
 from flax import struct
+from flax import linen as nn
 import jax
 import jax.numpy as jnp
 import optax
@@ -13,7 +14,6 @@ from memory_rl.utils.typing import (
     EnvState,
     Key,
 )
-from memory_rl.networks import RecurrentNetwork
 from memory_rl.utils import generalized_advantage_estimatation, Transition
 
 
@@ -61,8 +61,8 @@ class RPPO:
     cfg: RPPOConfig
     env: Environment
     env_params: EnvParams
-    actor: RecurrentNetwork
-    critic: RecurrentNetwork
+    actor: nn.Module
+    critic: nn.Module
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
 
@@ -174,6 +174,7 @@ class RPPO:
                 observation=transitions.obs,
                 mask=transitions.prev_done,
                 initial_carry=initial_actor_hidden_state,
+                update=True,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
             log_probs = probs.log_prob(transitions.action)
@@ -225,6 +226,7 @@ class RPPO:
                 observation=transitions.obs,
                 mask=transitions.prev_done,
                 initial_carry=initial_critic_hidden_state,
+                update=True,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
             values = values.squeeze(-1)

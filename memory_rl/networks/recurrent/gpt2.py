@@ -83,7 +83,7 @@ class MultiHeadAttentionBlock(nn.Module):
 
         y = nn.Dropout(rate=self.dropout)(y, deterministic=not self.has_rng("dropout"))
 
-        position = kv_cache.position + 1
+        position = kv_cache.position + jnp.sum(mask, axis=1, dtype=jnp.int32)[:, None] & self.context_length
         mask = key_mask[:, -self.context_length:]
         key = key[:, -self.context_length:, :]
         value = value[:, -self.context_length:, :]
@@ -207,10 +207,10 @@ class GPT2(nn.Module):
             name="wpe",
         )
         kv_cache, *_ = carry
-        pos = kv_cache.position + jnp.cumsum(mask, axis=1, dtype=jnp.int32)
+        position = kv_cache.position + jnp.cumsum(mask, axis=1, dtype=jnp.int32) % self.context_length
 
-        jnp.isnan(pos).any()
-        inputs = inputs + wpe(pos)
+        jnp.isnan(position).any()
+        inputs = inputs + wpe(position)
         inputs = nn.Dropout(rate=self.dropout)(
             inputs, deterministic=not self.has_rng("dropout")
         )

@@ -13,12 +13,21 @@ from memory_rl.networks.recurrent.utils import (
 )
 from memory_rl.utils.typing import Array
 
+
+def _get_position(mask, start=0):
+    _, T = mask.shape
+    timesteps = jnp.arange(T)
+    position = jnp.maximum.accumulate(jnp.where(mask == 1, timesteps + 1, 0), axis=-1)
+    return timesteps - position + 1 + jnp.where(position == 0, start - 1, 0)
+
+
 @struct.dataclass
 class KVCache:
     position: Array
     mask: Array
     key: Array
     value: Array
+
 
 class MultiHeadAttentionBlock(nn.Module):
     features: int
@@ -51,7 +60,7 @@ class MultiHeadAttentionBlock(nn.Module):
         value = jnp.concatenate([kv_cache.value, value], axis=1)
 
         query_mask = mask.astype(jnp.int32)
-        query_input = jax.lax.cumsum(query_mask, axis=1, reverse=True) 
+        query_input = jax.lax.cumsum(query_mask, axis=1, reverse=True)
 
         key_mask = jnp.concatenate([kv_cache.mask, mask], axis=1, dtype=jnp.int32)
         key_input = jax.lax.cumsum(key_mask, axis=1, reverse=True)
@@ -83,10 +92,10 @@ class MultiHeadAttentionBlock(nn.Module):
 
         y = nn.Dropout(rate=self.dropout)(y, deterministic=not self.has_rng("dropout"))
 
-        position = kv_cache.position + jnp.sum(mask, axis=1, dtype=jnp.int32)[:, None] & self.context_length
-        mask = key_mask[:, -self.context_length:]
-        key = key[:, -self.context_length:, :]
-        value = value[:, -self.context_length:, :]
+        position = _get_position(mask, start=kv_cache.position)[..., -1:]
+        mask = key_mask[:, -self.context_length :]
+        key = key[:, -self.context_length :, :]
+        value = value[:, -self.context_length :, :]
         kv_cache = kv_cache.replace(position=position, mask=mask, key=key, value=value)
 
         return y, kv_cache
@@ -195,7 +204,9 @@ class GPT2(nn.Module):
             (batch_size,) + (self.context_length, self.num_heads, head_dim),
             dtype=self.dtype,
         )
-        return tuple(KVCache(position, mask, key, value) for _ in range(self.num_layers))
+        return tuple(
+            KVCache(position, mask, key, value) for _ in range(self.num_layers)
+        )
 
     def _add_positional_embedding(self, inputs, mask, carry: Carry):
         wpe = nn.Embed(
@@ -207,9 +218,9 @@ class GPT2(nn.Module):
             name="wpe",
         )
         kv_cache, *_ = carry
-        position = kv_cache.position + jnp.cumsum(mask, axis=1, dtype=jnp.int32) % self.context_length
 
-        jnp.isnan(position).any()
+        position = _get_position(mask, start=kv_cache.position)
+
         inputs = inputs + wpe(position)
         inputs = nn.Dropout(rate=self.dropout)(
             inputs, deterministic=not self.has_rng("dropout")

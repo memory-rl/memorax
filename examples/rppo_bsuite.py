@@ -19,20 +19,22 @@ from memory_rl.networks.recurrent.rnn import RNN
 
 total_timesteps = 1_000_000
 num_train_steps = 50_000
-num_eval_steps = 1_000
+num_eval_steps = 5_000
 
+# env, env_params = environment.make("gymnax::CartPole-v1")
 env, env_params = environment.make("gymnax::MemoryChain-bsuite")
-# memory_length = 5
-# env_params = env_params.replace(
-#     memory_length=memory_length, max_steps_in_episode=memory_length + 1
-# )
+memory_length = 5
+env_params = env_params.replace(
+    memory_length=memory_length, max_steps_in_episode=memory_length + 1
+)
+
 
 cfg = RPPOConfig(
     name="rppo",
     learning_rate=3e-4,
-    num_envs=32,
+    num_envs=16,
     num_eval_envs=16,
-    num_steps=16,
+    num_steps=64,
     anneal_lr=True,
     gamma=0.99,
     gae_lambda=0.95,
@@ -49,8 +51,9 @@ cfg = RPPOConfig(
 
 actor_network = SequenceNetwork(
     feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
-    torso=GPT2(features=128, num_layers=1, num_heads=1, context_length=16),
-    # torso=GTrXL(features=128, num_layers=4, num_heads=4),
+    # torso=GPT2(features=128, num_layers=4, num_heads=4, context_length=1024),
+    torso=GTrXL(features=128, num_layers=4, num_heads=4),
+    # torso=RNN(cell=nn.GRUCell(features=128)),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
@@ -62,7 +65,7 @@ actor_optimizer = optax.chain(
 
 critic_network = SequenceNetwork(
     feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
-    # torso=GPT2(features=128, num_layers=1, num_heads=1, context_length=5),
+    # torso=GPT2(features=128, num_layers=4, num_heads=4, context_length=1024),
     torso=RNN(cell=nn.GRUCell(features=128)),
     # torso=GTrXL(features=128, num_layers=4, num_heads=4),
     head=heads.VNetwork(),
@@ -71,7 +74,6 @@ critic_optimizer = optax.chain(
     optax.clip_by_global_norm(cfg.max_grad_norm),
     optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
 )
-
 
 key = jax.random.key(1)
 
@@ -91,6 +93,7 @@ logger = Logger(
 logger_state = logger.init(cfg)
 
 key, state = agent.init(key)
+
 key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
 evaluation_statistics = Logger.get_episode_statistics(transitions, "evaluation")
 logger_state = logger.log(logger_state, evaluation_statistics, step=state.step.item())

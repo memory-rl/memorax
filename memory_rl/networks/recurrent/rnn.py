@@ -38,8 +38,8 @@ class RNN(nn.Module):
         initial_carry = self.cell.initialize_carry(jax.random.key(0), input_shape)
 
         def scan_fn(cell, carry, x, mask):
-            carry = mask_carry(mask, carry, initial_carry)
             carry, y = cell(carry, x)
+            carry = mask_carry(mask, carry, initial_carry)
             return carry, y
 
         scan = nn.transforms.scan(

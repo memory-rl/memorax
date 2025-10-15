@@ -146,7 +146,6 @@ class RPPO:
 
         transition = Transition(
             obs=state.obs,  # type: ignore
-            prev_done=state.done,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             done=done,  # type: ignore
@@ -172,9 +171,8 @@ class RPPO:
             _, probs = self.actor.apply(
                 params,
                 observation=transitions.obs,
-                mask=transitions.prev_done,
+                mask=transitions.done,
                 initial_carry=initial_actor_hidden_state,
-                update=True,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
             log_probs = probs.log_prob(transitions.action)
@@ -224,9 +222,8 @@ class RPPO:
             _, values = self.critic.apply(
                 params,
                 observation=transitions.obs,
-                mask=transitions.prev_done,
+                mask=transitions.done,
                 initial_carry=initial_critic_hidden_state,
-                update=True,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
             values = values.squeeze(-1)

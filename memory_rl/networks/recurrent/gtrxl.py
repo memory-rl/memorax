@@ -145,6 +145,7 @@ class RelativeMultiHeadAttentionBlock(Module):
 
         x = nn.DenseGeneral(
             self.features,
+            axis=(-2, -1),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             kernel_init=self.kernel_init,
@@ -331,7 +332,7 @@ class GTrXL(RNNCellBase):
             state = state[:, -self.context_length :, :]
 
             mask = jnp.concatenate([memory.mask, mask], axis=1, dtype=jnp.int32)
-            mask = mask[:, -self.context_length :, :]
+            mask = mask[:, -self.context_length :]
 
             memory = memory.replace(state=state, mask=mask)
             new_carry.append(memory)

@@ -14,11 +14,16 @@ from memory_rl.networks.recurrent.utils import (
 from memory_rl.utils.typing import Array
 
 
-def _get_position(mask, start=0):
-    _, T = mask.shape
-    timesteps = jnp.arange(T)
-    position = jnp.maximum.accumulate(jnp.where(mask == 1, timesteps + 1, 0), axis=-1)
-    return timesteps - position + 1 + jnp.where(position == 0, start - 1, 0)
+def _get_positions(mask, start):
+    """Generates positions based on episode boundaries."""
+
+    def step(carry, mask):
+        next_carry = jnp.where(mask, 0, carry + 1)
+        return next_carry, next_carry
+
+    start = start.squeeze(-1)
+    next_position, positions = jax.lax.scan(step, start, mask.T)
+    return positions.T, next_position[:, None]
 
 
 @struct.dataclass
@@ -92,11 +97,12 @@ class MultiHeadAttentionBlock(nn.Module):
 
         y = nn.Dropout(rate=self.dropout)(y, deterministic=not self.has_rng("dropout"))
 
-        position = _get_position(mask, start=kv_cache.position)[..., -1:]
+        _, next_position = _get_positions(mask, start=kv_cache.position)
         mask = key_mask[:, -self.context_length :]
         key = key[:, -self.context_length :, :]
         value = value[:, -self.context_length :, :]
-        kv_cache = kv_cache.replace(position=position, mask=mask, key=key, value=value)
+
+        kv_cache = kv_cache.replace(position=next_position, mask=mask, key=key, value=value)
 
         return y, kv_cache
 
@@ -138,7 +144,7 @@ class GPT2Block(nn.Module):
     bias_init: Any
 
     @nn.compact
-    def __call__(self, x, mask, kv_cache=None):
+    def __call__(self, x, mask, kv_cache):
         skip = x
         x = nn.LayerNorm(
             epsilon=1e-5,
@@ -194,7 +200,7 @@ class GPT2(nn.Module):
     def initialize_carry(self, rng, input_shape):
         batch_size, *_ = input_shape
         head_dim = self.features // self.num_heads
-        position = jnp.zeros((batch_size, 1), dtype=jnp.int32)
+        position = jnp.full((batch_size, 1), -1, dtype=jnp.int32)
         mask = jnp.ones((batch_size, self.context_length), dtype=jnp.int32)
         key = jnp.zeros(
             (batch_size,) + (self.context_length, self.num_heads, head_dim),
@@ -219,7 +225,7 @@ class GPT2(nn.Module):
         )
         kv_cache, *_ = carry
 
-        position = _get_position(mask, start=kv_cache.position)
+        position, _ = _get_positions(mask, start=kv_cache.position)
 
         inputs = inputs + wpe(position)
         inputs = nn.Dropout(rate=self.dropout)(
@@ -233,7 +239,6 @@ class GPT2(nn.Module):
         inputs: jax.Array,
         mask: jax.Array,
         initial_carry: Carry,
-        **kwargs,
     ):
         carry: Carry = initial_carry
 
@@ -241,6 +246,7 @@ class GPT2(nn.Module):
 
         new_carry = []
         for layer_idx, kv_cache in enumerate(carry):
+            kv_cache = jax.lax.stop_gradient(kv_cache)
             x, kv_cache = GPT2Block(
                 features=self.features,
                 num_heads=self.num_heads,

@@ -48,6 +48,7 @@ def sinusoidal_positional_embedding(pos_seq: Array, dim: int) -> Array:
     )
     return positional_embedding
 
+
 def _build_positional_embedding(
     memory_length: int, sequence_length: int, dim: int
 ) -> Array:
@@ -55,11 +56,13 @@ def _build_positional_embedding(
     pos_seq = jnp.arange(length - 1, -1, -1)
     return sinusoidal_positional_embedding(pos_seq, dim)
 
+
 @struct.dataclass
 class Memory:
     position: Array
     mask: Array
     state: Array
+
 
 class RelativeMultiHeadAttentionBlock(Module):
     features: int
@@ -117,7 +120,7 @@ class RelativeMultiHeadAttentionBlock(Module):
 
         bd = jnp.einsum("btnh,mnh->btnm", query_v, r)
         bd = jnp.transpose(bd, (0, 2, 1, 3))
-        bd = _relative_shift(bd)[..., -(self.context_length+T):]
+        bd = _relative_shift(bd)[..., -(self.context_length + T) :]
 
         bias = (bd / jnp.sqrt(head_dim)).astype(self.param_dtype)
         bias = jax.lax.stop_gradient(bias)
@@ -128,7 +131,10 @@ class RelativeMultiHeadAttentionBlock(Module):
         key_mask = jnp.concatenate([memory.mask, mask], axis=1, dtype=jnp.int32)
         key_input = jax.lax.cumsum(key_mask, reverse=True, axis=1)
 
-        attention_mask = nn.make_attention_mask(query_input, key_input, pairwise_fn=jnp.equal).astype(jnp.bool_)
+        attention_mask = nn.make_attention_mask(
+            query_input, key_input, pairwise_fn=jnp.equal
+        ).astype(jnp.bool_)
+
         B, _, T, S = attention_mask.shape
         attention_mask = jnp.broadcast_to(attention_mask, (B, self.num_heads, T, S))
 
@@ -140,7 +146,7 @@ class RelativeMultiHeadAttentionBlock(Module):
             mask=attention_mask,
             bias=bias,
             # implementation=get_attention_implementation(),
-            implementation="xla"
+            implementation="xla",
         )
 
         x = nn.DenseGeneral(
@@ -155,6 +161,7 @@ class RelativeMultiHeadAttentionBlock(Module):
 
         x = nn.Dropout(rate=self.dropout)(x, deterministic=not self.has_rng("dropout"))
         return x
+
 
 class GRUGate(Module):
     features: int
@@ -187,6 +194,7 @@ class GRUGate(Module):
             + dense(use_bias=False, name="h_x")(r * x)
         )
         return (1.0 - z) * x + z * h_tilde
+
 
 class MLP(Module):
     features: int
@@ -274,7 +282,6 @@ class GTrXLBlock(nn.Module):
         return x
 
 
-
 class GTrXL(RNNCellBase):
     features: int
     num_layers: int = 12
@@ -326,15 +333,15 @@ class GTrXL(RNNCellBase):
                 bias_init=self.bias_init,
                 name=f"layer_{layer_idx}",
             )(x, mask, memory)
-            state = jnp.concatenate(
+            memory_state = jnp.concatenate(
                 [memory.state, jax.lax.stop_gradient(x)], axis=1
             )
-            state = state[:, -self.context_length :, :]
+            memory_state = memory_state[:, -self.context_length :, :]
 
-            mask = jnp.concatenate([memory.mask, mask], axis=1, dtype=jnp.int32)
-            mask = mask[:, -self.context_length :]
+            memory_mask = jnp.concatenate([memory.mask, mask], axis=1, dtype=jnp.int32)
+            memory_mask = memory_mask[:, -self.context_length :]
 
-            memory = memory.replace(state=state, mask=mask)
+            memory = memory.replace(state=memory_state, mask=memory_mask)
             new_carry.append(memory)
         new_carry = tuple(new_carry)
 

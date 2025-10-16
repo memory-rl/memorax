@@ -137,7 +137,7 @@ class S5Layer(nn.Module):
         self,
         inputs: jax.Array,
         mask: jax.Array,
-        carry: Carry | None = None,
+        carry: Carry,
     ):
         u = jnp.swapaxes(inputs, 0, 1)
         mask = jnp.swapaxes(mask, 0, 1)
@@ -190,21 +190,18 @@ class S5(nn.Module):
         self,
         inputs: jax.Array,
         mask: jax.Array,
-        *,
-        initial_carry: Carry | None = None,
-        update: bool = False,
+        initial_carry: Carry,
     ):
-        carry = initial_carry if not update else None
 
-        if carry is not None:
-            _, input_shape = get_time_axis_and_input_shape(inputs)
-            initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
-            carry = mask_carry(mask, carry, initial_carry)
+        _, input_shape = get_time_axis_and_input_shape(inputs)
+        initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
+        carry = mask_carry(mask, initial_carry, initial_carry)
 
         new_carry = []
+
+        u = inputs
         mask = mask.astype(jnp.float32)
-        for i in range(self.num_layers):
-            carry_i = carry[i] if carry is not None else None
+        for carry_i in carry:
             new_carry_i, u = S5Layer(
                 features=self.features,
                 state_size=self.state_size,
@@ -218,7 +215,7 @@ class S5(nn.Module):
                 param_dtype=self.param_dtype,
                 kernel_init=self.kernel_init,
                 bias_init=self.bias_init,
-            )(carry_i, u, mask)
+            )(u, mask, carry_i)
             new_carry.append(new_carry_i)
         new_carry = tuple(new_carry)
         return new_carry, u

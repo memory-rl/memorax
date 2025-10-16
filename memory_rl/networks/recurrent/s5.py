@@ -13,22 +13,22 @@ from .utils import (
     init_v_inv_b,
     make_dplr_hippo,
     truncated_standard_normal,
+    add_time_axis,
 )
-
 
 class S5Layer(nn.Module):
     features: int
     state_size: int
-    c_init: str = "truncated_standard_normal"
-    discretization: str = "zoh"
-    dt_min: float = 0.001
-    dt_max: float = 0.1
-    clip_eigens: bool = False
-    step_rescale: float = 1.0
-    dtype: Any = jnp.float32
-    param_dtype: Any = jnp.float32
-    kernel_init: Any = None
-    bias_init: Any = None
+    c_init: str
+    discretization: str
+    dt_min: float
+    dt_max: float
+    clip_eigens: bool
+    step_rescale: float
+    dtype: Any
+    param_dtype: Any
+    kernel_init: Any
+    bias_init: Any
 
     def setup(self):
         lam, _, _, v, _ = make_dplr_hippo(self.state_size)
@@ -36,10 +36,6 @@ class S5Layer(nn.Module):
         self._lambda_imag_init = jnp.asarray(lam.imag, self.param_dtype)
         self._v = v
         self._v_inv = v.conj().T
-
-    @property
-    def num_feature_axes(self) -> int:
-        return 1
 
     def _discretized_params(self):
         lambda_real = self.param(
@@ -124,41 +120,77 @@ class S5Layer(nn.Module):
     def _binary_operator_reset(q_i, q_j):
         a_i, b_i, c_i = q_i
         a_j, b_j, c_j = q_j
-        c_j = c_j[..., None]
         a_out = (a_j * a_i) * (1.0 - c_j) + a_j * c_j
         b_out = (a_j * b_i + b_j) * (1.0 - c_j) + b_j * c_j
-        c_out = c_i * (1.0 - c_j[..., 0]) + c_j[..., 0]
+        c_out = c_i * (1.0 - c_j) + c_j
         return a_out, b_out, c_out
 
     @nn.compact
     def __call__(
         self,
-        inputs: jax.Array,
+        x: jax.Array,
         mask: jax.Array,
         carry: Carry,
     ):
-        u = jnp.swapaxes(inputs, 0, 1)
-        mask = jnp.swapaxes(mask, 0, 1)
+        T, _ = x.shape
         lambda_bar, b_bar, c_tilde, d = self._discretized_params()
-        t, batch_dims, h = u.shape
-        a = jnp.broadcast_to(
-            lambda_bar[None, None, :], (t, u.shape[1], self.state_size)
-        )
-        a = jnp.concatenate(
-            [jnp.ones((1, u.shape[1], self.state_size), a.dtype), a], axis=0
-        )
-        bu = jnp.einsum("ph,tbh->tbp", b_bar, u).astype(jnp.complex64)
-        bu = jnp.concatenate([carry[None, ...], bu], axis=0)
-        mask = jnp.concatenate([jnp.zeros((1, u.shape[1]), mask.dtype), mask], axis=0)
-        _, xs, _ = jax.lax.associative_scan(self._binary_operator_reset, (a, bu, mask))
-        xs = xs[1:]
-        y = jnp.einsum("hp,tbp->tbh", c_tilde, xs).real
-        y = y + jnp.einsum("h,tbh->tbh", d, u)
-        y = y.reshape((t, batch_dims, h)).astype(self.dtype)
-        x_t = xs[-1].reshape((batch_dims, self.state_size))
+        a = jnp.broadcast_to(lambda_bar, (T, self.state_size))
+        a = jnp.concatenate([jnp.ones((1, self.state_size)), a])
 
-        y = jnp.swapaxes(y, 0, 1)
-        return x_t, y
+        b_x = jax.vmap(lambda x: b_bar @ x)(x)
+        b_x = jnp.concatenate([carry, b_x])
+
+        mask = jnp.concatenate([jnp.zeros(1), mask])
+        mask = add_time_axis(mask)
+
+        _, carry, _ = jax.lax.associative_scan(self._binary_operator_reset, (a, b_x, mask))
+        carry = carry[1:]
+
+        ys = jax.vmap(lambda x: (c_tilde @ x).real)(carry)
+        ys = ys + jax.vmap(lambda x: d * x)(x)
+        return carry[jnp.newaxis, -1], ys
+
+class S5Block(nn.Module):
+    features: int
+    state_size: int
+    c_init: str
+    discretization: str
+    dt_min: float
+    dt_max: float
+    clip_eigens: bool
+    step_rescale: float
+    dtype: Any
+    param_dtype: Any
+    kernel_init: Any
+    bias_init: Any
+
+    @nn.compact
+    def __call__(
+        self,
+        x: jax.Array,
+        mask: jax.Array,
+        carry: Carry,
+    ):
+        skip = x
+        x = nn.LayerNorm()(x)
+        carry, x = jax.vmap(S5Layer(
+            features=self.features,
+            state_size=self.state_size,
+            c_init=self.c_init,
+            discretization=self.discretization,
+            dt_min=self.dt_min,
+            dt_max=self.dt_max,
+            clip_eigens=self.clip_eigens,
+            step_rescale=self.step_rescale,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+        ))(x, mask, carry)
+        x = nn.LayerNorm()(x)
+        x = nn.gelu(x)
+        x = x + skip
+        return carry, x
 
 
 class S5(nn.Module):
@@ -177,11 +209,10 @@ class S5(nn.Module):
     bias_init: Any = None
 
     def initialize_carry(self, rng: jax.Array, input_shape: Tuple[int, ...]) -> tuple:
-        batch_dims = input_shape[:-1]
-        return tuple(
-            jnp.zeros(batch_dims + (self.state_size,), dtype=jnp.complex64)
-            for _ in range(self.num_layers)
-        )
+        batch_size, *_ = input_shape
+
+        initial_carry = jnp.zeros((batch_size, 1, self.state_size,), dtype=jnp.complex64)
+        return tuple(initial_carry for _ in range(self.num_layers))
 
     @nn.compact
     def __call__(
@@ -192,10 +223,10 @@ class S5(nn.Module):
     ):
         new_carry = []
 
-        u = inputs
+        x = inputs
         mask = mask.astype(jnp.float32)
         for carry_i in initial_carry:
-            new_carry_i, u = S5Layer(
+            new_carry_i, x = S5Block(
                 features=self.features,
                 state_size=self.state_size,
                 c_init=self.c_init,
@@ -208,7 +239,7 @@ class S5(nn.Module):
                 param_dtype=self.param_dtype,
                 kernel_init=self.kernel_init,
                 bias_init=self.bias_init,
-            )(u, mask, carry_i)
+            )(x, mask, carry_i)
             new_carry.append(new_carry_i)
         new_carry = tuple(new_carry)
-        return new_carry, u
+        return new_carry, x

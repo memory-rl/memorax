@@ -11,7 +11,9 @@ from memory_rl.networks import (
     SequenceNetwork,
     heads,
     SharedFeatureExtractor,
-    # S5Cell,
+    S5,
+    SHMCell,
+    FFM,
     GPT2,
     GTrXL,
 )
@@ -23,7 +25,8 @@ num_eval_steps = 5_000
 
 # env, env_params = environment.make("gymnax::CartPole-v1")
 env, env_params = environment.make("gymnax::MemoryChain-bsuite")
-memory_length = 5
+
+memory_length = 63
 env_params = env_params.replace(
     memory_length=memory_length, max_steps_in_episode=memory_length + 1
 )
@@ -32,13 +35,13 @@ env_params = env_params.replace(
 cfg = RPPOConfig(
     name="rppo",
     learning_rate=3e-4,
-    num_envs=16,
+    num_envs=32,
     num_eval_envs=16,
     num_steps=64,
     anneal_lr=True,
     gamma=0.99,
     gae_lambda=0.95,
-    num_minibatches=4,
+    num_minibatches=8,
     update_epochs=4,
     normalize_advantage=True,
     clip_coef=0.2,
@@ -52,8 +55,10 @@ cfg = RPPOConfig(
 actor_network = SequenceNetwork(
     feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
     # torso=GPT2(features=128, num_layers=4, num_heads=4, context_length=1024),
-    torso=GTrXL(features=128, num_layers=4, num_heads=4),
-    # torso=RNN(cell=nn.GRUCell(features=128)),
+    torso=GTrXL(features=128, num_layers=4, num_heads=4, context_length=64),
+    # torso=S5(features=128, state_size=32, num_layers=4),
+    # torso=FFM(features=128, memory_size=32, context_size=16),
+    # torso=RNN(cell=SHMCell(features=128)),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
@@ -66,8 +71,9 @@ actor_optimizer = optax.chain(
 critic_network = SequenceNetwork(
     feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
     # torso=GPT2(features=128, num_layers=4, num_heads=4, context_length=1024),
-    torso=RNN(cell=nn.GRUCell(features=128)),
-    # torso=GTrXL(features=128, num_layers=4, num_heads=4),
+    # torso=FFM(features=128, memory_size=32, context_size=16),
+    # torso=RNN(cell=FFM(features=128)),
+    torso=GTrXL(features=128, num_layers=4, num_heads=4, context_length=64),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(

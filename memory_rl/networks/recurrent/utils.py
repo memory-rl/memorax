@@ -26,6 +26,8 @@ def get_attention_implementation() -> Implementation:
 
     return "xla"
 
+def add_time_axis(x: jax.Array):
+    return x[:, None, ...]
 
 def get_time_axis_and_input_shape(inputs: jax.Array, num_feature_axes=1):
     time_axis = inputs.ndim - (num_feature_axes + 1)

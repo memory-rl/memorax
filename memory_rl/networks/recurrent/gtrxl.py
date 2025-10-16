@@ -94,10 +94,13 @@ class RelativeMultiHeadAttentionBlock(Module):
 
         query = projection(name="query")(x)
 
-        key = projection(name="key")(jnp.concatenate([memory.state, x], axis=1))
-        value = projection(name="value")(jnp.concatenate([memory.state, x], axis=1))
+        key = jnp.concatenate([memory.state, x], axis=1)
+        key = projection(name="key")(key)
 
-        r = projection(name="relative_positional_embeddings")(
+        value = jnp.concatenate([memory.state, x], axis=1)
+        value = projection(name="value")(value)
+
+        r = projection(name="relative_positional_embeddings", axis=-1)(
             relative_positional_embeddings
         )
 
@@ -116,15 +119,14 @@ class RelativeMultiHeadAttentionBlock(Module):
 
         bias = (bd / jnp.sqrt(head_dim)).astype(self.param_dtype)
 
-        query_mask = mask.astype(jnp.int32)
-        query_input = jax.lax.cumsum(query_mask, reverse=True, axis=1)
+        query_input = jnp.cumsum(mask.astype(jnp.int32), axis=1) + jnp.max(jnp.cumsum(memory.mask, axis=1), axis=1)[..., None]
 
         key_mask = jnp.concatenate([memory.mask, mask], axis=1, dtype=jnp.int32)
-        key_input = jax.lax.cumsum(key_mask, reverse=True, axis=1)
+        key_input = jnp.cumsum(key_mask, axis=1)
 
         attention_mask = nn.make_attention_mask(
-            query_input, key_input, pairwise_fn=jnp.equal
-        ).astype(jnp.bool_)
+            query_input, key_input, pairwise_fn=jnp.equal, dtype=jnp.bool
+        )
 
         B, _, T, S = attention_mask.shape
         attention_mask = jnp.broadcast_to(attention_mask, (B, self.num_heads, T, S))
@@ -143,6 +145,7 @@ class RelativeMultiHeadAttentionBlock(Module):
         x = nn.DenseGeneral(
             self.features,
             axis=(-2, -1),
+            use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             kernel_init=self.kernel_init,
@@ -185,8 +188,8 @@ class GRUGate(Module):
             - gate_bias
         )
         h_tilde = tanh(
-            dense(name="h_y")(y)
-            + dense(name="h_x")(r * x)
+            dense(name="g_y")(y)
+            + dense(name="g_x")(r * x)
         )
         return (1.0 - z) * x + z * h_tilde
 
@@ -209,7 +212,7 @@ class MLP(Module):
             bias_init=self.bias_init,
         )
         x = projection(features=self.hidden_dim, name="up_proj")(x)
-        x = jax.nn.relu(x)
+        x = nn.relu(x)
         x = projection(features=self.features, name="down_proj")(x)
         return x
 
@@ -239,13 +242,14 @@ class GTrXLBlock(nn.Module):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
-        ln = nn.LayerNorm(epsilon=1e-5, dtype=self.dtype, param_dtype=self.param_dtype)
+        layer_norm = partial(nn.LayerNorm, epsilon=1e-5, dtype=self.dtype, param_dtype=self.param_dtype)
+        pre_norm = layer_norm(name="pre_norm")
+        post_norm = layer_norm(name="post_norm")
 
         skip = x
 
-        x = ln(x)
-        memory_state = ln(memory.state)
-        memory = memory.replace(state=memory_state)
+        x = pre_norm(x)
+        memory = memory.replace(state=pre_norm(memory.state))
         x = RelativeMultiHeadAttentionBlock(
             features=self.features,
             num_heads=self.num_heads,
@@ -257,11 +261,7 @@ class GTrXLBlock(nn.Module):
         x = nn.relu(x)
         x = gate(name="attn_gate")(skip, x)
         skip = x
-        x = nn.LayerNorm(
-            epsilon=1e-5,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )(x)
+        x = post_norm(x)
         x = MLP(
             features=self.features,
             hidden_dim=self.hidden_dim,
@@ -285,10 +285,6 @@ class GTrXL(RNNCellBase):
     param_dtype: Dtype = jnp.float32
     kernel_init: Initializer = default_kernel_init
     bias_init: Initializer = initializers.zeros_init()
-
-    @property
-    def num_feature_axes(self) -> int:
-        return 1
 
     @nowrap
     def initialize_carry(self, rng, input_shape):
@@ -318,6 +314,7 @@ class GTrXL(RNNCellBase):
         relative_positional_embeddings = _build_positional_embedding(
             self.context_length, T, self.features
         )
+
         for layer_idx, memory in enumerate(carry):
             x = GTrXLBlock(
                 features=self.features,
@@ -335,7 +332,8 @@ class GTrXL(RNNCellBase):
             )
             memory_state = memory_state[:, -self.context_length :, :]
 
-            memory_mask = jnp.concatenate([memory.mask, jax.lax.stop_gradient(mask)], axis=1, dtype=jnp.int32)
+
+            memory_mask = jnp.concatenate([memory.mask, mask], axis=1, dtype=jnp.int32)
             memory_mask = memory_mask[:, -self.context_length :]
 
             memory = memory.replace(state=memory_state, mask=memory_mask)

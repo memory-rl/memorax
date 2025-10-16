@@ -10,8 +10,8 @@ from flax.linen.normalization import LayerNorm
 from flax.typing import Array, PRNGKey, Dtype, Initializer
 
 
-class FFMCell(nn.Module):
-    """Fast & Forgetful Memory (FFM) cell."""
+class FFM(nn.Module):
+    """Fast & Forgetful Memory (FFM)."""
 
     features: int
     memory_size: int
@@ -33,10 +33,6 @@ class FFMCell(nn.Module):
         batch_dims = input[:-1]
         mem_shape = batch_dims + (1,) + (self.memory_size, self.context_size)
         return jnp.zeros(mem_shape, dtype=self._complex_dtype_from(self.param_dtype))
-
-    @property
-    def num_feature_axes(self) -> int:
-        return 1
 
     @property
     def a(self):

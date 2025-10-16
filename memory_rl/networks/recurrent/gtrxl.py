@@ -18,7 +18,6 @@ from flax.linen.module import Module, compact, nowrap
 from flax.linen.recurrent import RNNCellBase
 from flax.typing import (
     Array,
-    PRNGKey,
     Dtype,
     Initializer,
 )
@@ -59,7 +58,6 @@ def _build_positional_embedding(
 
 @struct.dataclass
 class Memory:
-    position: Array
     mask: Array
     state: Array
 
@@ -123,7 +121,6 @@ class RelativeMultiHeadAttentionBlock(Module):
         bd = _relative_shift(bd)[..., -(self.context_length + T) :]
 
         bias = (bd / jnp.sqrt(head_dim)).astype(self.param_dtype)
-        bias = jax.lax.stop_gradient(bias)
 
         query_mask = mask.astype(jnp.int32)
         query_input = jax.lax.cumsum(query_mask, reverse=True, axis=1)
@@ -301,14 +298,13 @@ class GTrXL(RNNCellBase):
     def initialize_carry(self, rng, input_shape):
         batch_size, *_ = input_shape
 
-        position = jnp.full((batch_size, self.context_length), -1, dtype=jnp.int32)
         mask = jnp.ones((batch_size, self.context_length), dtype=jnp.int32)
         state = jnp.zeros(
             (batch_size,) + (self.context_length, self.features),
             dtype=self.dtype,
         )
 
-        return tuple(Memory(position, mask, state) for _ in range(self.num_layers))
+        return tuple(Memory(mask, state) for _ in range(self.num_layers))
 
     @nn.compact
     def __call__(

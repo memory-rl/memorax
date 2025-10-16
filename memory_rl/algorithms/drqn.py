@@ -122,7 +122,6 @@ class DRQN:
 
         transition = Transition(
             obs=state.obs,  # type: ignore
-            prev_done=state.done,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             next_obs=next_obs,  # type: ignore
@@ -193,8 +192,8 @@ class DRQN:
 
         mask = jnp.ones_like(td_target)
         if self.cfg.mask:
-            episode_idx = jnp.cumsum(batch.experience.prev_done, axis=1)
-            terminal = (episode_idx == 1) & batch.experience.prev_done
+            episode_idx = jnp.cumsum(batch.experience.done, axis=1)
+            terminal = (episode_idx == 1) & batch.experience.done
             mask *= (episode_idx == 0) | terminal
 
         if self.cfg.per_beta is not None:
@@ -208,7 +207,7 @@ class DRQN:
             hidden_state, q_value = self.q_network.apply(
                 params,
                 batch.experience.obs,
-                mask=batch.experience.prev_done,
+                mask=batch.experience.done,
                 rngs={"memory": memory_key},
             )
             action = jnp.expand_dims(batch.experience.action, axis=-1)
@@ -294,7 +293,6 @@ class DRQN:
 
         transition = Transition(
             obs=obs,
-            prev_done=done,
             action=action,
             reward=reward,
             next_obs=obs,

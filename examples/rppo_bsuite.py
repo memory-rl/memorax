@@ -23,13 +23,13 @@ total_timesteps = 1_000_000
 num_train_steps = 50_000
 num_eval_steps = 5_000
 
-# env, env_params = environment.make("gymnax::CartPole-v1")
-env, env_params = environment.make("gymnax::MemoryChain-bsuite")
+env, env_params = environment.make("gymnax::CartPole-v1")
+# env, env_params = environment.make("gymnax::MemoryChain-bsuite")
 
-memory_length = 63
-env_params = env_params.replace(
-    memory_length=memory_length, max_steps_in_episode=memory_length + 1
-)
+# memory_length = 63
+# env_params = env_params.replace(
+#     memory_length=memory_length, max_steps_in_episode=memory_length + 1
+# )
 
 
 cfg = RPPOConfig(

@@ -7,12 +7,10 @@ from typing import (
 
 import jax
 from jax import numpy as jnp
-from jax import random
-
 from flax import linen as nn
-from flax.linen import initializers, LayerNorm
+from flax.linen import initializers
 from flax import struct
-from flax.linen.activation import sigmoid, tanh, softmax
+from flax.linen.activation import sigmoid, tanh
 from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.module import Module, compact, nowrap
 from flax.linen.recurrent import RNNCellBase
@@ -169,22 +167,26 @@ class GRUGate(Module):
         dense = partial(
             Dense,
             features=self.features,
+            use_bias=False,
             kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
+        gate_bias = self.param(
+            "gate_bias", nn.initializers.constant(self.gate_init_bias), (self.features,), self.param_dtype
+        )
+
         r = sigmoid(
-            dense(use_bias=True, name="r_y")(y) + dense(use_bias=False, name="r_x")(x)
+            dense(name="r_y")(y) + dense(name="r_x")(x)
         )
         z = sigmoid(
-            dense(use_bias=True, name="z_y")(y)
-            + dense(use_bias=False, name="z_x")(x)
-            - self.gate_init_bias
+            dense(name="z_y")(y)
+            + dense(name="z_x")(x)
+            - gate_bias
         )
         h_tilde = tanh(
-            dense(use_bias=True, name="h_y")(y)
-            + dense(use_bias=False, name="h_x")(r * x)
+            dense(name="h_y")(y)
+            + dense(name="h_x")(r * x)
         )
         return (1.0 - z) * x + z * h_tilde
 
@@ -252,6 +254,7 @@ class GTrXLBlock(nn.Module):
             param_dtype=self.param_dtype,
             kernel_init=self.kernel_init,
         )(x, mask, memory, relative_positional_embeddings)
+        x = nn.relu(x)
         x = gate(name="attn_gate")(skip, x)
         skip = x
         x = nn.LayerNorm(
@@ -267,6 +270,7 @@ class GTrXLBlock(nn.Module):
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
         )(x)
+        x = nn.relu(x)
         x = gate(name="output_gate")(skip, x)
         return x
 

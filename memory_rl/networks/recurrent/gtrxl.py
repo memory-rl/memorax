@@ -26,8 +26,6 @@ from memory_rl.networks.recurrent.utils import get_attention_implementation
 
 A = TypeVar("A")
 Carry = Any
-CarryHistory = Any
-Output = Any
 
 
 def _relative_shift(x: Array) -> Array:
@@ -78,6 +76,7 @@ class RelativeMultiHeadAttentionBlock(Module):
         x: Array,
         mask: Array,
         memory: Memory,
+        relative_positional_embeddings: Array,
     ):
         B, T, *_ = x.shape
         head_dim = self.features // self.num_heads
@@ -100,9 +99,6 @@ class RelativeMultiHeadAttentionBlock(Module):
         key = projection(name="key")(jnp.concatenate([memory.state, x], axis=1))
         value = projection(name="value")(jnp.concatenate([memory.state, x], axis=1))
 
-        relative_positional_embeddings = _build_positional_embedding(
-            self.context_length, T, self.features
-        )
         r = projection(name="relative_positional_embeddings")(
             relative_positional_embeddings
         )
@@ -232,6 +228,7 @@ class GTrXLBlock(nn.Module):
         x: Array,
         mask: Array,
         memory: Memory,
+        relative_positional_embeddings: Array,
     ):
         gate = partial(
             GRUGate,
@@ -240,18 +237,13 @@ class GTrXLBlock(nn.Module):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
+        ln = nn.LayerNorm(epsilon=1e-5, dtype=self.dtype, param_dtype=self.param_dtype)
+
         skip = x
-        x = nn.LayerNorm(
-            epsilon=1e-5,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )(x)
-        state = nn.LayerNorm(
-            epsilon=1e-5,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )(memory.state)
-        memory = memory.replace(state=state)
+
+        x = ln(x)
+        memory_state = ln(memory.state)
+        memory = memory.replace(state=memory_state)
         x = RelativeMultiHeadAttentionBlock(
             features=self.features,
             num_heads=self.num_heads,
@@ -259,7 +251,7 @@ class GTrXLBlock(nn.Module):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             kernel_init=self.kernel_init,
-        )(x, mask, memory)
+        )(x, mask, memory, relative_positional_embeddings)
         x = gate(name="attn_gate")(skip, x)
         skip = x
         x = nn.LayerNorm(
@@ -317,6 +309,11 @@ class GTrXL(RNNCellBase):
         new_carry = []
         x: Array = inputs
         carry: Carry = initial_carry
+
+        _, T, *_ = x.shape
+        relative_positional_embeddings = _build_positional_embedding(
+            self.context_length, T, self.features
+        )
         for layer_idx, memory in enumerate(carry):
             x = GTrXLBlock(
                 features=self.features,
@@ -328,13 +325,13 @@ class GTrXL(RNNCellBase):
                 kernel_init=self.kernel_init,
                 bias_init=self.bias_init,
                 name=f"layer_{layer_idx}",
-            )(x, mask, memory)
+            )(x, mask, memory, relative_positional_embeddings)
             memory_state = jnp.concatenate(
                 [memory.state, jax.lax.stop_gradient(x)], axis=1
             )
             memory_state = memory_state[:, -self.context_length :, :]
 
-            memory_mask = jnp.concatenate([memory.mask, mask], axis=1, dtype=jnp.int32)
+            memory_mask = jnp.concatenate([memory.mask, jax.lax.stop_gradient(mask)], axis=1, dtype=jnp.int32)
             memory_mask = memory_mask[:, -self.context_length :]
 
             memory = memory.replace(state=memory_state, mask=memory_mask)

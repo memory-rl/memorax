@@ -41,7 +41,7 @@ cfg = RPPOConfig(
     anneal_lr=True,
     gamma=0.99,
     gae_lambda=0.95,
-    num_minibatches=4,
+    num_minibatches=8,
     update_epochs=4,
     normalize_advantage=True,
     clip_coef=0.2,
@@ -54,8 +54,8 @@ cfg = RPPOConfig(
 
 actor_network = SequenceNetwork(
     feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
-    # torso=GPT2(features=128, num_layers=4, num_heads=4, context_length=1024),
-    torso=GTrXL(features=128, num_layers=4, num_heads=4, context_length=16),
+    torso=GPT2(features=128, num_layers=4, num_heads=4, context_length=1024),
+    # torso=GTrXL(features=128, num_layers=4, num_heads=4, context_length=64),
     # torso=S5(features=128, state_size=32, num_layers=4),
     # torso=FFM(features=128, memory_size=32, context_size=16),
     # torso=RNN(cell=SHMCell(features=128)),
@@ -70,10 +70,10 @@ actor_optimizer = optax.chain(
 
 critic_network = SequenceNetwork(
     feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
-    # torso=GPT2(features=128, num_layers=4, num_heads=4, context_length=1024),
+    torso=GPT2(features=128, num_layers=4, num_heads=4, context_length=1024),
     # torso=FFM(features=128, memory_size=32, context_size=16),
-    # torso=RNN(cell=nn.GRUCell(features=128)),
-    torso=GTrXL(features=128, num_layers=4, num_heads=4, context_length=16),
+    # torso=RNN(cell=FFM(features=128)),
+    # torso=GTrXL(features=128, num_layers=4, num_heads=4, context_length=64),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(

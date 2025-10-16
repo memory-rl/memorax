@@ -64,11 +64,10 @@ class MultiHeadAttentionBlock(nn.Module):
         key = jnp.concatenate([kv_cache.key, key], axis=1)
         value = jnp.concatenate([kv_cache.value, value], axis=1)
 
-        query_mask = mask.astype(jnp.int32)
-        query_input = jax.lax.cumsum(query_mask, axis=1, reverse=True)
+        query_input = jnp.cumsum(mask.astype(jnp.int32), axis=1) + jnp.max(jnp.cumsum(kv_cache.mask, axis=1), axis=1)[..., None]
 
         key_mask = jnp.concatenate([kv_cache.mask, mask], axis=1, dtype=jnp.int32)
-        key_input = jax.lax.cumsum(key_mask, axis=1, reverse=True)
+        key_input = jnp.cumsum(key_mask, axis=1)
 
         attention_mask = nn.make_attention_mask(
             query_input, key_input, dtype=jnp.bool_, pairwise_fn=jnp.equal

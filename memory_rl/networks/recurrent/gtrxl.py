@@ -128,6 +128,11 @@ class RelativeMultiHeadAttentionBlock(Module):
             query_input, key_input, pairwise_fn=jnp.equal, dtype=jnp.bool
         )
 
+        jax.debug.print("query_input {}", query_input)
+        jax.debug.print("key_input {}", key_input)
+        jax.debug.print("attention_mask {}", attention_mask)
+        jax.debug.breakpoint()
+
         B, _, T, S = attention_mask.shape
         attention_mask = jnp.broadcast_to(attention_mask, (B, self.num_heads, T, S))
 

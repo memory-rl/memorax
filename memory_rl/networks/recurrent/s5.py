@@ -8,12 +8,10 @@ from jax.nn.initializers import lecun_normal, normal
 from .utils import (
     discretize_bilinear,
     discretize_zoh,
-    get_time_axis_and_input_shape,
     init_cv,
     init_log_steps,
     init_v_inv_b,
     make_dplr_hippo,
-    mask_carry,
     truncated_standard_normal,
 )
 
@@ -192,16 +190,11 @@ class S5(nn.Module):
         mask: jax.Array,
         initial_carry: Carry,
     ):
-
-        _, input_shape = get_time_axis_and_input_shape(inputs)
-        initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
-        carry = mask_carry(mask, initial_carry, initial_carry)
-
         new_carry = []
 
         u = inputs
         mask = mask.astype(jnp.float32)
-        for carry_i in carry:
+        for carry_i in initial_carry:
             new_carry_i, u = S5Layer(
                 features=self.features,
                 state_size=self.state_size,

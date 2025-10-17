@@ -127,6 +127,7 @@ class DRQN:
             next_obs=next_obs,  # type: ignore
             done=done,  # type: ignore
             info=info,  # type: ignore
+            prev_done=state.done,  # type: ignore
         )
 
         buffer_state = state.buffer_state
@@ -192,8 +193,8 @@ class DRQN:
 
         mask = jnp.ones_like(td_target)
         if self.cfg.mask:
-            episode_idx = jnp.cumsum(batch.experience.done, axis=1)
-            terminal = (episode_idx == 1) & batch.experience.done
+            episode_idx = jnp.cumsum(batch.experience.prev_done, axis=1)
+            terminal = (episode_idx == 1) & batch.experience.prev_done
             mask *= (episode_idx == 0) | terminal
 
         if self.cfg.per_beta is not None:
@@ -207,7 +208,7 @@ class DRQN:
             hidden_state, q_value = self.q_network.apply(
                 params,
                 batch.experience.obs,
-                mask=batch.experience.done,
+                mask=batch.experience.prev_done,
                 rngs={"memory": memory_key},
             )
             action = jnp.expand_dims(batch.experience.action, axis=-1)
@@ -272,9 +273,10 @@ class DRQN:
             env_keys, self.env_params
         )
         action = jax.vmap(self.env.action_space(self.env_params).sample)(env_keys)
-        _, _, reward, done, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
+        _, _, reward, _, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
+        done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
         carry = self.q_network.initialize_carry(obs.shape)
 
         params = self.q_network.init(
@@ -298,6 +300,7 @@ class DRQN:
             next_obs=obs,
             done=done,
             info=info,
+            prev_done=done,
         )  # type: ignore
         buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
 

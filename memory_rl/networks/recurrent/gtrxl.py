@@ -98,13 +98,15 @@ class RelativeMultiHeadAttentionBlock(Module):
 
         query = projection(name="query")(x)
 
-        key = jnp.concatenate([memory.state, x], axis=1)
+        memory_state = memory.state[:, :self.memory_length, :]
+
+        key = jnp.concatenate([memory_state, x], axis=1)
         key = projection(name="key")(key)
         key = jnp.concatenate(
             [key[:, :-T, ...], kv_cache.key, key[:, -T:, ...]], axis=1
         )
 
-        value = jnp.concatenate([memory.state, x], axis=1)
+        value = jnp.concatenate([memory_state, x], axis=1)
         value = projection(name="value")(value)
         value = jnp.concatenate(
             [value[:, :-T, ...], kv_cache.value, value[:, -T:, ...]], axis=1
@@ -331,8 +333,9 @@ class GTrXL(nn.Module):
             return KVCache(key, value, mask)
 
         def initialize_memory():
+            length = self.memory_length + self.context_length
             state = jnp.zeros(
-                (batch_size,) + (self.memory_length, self.features),
+                (batch_size,) + (length, self.features),
                 dtype=self.dtype,
             )
             mask = jnp.ones((batch_size, self.memory_length), dtype=jnp.int32)
@@ -373,13 +376,15 @@ class GTrXL(nn.Module):
                 bias_init=self.bias_init,
                 name=f"layer_{layer_idx}",
             )(x, mask, kv_cache, memory, relative_positional_embeddings)
+
+            length = self.memory_length + self.context_length
             memory_state = jnp.concatenate(
                 [memory.state, jax.lax.stop_gradient(x)], axis=1
             )
-            memory_state = memory_state[:, -self.memory_length :, :]
+            memory_state = memory_state[:, -length:, :]
 
-            memory_mask = jnp.concatenate([memory.mask, mask], axis=1, dtype=jnp.int32)
-            memory_mask = memory_mask[:, -self.memory_length :]
+            memory_mask = jnp.concatenate([memory.mask, kv_cache.mask], axis=1, dtype=jnp.int32)
+            memory_mask = memory_mask[:, -self.memory_length:]
 
             memory = memory.replace(state=memory_state, mask=memory_mask)
             new_carry.append((kv_cache, memory))

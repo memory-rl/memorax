@@ -147,18 +147,30 @@ class RelativeMultiHeadAttentionBlock(Module):
         key_input = jnp.cumsum(key_mask, axis=1)
 
         attention_mask = nn.make_attention_mask(
-            query_input, key_input, pairwise_fn=jnp.equal, dtype=jnp.bool
+            query_input, key_input, pairwise_fn=jnp.equal
+        )
+
+        query_input = jnp.arange(T) + self.memory_length + self.context_length
+        query_input = jnp.broadcast_to(query_input, (B, T))
+        key_input = jnp.arange(self.memory_length + self.context_length + T)
+        key_input = jnp.broadcast_to(
+            key_input, (B, self.memory_length + self.context_length + T)
+        )
+        causal_mask = nn.make_attention_mask(
+            query_input, key_input, pairwise_fn=jnp.greater_equal
         )
 
         B, _, T, S = attention_mask.shape
         attention_mask = jnp.broadcast_to(attention_mask, (B, self.num_heads, T, S))
 
+        B, _, T, S = causal_mask.shape
+        causal_mask = jnp.broadcast_to(causal_mask, (B, self.num_heads, T, S))
+
         x = jax.nn.dot_product_attention(
             query_u.astype(jnp.bfloat16),
             key.astype(jnp.bfloat16),
             value.astype(jnp.bfloat16),
-            is_causal=True,
-            mask=attention_mask,
+            mask=nn.combine_masks(attention_mask, causal_mask, dtype=jnp.bool),
             bias=bias,
             # implementation=get_attention_implementation(),
             implementation="xla",
@@ -379,17 +391,22 @@ class GTrXL(nn.Module):
                 name=f"layer_{layer_idx}",
             )(x, mask, kv_cache, memory, relative_positional_embeddings)
 
-            memory_state = jnp.concatenate(
-                [memory.state, kv_cache.state], axis=1
-            )[:, :-self.context_length, :]
-            memory_mask = jnp.concatenate([memory.mask, kv_cache.mask], axis=1, dtype=jnp.int32)[:, :-self.context_length]
-            memory = memory.replace(state=memory_state, mask=memory_mask)
+            full_state = jnp.concatenate(
+                [memory.state, kv_cache.state, jax.lax.stop_gradient(x)], axis=1
+            )
+            full_mask = jnp.concatenate([memory.mask, kv_cache.mask, mask], axis=1)
 
-            kv_cache_state = jnp.concatenate([kv_cache.state, jax.lax.stop_gradient(x)], axis=1)[:, -self.context_length:, :]
-            kv_cache_mask = jnp.concatenate(
-                [kv_cache.mask, mask], axis=1, dtype=jnp.int32
-            )[:, -self.context_length:]
+            kv_cache_state = full_state[:, -self.context_length :, :]
+            kv_cache_mask = full_mask[:, -self.context_length :]
             kv_cache = kv_cache.replace(state=kv_cache_state, mask=kv_cache_mask)
+
+            memory_state = full_state[
+                :, -(self.memory_length + self.context_length) : -self.context_length, :
+            ]
+            memory_mask = full_mask[
+                :, -(self.memory_length + self.context_length) : -self.context_length
+            ]
+            memory = memory.replace(state=memory_state, mask=memory_mask)
 
             new_carry.append((kv_cache, memory))
         new_carry = tuple(new_carry)

@@ -55,6 +55,7 @@ def _build_positional_embedding(
 class KVCache:
     key: Array
     value: Array
+    state: Array
     mask: Array
 
 
@@ -98,15 +99,13 @@ class RelativeMultiHeadAttentionBlock(Module):
 
         query = projection(name="query")(x)
 
-        memory_state = memory.state[:, :self.memory_length, :]
-
-        key = jnp.concatenate([memory_state, x], axis=1)
+        key = jnp.concatenate([memory.state, x], axis=1)
         key = projection(name="key")(key)
         key = jnp.concatenate(
             [key[:, :-T, ...], kv_cache.key, key[:, -T:, ...]], axis=1
         )
 
-        value = jnp.concatenate([memory_state, x], axis=1)
+        value = jnp.concatenate([memory.state, x], axis=1)
         value = projection(name="value")(value)
         value = jnp.concatenate(
             [value[:, :-T, ...], kv_cache.value, value[:, -T:, ...]], axis=1
@@ -178,11 +177,11 @@ class RelativeMultiHeadAttentionBlock(Module):
 
         x = nn.Dropout(rate=self.dropout)(x, deterministic=not self.has_rng("dropout"))
 
-        mask = key_mask[:, -self.context_length :]
+        # mask = key_mask[:, -self.context_length :]
         key = key[:, -self.context_length :, :]
         value = value[:, -self.context_length :, :]
 
-        kv_cache = kv_cache.replace(mask=mask, key=key, value=value)
+        kv_cache = kv_cache.replace(key=key, value=value)
         return x, kv_cache
 
 
@@ -329,13 +328,16 @@ class GTrXL(nn.Module):
                 (batch_size,) + (self.context_length, self.num_heads, head_dim),
                 dtype=self.dtype,
             )
+            state = jnp.zeros(
+                (batch_size,) + (self.context_length, self.features),
+                dtype=self.dtype,
+            )
             mask = jnp.ones((batch_size, self.context_length), dtype=jnp.int32)
-            return KVCache(key, value, mask)
+            return KVCache(key, value, state, mask)
 
         def initialize_memory():
-            length = self.memory_length + self.context_length
             state = jnp.zeros(
-                (batch_size,) + (length, self.features),
+                (batch_size,) + (self.memory_length, self.features),
                 dtype=self.dtype,
             )
             mask = jnp.ones((batch_size, self.memory_length), dtype=jnp.int32)
@@ -377,16 +379,18 @@ class GTrXL(nn.Module):
                 name=f"layer_{layer_idx}",
             )(x, mask, kv_cache, memory, relative_positional_embeddings)
 
-            length = self.memory_length + self.context_length
             memory_state = jnp.concatenate(
-                [memory.state, jax.lax.stop_gradient(x)], axis=1
-            )
-            memory_state = memory_state[:, -length:, :]
-
-            memory_mask = jnp.concatenate([memory.mask, kv_cache.mask], axis=1, dtype=jnp.int32)
-            memory_mask = memory_mask[:, -self.memory_length:]
-
+                [memory.state, kv_cache.state], axis=1
+            )[:, :-self.context_length, :]
+            memory_mask = jnp.concatenate([memory.mask, kv_cache.mask], axis=1, dtype=jnp.int32)[:, :-self.context_length]
             memory = memory.replace(state=memory_state, mask=memory_mask)
+
+            kv_cache_state = jnp.concatenate([kv_cache.state, jax.lax.stop_gradient(x)], axis=1)[:, -self.context_length:, :]
+            kv_cache_mask = jnp.concatenate(
+                [kv_cache.mask, mask], axis=1, dtype=jnp.int32
+            )[:, -self.context_length:]
+            kv_cache = kv_cache.replace(state=kv_cache_state, mask=kv_cache_mask)
+
             new_carry.append((kv_cache, memory))
         new_carry = tuple(new_carry)
 

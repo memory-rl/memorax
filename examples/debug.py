@@ -54,10 +54,10 @@ cfg = RPPOConfig(
 
 actor_network = SequenceNetwork(
     feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
-    torso=GPT2(features=128, num_layers=1, num_heads=1, context_length=6),
-    # torso=GTrXL(
-    #     features=128, num_layers=4, num_heads=4, context_length=64, memory_length=64
-    # ),
+    # torso=GPT2(features=128, num_layers=1, num_heads=1, context_length=6),
+    torso=GTrXL(
+        features=128, num_layers=1, num_heads=1, context_length=2, memory_length=2
+    ),
     # torso=S5(features=128, state_size=32, num_layers=4),
     # torso=FFM(features=128, memory_size=32, context_size=16),
     # torso=RNN(cell=nn.GRUCell(features=128)),
@@ -101,7 +101,7 @@ key, state = agent.init(key)
 
 print("================ FINISHED INITIALIZATION ================")
 
-# key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
+key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
 
 for i in range(0, total_timesteps, num_train_steps):
 

@@ -48,8 +48,8 @@ class RPPOState:
     obs: Array
     done: Array
     env_state: EnvState
-    actor_hidden_state: Array
-    critic_hidden_state: Array
+    actor_carry: Array
+    critic_carry: Array
     actor_params: core.FrozenDict[str, Any]
     critic_params: core.FrozenDict[str, Any]
     actor_optimizer_state: optax.OptState
@@ -69,20 +69,20 @@ class RPPO:
     def _deterministic_action(
         self, key: Key, state: RPPOState
     ) -> tuple[Key, RPPOState, Array, Array]:
-        actor_hidden_state, probs = self.actor.apply(
+        actor_carry, probs = self.actor.apply(
             state.actor_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
-            initial_carry=state.actor_hidden_state,
+            initial_carry=state.actor_carry,
         )
         action = jnp.argmax(probs.logits, axis=-1)
         log_prob = probs.log_prob(action)
 
-        critic_hidden_state, value = self.critic.apply(
+        critic_carry, value = self.critic.apply(
             state.critic_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
-            initial_carry=state.critic_hidden_state,
+            initial_carry=state.critic_carry,
         )
 
         action = action.squeeze(1)
@@ -90,8 +90,8 @@ class RPPO:
         value = value.squeeze((1, -1))
 
         state = state.replace(
-            actor_hidden_state=actor_hidden_state,
-            critic_hidden_state=critic_hidden_state,
+            actor_carry=actor_carry,
+            critic_carry=critic_carry,
         )
         return key, state, action, log_prob, value
 
@@ -104,21 +104,21 @@ class RPPO:
             actor_memory_key,
             critic_memory_key,
         ) = jax.random.split(key, 4)
-        actor_hidden_state, probs = self.actor.apply(
+        actor_carry, probs = self.actor.apply(
             state.actor_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
-            initial_carry=state.actor_hidden_state,
+            initial_carry=state.actor_carry,
             rngs={"memory": actor_memory_key},
         )
         action = probs.sample(seed=action_key)
         log_prob = probs.log_prob(action)
 
-        critic_hidden_state, value = self.critic.apply(
+        critic_carry, value = self.critic.apply(
             state.critic_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
-            initial_carry=state.critic_hidden_state,
+            initial_carry=state.critic_carry,
             rngs={"memory": critic_memory_key},
         )
 
@@ -127,8 +127,8 @@ class RPPO:
         value = value.squeeze((1, -1))
 
         state = state.replace(
-            actor_hidden_state=actor_hidden_state,
-            critic_hidden_state=critic_hidden_state,
+            actor_carry=actor_carry,
+            critic_carry=critic_carry,
         )
         return key, state, action, log_prob, value
 
@@ -163,7 +163,7 @@ class RPPO:
         return (key, state), transition
 
     def _update_actor(
-        self, key, state: RPPOState, initial_actor_hidden_state, transitions, advantages
+        self, key, state: RPPOState, initial_actor_carry, transitions, advantages
     ):
         key, memory_key, dropout_key = jax.random.split(key, 3)
 
@@ -172,7 +172,7 @@ class RPPO:
                 params,
                 observation=transitions.obs,
                 mask=transitions.done,
-                initial_carry=initial_actor_hidden_state,
+                initial_carry=initial_actor_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
             log_probs = probs.log_prob(transitions.action)
@@ -213,7 +213,7 @@ class RPPO:
         return key, state, actor_loss.mean(), aux
 
     def _update_critic(
-        self, key, state: RPPOState, initial_critic_hidden_state, transitions, returns
+        self, key, state: RPPOState, initial_critic_carry, transitions, returns
     ):
 
         key, memory_key, dropout_key = jax.random.split(key, 3)
@@ -223,7 +223,7 @@ class RPPO:
                 params,
                 observation=transitions.obs,
                 mask=transitions.done,
-                initial_carry=initial_critic_hidden_state,
+                initial_carry=initial_critic_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
             values = values.squeeze(-1)
@@ -258,18 +258,18 @@ class RPPO:
     def _update_minibatch(self, carry, minibatch: tuple):
         key, state = carry
         (
-            initial_actor_hidden_state,
-            initial_critic_hidden_state,
+            initial_actor_carry,
+            initial_critic_carry,
             transitions,
             advantages,
             returns,
         ) = minibatch
 
         key, state, critic_loss = self._update_critic(
-            key, state, initial_critic_hidden_state, transitions, returns
+            key, state, initial_critic_carry, transitions, returns
         )
         key, state, actor_loss, aux = self._update_actor(
-            key, state, initial_actor_hidden_state, transitions, advantages
+            key, state, initial_actor_carry, transitions, advantages
         )
 
         return (key, state), (actor_loss, critic_loss, aux)
@@ -326,8 +326,8 @@ class RPPO:
     def _update_step(self, carry: tuple, _):
 
         key, state = carry
-        initial_actor_h_rollout = state.actor_hidden_state
-        initial_critic_h_rollout = state.critic_hidden_state
+        initial_actor_h_rollout = state.actor_carry
+        initial_critic_h_rollout = state.critic_carry
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),
             (key, state),
@@ -338,7 +338,7 @@ class RPPO:
             state.critic_params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
-            initial_carry=state.critic_hidden_state,
+            initial_carry=state.critic_carry,
         )
 
         final_value = final_value.squeeze((1, -1))
@@ -404,9 +404,9 @@ class RPPO:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        done = jnp.ones(self.cfg.num_envs, dtype=bool)
-        actor_hidden_state = self.actor.initialize_carry(obs.shape)
-        critic_hidden_state = self.critic.initialize_carry(obs.shape)
+        done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
+        actor_carry = self.actor.initialize_carry(obs.shape)
+        critic_carry = self.critic.initialize_carry(obs.shape)
 
         actor_params = self.actor.init(
             {
@@ -416,7 +416,7 @@ class RPPO:
             },
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
-            initial_carry=actor_hidden_state,
+            initial_carry=actor_carry,
         )
         critic_params = self.critic.init(
             {
@@ -426,7 +426,7 @@ class RPPO:
             },
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
-            initial_carry=critic_hidden_state,
+            initial_carry=critic_carry,
         )
 
         actor_optimizer_state = self.actor_optimizer.init(actor_params)
@@ -438,8 +438,8 @@ class RPPO:
                 step=0,  # type: ignore
                 obs=obs,  # type: ignore
                 done=done,  # type: ignore
-                actor_hidden_state=actor_hidden_state,  # type: ignore
-                critic_hidden_state=critic_hidden_state,  # type: ignore
+                actor_carry=actor_carry,  # type: ignore
+                critic_carry=critic_carry,  # type: ignore
                 env_state=env_state,  # type: ignore
                 actor_params=actor_params,  # type: ignore
                 critic_params=critic_params,  # type: ignore
@@ -477,14 +477,14 @@ class RPPO:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        done = jnp.ones(self.cfg.num_eval_envs, dtype=bool)
-        initial_actor_hidden_state = self.actor.initialize_carry(obs.shape)
-        initial_critic_hidden_state = self.critic.initialize_carry(obs.shape)
+        done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
+        initial_actor_carry = self.actor.initialize_carry(obs.shape)
+        initial_critic_carry = self.critic.initialize_carry(obs.shape)
         state = state.replace(
             obs=obs,
             done=done,
-            actor_hidden_state=initial_actor_hidden_state,
-            critic_hidden_state=initial_critic_hidden_state,
+            actor_carry=initial_actor_carry,
+            critic_carry=initial_critic_carry,
             env_state=env_state,
         )
         (key, *_), transitions = jax.lax.scan(

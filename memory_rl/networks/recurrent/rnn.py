@@ -18,18 +18,15 @@ class RNN(nn.Module):
     cell: nn.RNNCellBase
     unroll: int = 1
     variable_axes: Mapping[CollectionFilter, InOutScanAxis] = FrozenDict()
-    variable_broadcast: CollectionFilter = 'params'
+    variable_broadcast: CollectionFilter = "params"
     variable_carry: CollectionFilter = False
-    split_rngs: Mapping[PRNGSequenceFilter, bool] = FrozenDict(
-    {'params': False}
-    )
+    split_rngs: Mapping[PRNGSequenceFilter, bool] = FrozenDict({"params": False})
 
     def __call__(
         self,
         inputs: jax.Array,
         mask: jax.Array,
         initial_carry: Carry,
-        **kwargs,
     ):
         time_axis, input_shape = get_time_axis_and_input_shape(inputs)
 

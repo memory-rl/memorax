@@ -64,7 +64,10 @@ class MultiHeadAttentionBlock(nn.Module):
         key = jnp.concatenate([kv_cache.key, key], axis=1)
         value = jnp.concatenate([kv_cache.value, value], axis=1)
 
-        query_input = jnp.cumsum(mask.astype(jnp.int32), axis=1) + jnp.max(jnp.cumsum(kv_cache.mask, axis=1), axis=1)[..., None]
+        query_input = (
+            jnp.cumsum(mask.astype(jnp.int32), axis=1)
+            + jnp.max(jnp.cumsum(kv_cache.mask, axis=1), axis=1)[..., None]
+        )
 
         key_mask = jnp.concatenate([kv_cache.mask, mask], axis=1, dtype=jnp.int32)
         key_input = jnp.cumsum(key_mask, axis=1)
@@ -101,7 +104,9 @@ class MultiHeadAttentionBlock(nn.Module):
         key = key[:, -self.context_length :, :]
         value = value[:, -self.context_length :, :]
 
-        kv_cache = kv_cache.replace(position=next_position, mask=mask, key=key, value=value)
+        kv_cache = kv_cache.replace(
+            position=next_position, mask=mask, key=key, value=value
+        )
 
         return y, kv_cache
 

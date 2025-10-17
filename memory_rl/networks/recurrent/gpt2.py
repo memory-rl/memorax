@@ -48,6 +48,8 @@ class MultiHeadAttentionBlock(nn.Module):
     def __call__(self, x, mask, kv_cache):
         head_dim = self.features // self.num_heads
 
+        B, T, *_ = x.shape
+
         projection = partial(
             nn.DenseGeneral,
             features=(self.num_heads, head_dim),
@@ -74,15 +76,28 @@ class MultiHeadAttentionBlock(nn.Module):
         key_input = jnp.cumsum(key_mask, axis=1)
 
         attention_mask = nn.make_attention_mask(
-            query_input, key_input, dtype=jnp.bool, pairwise_fn=jnp.equal
+            query_input, key_input, pairwise_fn=jnp.equal
         )
+
+        query_input = jnp.arange(T) + self.context_length
+        query_input = jnp.broadcast_to(query_input, (B, T))
+        key_input = jnp.arange(self.context_length + T)
+        key_input = jnp.broadcast_to(key_input, (B, self.context_length + T))
+        causal_mask = nn.make_attention_mask(
+            query_input, key_input, pairwise_fn=jnp.greater_equal
+        )
+
+        B, _, T, S = attention_mask.shape
+        attention_mask = jnp.broadcast_to(attention_mask, (B, self.num_heads, T, S))
+
+        B, _, T, S = causal_mask.shape
+        causal_mask = jnp.broadcast_to(causal_mask, (B, self.num_heads, T, S))
 
         x = jax.nn.dot_product_attention(
             query.astype(jnp.bfloat16),
             key.astype(jnp.bfloat16),
             value.astype(jnp.bfloat16),
-            is_causal=True,
-            mask=attention_mask,
+            mask=nn.combine_masks(attention_mask, causal_mask, dtype=jnp.bool),
             implementation=get_attention_implementation(),
         )
 

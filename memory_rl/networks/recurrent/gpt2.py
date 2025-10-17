@@ -58,10 +58,11 @@ class MultiHeadAttentionBlock(nn.Module):
         )
 
         query = projection(name="query")(x)
-        key = projection(name="key")(x)
-        value = projection(name="value")(x)
 
+        key = projection(name="key")(x)
         key = jnp.concatenate([kv_cache.key, key], axis=1)
+
+        value = projection(name="value")(x)
         value = jnp.concatenate([kv_cache.value, value], axis=1)
 
         query_input = (
@@ -73,10 +74,8 @@ class MultiHeadAttentionBlock(nn.Module):
         key_input = jnp.cumsum(key_mask, axis=1)
 
         attention_mask = nn.make_attention_mask(
-            query_input, key_input, dtype=jnp.bool_, pairwise_fn=jnp.equal
+            query_input, key_input, dtype=jnp.bool, pairwise_fn=jnp.equal
         )
-        B, _, T, S = attention_mask.shape
-        attention_mask = jnp.broadcast_to(attention_mask, (B, self.num_heads, T, S))
 
         x = jax.nn.dot_product_attention(
             query.astype(jnp.bfloat16),
@@ -101,8 +100,8 @@ class MultiHeadAttentionBlock(nn.Module):
 
         _, next_position = _get_positions(mask, start=kv_cache.position)
         mask = key_mask[:, -self.context_length :]
-        key = key[:, -self.context_length :, :]
-        value = value[:, -self.context_length :, :]
+        key = key[:, -self.context_length :, ...]
+        value = value[:, -self.context_length :, ...]
 
         kv_cache = kv_cache.replace(
             position=next_position, mask=mask, key=key, value=value

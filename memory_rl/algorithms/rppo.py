@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 from flax import struct
 from flax import linen as nn
 import jax
@@ -48,12 +48,12 @@ class RPPOState:
     obs: Array
     done: Array
     env_state: EnvState
-    actor_carry: Array
-    critic_carry: Array
     actor_params: core.FrozenDict[str, Any]
-    critic_params: core.FrozenDict[str, Any]
     actor_optimizer_state: optax.OptState
+    actor_carry: Array
+    critic_params: core.FrozenDict[str, Any]
     critic_optimizer_state: optax.OptState
+    critic_carry: Array
 
 
 @struct.dataclass(frozen=True)
@@ -152,6 +152,7 @@ class RPPO:
             info=info,  # type: ignore
             log_prob=log_prob,  # type: ignore
             value=value,  # type: ignore
+            prev_done=state.done,
         )
 
         state = state.replace(
@@ -171,7 +172,7 @@ class RPPO:
             _, probs = self.actor.apply(
                 params,
                 observation=transitions.obs,
-                mask=transitions.done,
+                mask=transitions.prev_done,
                 initial_carry=initial_actor_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
@@ -222,7 +223,7 @@ class RPPO:
             _, values = self.critic.apply(
                 params,
                 observation=transitions.obs,
-                mask=transitions.done,
+                mask=transitions.prev_done,
                 initial_carry=initial_critic_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )

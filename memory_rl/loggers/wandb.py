@@ -23,6 +23,7 @@ class WandbLogger(BaseLogger[WandbLoggerState]):
     name: Optional[str] = None
     group: Optional[str] = None
     mode: str = "disabled"
+    num_seeds: int = 1
 
     def init(self, cfg: dict) -> WandbLoggerState:
         runs = {
@@ -35,7 +36,7 @@ class WandbLogger(BaseLogger[WandbLoggerState]):
                 config=cfg,
                 reinit="create_new",
             )
-            for seed in range(cfg["num_seeds"])
+            for seed in range(self.num_seeds)
         }
         return WandbLoggerState(runs=runs)
 

@@ -4,7 +4,9 @@ import flax.linen as nn
 from flax.linen.recurrent import Carry
 from flax.core.frozen_dict import FrozenDict
 from flax.core.scope import CollectionFilter, PRNGSequenceFilter
-from flax.typing import InOutScanAxis
+from flax.linen import initializers
+from flax.linen.linear import default_kernel_init
+from flax.typing import InOutScanAxis, Initializer
 import jax
 
 from memory_rl.networks.recurrent.utils import (
@@ -21,6 +23,8 @@ class RNN(nn.Module):
     variable_broadcast: CollectionFilter = "params"
     variable_carry: CollectionFilter = False
     split_rngs: Mapping[PRNGSequenceFilter, bool] = FrozenDict({"params": False})
+    kernel_init: Initializer = default_kernel_init
+    bias_init: Initializer = initializers.zeros_init()
 
     def __call__(
         self,

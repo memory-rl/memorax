@@ -22,9 +22,9 @@ class Transition:
     env_state: Optional[Array] = None
 
     @property
-    def num_episodes(self) -> int:
+    def num_episodes(self) -> Array:
         assert self.done is not None
-        return self.done.sum().item()
+        return self.done.sum()
 
     @property
     def episode_lengths(self):
@@ -38,7 +38,7 @@ class Transition:
 
         init_len = jnp.zeros_like(self.done[0], dtype=jnp.int32)
         _, episode_lengths = jax.lax.scan(step, init_len, self.done)
-        return episode_lengths[self.done]
+        return jnp.where(self.done, episode_lengths, jnp.nan)
 
     @property
     def episode_returns(self):
@@ -54,7 +54,7 @@ class Transition:
 
         init_sum = jnp.zeros_like(self.reward[0])
         _, episode_returns = jax.lax.scan(step, init_sum, (self.reward, self.done))
-        return episode_returns[self.done]
+        return jnp.where(self.done, episode_returns, jnp.nan)
 
     @property
     def losses(self):

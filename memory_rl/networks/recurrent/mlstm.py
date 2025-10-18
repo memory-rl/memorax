@@ -160,10 +160,18 @@ class BlockDiagonalDense(Module):
         x = x.reshape(*batch, self.num_heads, block_dim, self.block_size)
 
         k = self.param(
-            "kernel", self.kernel_init, (self.num_heads, block_dim, self.block_size, self.block_size), self.param_dtype
+            "kernel",
+            self.kernel_init,
+            (self.num_heads, block_dim, self.block_size, self.block_size),
+            self.param_dtype,
         )
         b = (
-            self.param("bias", self.bias_init, (self.num_heads, block_dim, self.block_size), self.param_dtype)
+            self.param(
+                "bias",
+                self.bias_init,
+                (self.num_heads, block_dim, self.block_size),
+                self.param_dtype,
+            )
             if self.use_bias
             else None
         )
@@ -235,7 +243,7 @@ class mLSTMBlock(RNNCellBase):
         )
 
         causal_window = jnp.concatenate([up_core[..., None], conv_buf], axis=-1)
-        conv_x = jnp.einsum('...fk,fk->...f', causal_window, k_x)
+        conv_x = jnp.einsum("...fk,fk->...f", causal_window, k_x)
         conv_x = jax.nn.silu(conv_x)
         conv_buf_new = jnp.concatenate(
             [up_core[..., None], conv_buf[..., :-1]], axis=-1
@@ -331,10 +339,18 @@ class mLSTMBlock(RNNCellBase):
         up_features = self.features * self.up_proj_factor
         head_dim = up_features // self.num_heads
         key_c, key_n, key_m, key_conv_buf = random.split(rng, 4)
-        C = self.carry_init(key_c, (batch_dims + (self.num_heads, head_dim, head_dim)), self.param_dtype)
-        n = self.carry_init(key_n, (batch_dims + (self.num_heads, head_dim)), self.param_dtype)
+        C = self.carry_init(
+            key_c, (batch_dims + (self.num_heads, head_dim, head_dim)), self.param_dtype
+        )
+        n = self.carry_init(
+            key_n, (batch_dims + (self.num_heads, head_dim)), self.param_dtype
+        )
         m = self.carry_init(key_m, (batch_dims + (self.num_heads,)), self.param_dtype)
-        conv_buf = self.carry_init(key_conv_buf, batch_dims + (up_features, max(self.conv_kernel_size - 1, 0)), self.param_dtype)
+        conv_buf = self.carry_init(
+            key_conv_buf,
+            batch_dims + (up_features, max(self.conv_kernel_size - 1, 0)),
+            self.param_dtype,
+        )
         return (C, n, m, conv_buf)
 
     @property

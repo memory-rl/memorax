@@ -21,12 +21,15 @@ register = {
 }
 
 
-def make(env_id):
+def make(
+    env_id,
+    **kwargs,
+):
     namespace, env_id = env_id.split("::", 1)
 
     if namespace not in register:
         raise ValueError(f"Unknown namespace {namespace}")
 
-    env, env_params = register[namespace](env_id)
+    env, env_params = register[namespace](env_id, **kwargs)
 
     return env, env_params

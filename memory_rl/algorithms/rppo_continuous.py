@@ -3,6 +3,7 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 from flax import struct
+from flax import linen as nn
 import optax
 from flax import core
 
@@ -12,7 +13,6 @@ from memory_rl.utils.typing import (
     EnvParams,
     EnvState,
 )
-from memory_rl.networks import RecurrentNetwork
 from memory_rl.utils import generalized_advantage_estimatation, Transition
 
 
@@ -60,8 +60,8 @@ class RPPOContinuous:
     cfg: RPPOContinuousConfig
     env: Environment
     env_params: EnvParams
-    actor_network: RecurrentNetwork
-    critic_network: RecurrentNetwork
+    actor_network: nn.Module
+    critic_network: nn.Module
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
 

@@ -83,10 +83,10 @@ class Logger(BaseLogger[LoggerState]):
     def get_episode_statistics(transitions, prefix: str):
         def describe(a: Array, metric: str):
             return {
-                f"{prefix}/mean_{metric}": a.mean(),
-                f"{prefix}/std_{metric}": a.std(),
-                f"{prefix}/min_{metric}": a.min(),
-                f"{prefix}/max_{metric}": a.max(),
+                f"{prefix}/mean_{metric}": jnp.nanmean(a),
+                f"{prefix}/std_{metric}": jnp.nanstd(a),
+                f"{prefix}/min_{metric}": jnp.nanmin(a),
+                f"{prefix}/max_{metric}": jnp.nanmax(a),
             }
 
         num_episodes = {"num_episodes": transitions.num_episodes}

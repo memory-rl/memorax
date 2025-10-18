@@ -104,12 +104,14 @@ class RelativeMultiHeadAttentionBlock(Module):
         key = jnp.concatenate(
             [key[:, :-T, ...], kv_cache.key, key[:, -T:, ...]], axis=1
         )
+        key = key[:, -(self.memory_length + self.context_length) :]
 
         value = jnp.concatenate([memory.state, x], axis=1)
         value = projection(name="value")(value)
         value = jnp.concatenate(
             [value[:, :-T, ...], kv_cache.value, value[:, -T:, ...]], axis=1
         )
+        value = value[:, -(self.memory_length + self.context_length) :]
 
         r = projection(name="relative_positional_embeddings", axis=-1)(
             relative_positional_embeddings
@@ -127,7 +129,7 @@ class RelativeMultiHeadAttentionBlock(Module):
         bd = jnp.einsum("btnh,mnh->btnm", query_v, r)
         bd = jnp.transpose(bd, (0, 2, 1, 3))
 
-        bd = _relative_shift(bd)[..., -(self.memory_length + self.context_length + T) :]
+        bd = _relative_shift(bd)[..., -(self.memory_length + self.context_length) :]
 
         bias = (bd / jnp.sqrt(head_dim)).astype(self.param_dtype)
 
@@ -143,7 +145,7 @@ class RelativeMultiHeadAttentionBlock(Module):
 
         key_mask = jnp.concatenate(
             [memory.mask, kv_cache.mask, mask], axis=1, dtype=jnp.int32
-        )
+        )[:, -(self.memory_length + self.context_length) :]
         key_input = jnp.cumsum(key_mask, axis=1)
 
         attention_mask = nn.make_attention_mask(
@@ -155,7 +157,7 @@ class RelativeMultiHeadAttentionBlock(Module):
         key_input = jnp.arange(self.memory_length + self.context_length + T)
         key_input = jnp.broadcast_to(
             key_input, (B, self.memory_length + self.context_length + T)
-        )
+        )[:, -(self.memory_length + self.context_length) :]
         causal_mask = nn.make_attention_mask(
             query_input, key_input, pairwise_fn=jnp.greater_equal
         )
@@ -172,8 +174,7 @@ class RelativeMultiHeadAttentionBlock(Module):
             value.astype(jnp.bfloat16),
             mask=nn.combine_masks(attention_mask, causal_mask, dtype=jnp.bool),
             bias=bias,
-            # implementation=get_attention_implementation(),
-            implementation="xla",
+            implementation=get_attention_implementation(),
         )
 
         x = nn.DenseGeneral(
@@ -189,10 +190,8 @@ class RelativeMultiHeadAttentionBlock(Module):
 
         x = nn.Dropout(rate=self.dropout)(x, deterministic=not self.has_rng("dropout"))
 
-        # mask = key_mask[:, -self.context_length :]
-        key = key[:, -self.context_length :, :]
-        value = value[:, -self.context_length :, :]
-
+        key = key[:, -self.context_length :]
+        value = value[:, -self.context_length :]
         kv_cache = kv_cache.replace(key=key, value=value)
         return x, kv_cache
 

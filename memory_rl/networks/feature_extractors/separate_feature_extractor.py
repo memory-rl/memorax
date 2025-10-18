@@ -13,12 +13,12 @@ class SeparateFeatureExtractor(nn.Module):
 
     def extract(
         self,
-        feats: list,
+        features: list,
         extractor: Optional[nn.Module],
         x: Optional[jnp.ndarray] = None,
     ):
         if extractor is not None and x is not None:
-            feats.append(extractor(x))
+            features.append(extractor(x))
 
     @nn.compact
     def __call__(
@@ -29,8 +29,9 @@ class SeparateFeatureExtractor(nn.Module):
         done: Optional[jnp.ndarray] = None,
         **kwargs,
     ) -> jnp.ndarray:
-        feats = [self.observation_extractor(observation)]
-        self.extract(feats, self.action_extractor, action)
-        self.extract(feats, self.reward_extractor, reward)
-        self.extract(feats, self.done_extractor, done)
-        return jnp.concatenate(feats, axis=-1)
+        features = [self.observation_extractor(observation)]
+        self.extract(features, self.action_extractor, action)
+        self.extract(features, self.reward_extractor, reward)
+        self.extract(features, self.done_extractor, done)
+
+        return jnp.concatenate(features, axis=-1)

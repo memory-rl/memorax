@@ -1,216 +1,72 @@
-# Memory-RL: A High-Performance JAX Library for Memory-Augmented Reinforcement Learning
+# Memory-RL Framework
 
-## Why this library?
+A unified reinforcement learning framework featuring memory-augmented algorithms and POMDP environment implementations. This repository provides modular components for building, configuring, and running a variety of RL algorithms on classic and memory-intensive environments.
 
-Modern RL lives under partial observability. State lives in memory. You want to swap `sLSTM ↔ GTrXL ↔ GPT2` without rewriting your training loop, run the same code on `gymnax`, `brax`, or `mujoco`, and send metrics to any logger you like. That’s exactly what this repo does—clean interfaces, typed configs/states, fast JAX scans, and recurrent variants of the usual suspects.
+## Features
 
----
+* **Memory-RL**: JAX implementations of [DQN](https://arxiv.org/abs/1312.5602), [PPO](https://arxiv.org/abs/1707.06347) (Discrete & Continuous), [SAC](https://arxiv.org/abs/1801.01290) (Discrete and Continuous), [PQN](https://arxiv.org/abs/2407.04811v2#S4), and their memory-augmented variants.
+* **Recurrent Cells**: Support for multiple RNN cells and Memory Architectures, including [LSTM](https://ieeexplore.ieee.org/abstract/document/6795963), [GRU](https://arxiv.org/abs/1412.3555), [GPT2](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf), [GTrXL](https://arxiv.org/abs/1910.06764), [FFM](https://arxiv.org/abs/2310.04128), [xLSTM](https://arxiv.org/abs/2405.04517), [SHM](https://arxiv.org/abs/2410.10132) and [S5](https://arxiv.org/abs/2303.03982).
+* **Environments**: Support for [Gymnax](https://github.com/RobertTLange/gymnax), [PopJym](https://github.com/EdanToledo/popjym), [PopGym Arcade](https://github.com/bolt-research/popgym-arcade), [Navix](https://github.com/epignatelli/navix?tab=readme-ov-file), [Craftax](https://github.com/MichaelTMatthews/Craftax), [Brax](https://github.com/google/brax), [MuJoCo](https://github.com/google-deepmind/mujoco_playground) and [gxm](https://github.com/huterguier/gxm).
+* **Logging & Sweeps**: Support for a CLI Dashboard, [Weights & Biases](https://wandb.ai), [TensorboardX](https://github.com/lanpa/tensorboardX) and more.
+* **Easy to Extend**: Clear directory structure for adding new networks, algorithms, or environments.
 
-## Highlights
+## Installation
 
-* **Memory is a first-class citizen.** Drop-in recurrent cells (`sLSTM`, `mLSTM`, `xLSTM`, `GTrXL`, `GPT2`, `S5`, `SHM`, `DNC`, `FFM`) with a `MaskedRNN` wrapper.
-* **Recurrent algorithms.** `R*` counterparts of major methods for POMDPs (`DRQN`, `RPPO`, `RPQN`, `RSAC`, `RSACD`, …).
-* **Unified environments.** One factory, consistent spaces, identical `reset/step` signatures across `gymnax`, `brax`, `mujoco`, `craftax`, `navix`, `gxm`, `popgym_arcade`, `popjaxrl`.
-* **Pluggable logging.** Console/File, TensorBoard, Weights & Biases, Neptune, and a dashboard aggregator—same `Logger` API everywhere.
-* **Typed, minimal loop.** Every algorithm exposes `init`, `warmup`, `train`, `evaluate` with dataclass `Config` and `State`.
+1. **Clone the repository**:
 
----
+   ```bash
+   git clone https://github.com/memory-rl/memory-rl.git
+   cd memory-rl
+   ```
 
-## Package layout
+2. **Install Python dependencies**:
 
-```
-algorithms/   # training loops
-networks/     # MLP/CNN, heads, (Recurrent)Network orchestration + memory cells
-buffers/      # rollout storage (episode/trajectory via flashbax)
-environments/ # factory + wrappers
-loggers/      # backends + composition
-utils/        # GAE, target updates, Transition, decorators, typing protocol
-```
+   ```bash
+   uv sync
+   ```
+Optionally you can add support for CUDA with
+   ```bash
+   uv sync --extra cuda
+   ```
 
-### Algorithms
+3. **Optional**: Set up Weights & Biases for logging by logging in:
 
-**Discrete:** `DQN`, `DRQN`, `PPO`, `RPPO`, `PQN`, `RPQN`, `SACD`, `RSACD`
-**Continuous:** `PPOContinuous`, `RPPOContinuous`, `SAC`, `RSAC`
+   ```bash
+   wandb login
+   ```
 
-All implement:
+## Quick Start
 
-```python
-init(key) -> Key, State
-warmup(key, state, num_steps) -> Key, State
-train(key, state, num_steps) -> Key, State, Transitions
-evaluate(key, state, num_steps) -> Key, State, Transitions
-```
-
-### Networks
-
-* **Feed-forward:** `MLP`, `CNN`, policy/value heads.
-* **Memory cells:** `sLSTM`, `mLSTM`, `xLSTM`, `GTrXL`, `GPT2`-style cell, `S5`, `SHM`, `DNC`, `FFM`.
-* **Wrapper:** `MaskedRNN` supports burn-in, variable-length sequences, carry slicing/detach, and shared/separate feature extractors.
-
-### Buffers
-
-* `episode_buffer.py` built on **flashbax** trajectory buffers (episode/trajectory handling, batched sampling, masks).
-
-### Environments
-
-* Factory: `environments.environment.make("namespace::env_id")`
-* Namespaces: `gymnax`, `brax`, `mujoco`, `craftax`, `navix`, `gxm`, `popgym_arcade`, `popjaxrl`
-* Extras: observation masking utilities.
-
-### Loggers
-
-Console, File, **TensorBoard**, **Weights & Biases**, **Neptune**, and a simple dashboard aggregator. Compose multiple backends via a common `Logger` interface.
-
----
-
-## Quickstart
-
-### Install
+Run a default DQN experiment on CartPole:
 
 ```bash
-pip install memory-rl
+uv run examples/dqn_gymnax.py
 ```
 
-### Train your first recurrent agent
-
-```python
-import jax, jax.numpy as jnp
-import flax.linen as nn
-from memory_rl.algorithms.rppo import RPPOConfig, RPPO
-from memory_rl.environments import environment
-from memory_rl.loggers import Logger, ConsoleLogger, TensorBoardLogger
-from memory_rl.networks import MLP, RecurrentNetwork, heads, SharedFeatureExtractor
-
-env, env_params = environment.make("gymnax::CartPole-v1")
-
-cfg = RPPOConfig(
-   name="rppo",
-   learning_rate=3e-4,
-   num_envs=32,
-   num_eval_envs=16,
-   num_steps=64,
-   anneal_lr=True,
-   gamma=0.99,
-   gae_lambda=0.95,
-   num_minibatches=4,
-   update_epochs=4,
-   normalize_advantage=True,
-   clip_coef=0.2,
-   clip_vloss=True,
-   ent_coef=0.0,
-   vf_coef=0.5,
-   max_grad_norm=0.5,
-   learning_starts=0,
-)
-
-actor = RecurrentNetwork(
-   feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
-   torso=nn.GRUCell(features=128),
-   head=heads.Categorical(
-      action_dim=env.action_space(env_params).n,
-      kernel_init=nn.initializers.orthogonal(scale=0.01),
-   ),
-)
-actor_optimizer = optax.chain(
-  optax.clip_by_global_norm(cfg.max_grad_norm),
-  optax.adam(learning_rate=learning_rate, eps=1e-5),
-)
-
-critic = RecurrentNetwork(
-   feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
-   torso=nn.GRUCell(features=(128,)),
-   head=heads.VNetwork(
-      kernel_init=nn.initializers.orthogonal(scale=0.01),
-   ),
-)
-critic_optimizer = optax.chain(
-   optax.clip_by_global_norm(rppo_config.max_grad_norm),
-   optax.adam(learning_rate=learning_rate, eps=1e-5),
-)
-
-
-logger = Logger([ConsoleLogger(), TensorBoardLogger(log_dir="runs/cartpole_rppo")])
-logger_state = logger.init(cfg)
-
-key = jax.random.key(0)
-
-agent = RPPO(
-   cfg=cfg,
-   env=env,
-   env_params=env_params,
-   actor=actor,
-   actor_optimizer=actor_optimizer,
-   critic=critic,
-   critic_optimizer=critic_optimizer,
-)
-
-key, state = agent.init(key)
-key, state, transitions = agent.train(key, state, num_steps=500_000)
-
-training_statistics = Logger.get_episode_statistics(transitions, cfg.gamma, "training")
-losses = Logger.get_losses(transitions)
-data = {**losses, **episode_statistics}
-logger_state = logger.log(logger_state, data, step=state.step)
-
-key, state, transitions = agent.evaluate(key, state, num_steps=5_000)
-evaluation_statistics = Logger.get_episode_statistics(transitions, cfg.gamma, "evaluation")
-logger_state = logger.log(logger_state, evaluation_statistics, step=state.step)
+## Project structure
+```
+memory-rl/
+├─ examples/          # Small runnable scripts (e.g., DQN CartPole)
+├─ memory_rl/
+   ├─ algorithms/     # DQN, PPO, SAC, PQN, ...
+   ├─ networks/       # MLP, CNN, RNN, heads, ...
+   ├─ environments/   # Gymnax / PopGym / Brax / ...
+   ├─ buffers/        # Custom flashbax buffers
+   ├─ loggers/        # CLI, WandB, TensorBoardX integrations
+   └─ utils/
 ```
 
----
+## License
 
-## Environment coverage
-
-```python
-# Examples
-make("gymnax::CartPole-v1")
-make("brax::ant")
-make("mujoco::HalfCheetah-v4")
-make("craftax::MiniGrid-DoorKey-8x8-v0")
-make("navix::FourRooms")
-make("gxm::Gymnasium/ALE/Breakout-v5")
-make("popgym_arcade::SpaceInvaders")
-make("popjaxrl::Catch")
-```
-
-* Observation masking utilities for partial observability experiments.
-
----
-
-## Supported methods (at a glance)
-
-| Family            | Discrete                              | Continuous                            |
-| ----------------- | ------------------------------------- | ------------------------------------- |
-| Value-based       | `DQN`, **`DRQN`**, `PQN, **`RPQN`**   | —                                     |
-| Actor-critic      | `PPO`, **`RPPO`**                     | `PPOContinuous`, **`RPPOContinuous`** |
-| Soft actor-critic | `SACD`, **`RSACD`**                   | `SAC`, **`RSAC`**                     |
-| Others            | `PQN`, **`RPQN`**                     | -                                     |
-
-**Bold** = recurrent variant available.
-
----
-
-## Contributing
-
-Issues and PRs welcome. Keep PRs focused, typed, and covered:
-
-* Add/extend an algorithm: implement the protocol + a minimal example.
-* Add a memory cell: register in `networks/` and ensure `MaskedRNN` tests pass.
-* Add an environment: implement the factory adapter and space spec.
-* Add a logger: implement the backend state and register with the composite.
-
+...
 
 ## Citation
 
-If this library helps your research, cite it like so:
+If you use Memory-RL for your work, please cite:
 
-```bibtex
-@software{memjaxrl,
-  title        = {Memory-RL: Modular Recurrent Reinforcement Learning in JAX},
-  year         = {2025},
-  author       = {Noah Farr},
-  url          = {https://github.com/memory-r/memory-rl}
+@software{memoryrl2025github,
+  title   = {Memory-RL: A Unified Framework for Memory-Augmented Reinforcement Learning},
+  author  = {Noah Farr},
+  year    = {2025},
+  url     = {https://github.com/memory-rl/memory-rl}
 }
-```
-
----

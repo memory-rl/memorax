@@ -1,3 +1,5 @@
+import time
+
 import jax
 import flax.linen as nn
 import optax
@@ -5,7 +7,13 @@ from memory_rl.algorithms.drqn import DRQN, DRQNConfig
 from memory_rl.buffers import make_episode_buffer
 from memory_rl.environments import environment
 from memory_rl.loggers import Logger, DashboardLogger
-from memory_rl.networks import MLP, RecurrentNetwork, heads, SharedFeatureExtractor
+from memory_rl.networks import (
+    MLP,
+    SequenceNetwork,
+    RNN,
+    heads,
+    SharedFeatureExtractor,
+)
 
 total_timesteps = 500_000
 num_train_steps = 50_000
@@ -14,7 +22,7 @@ num_eval_steps = 5_000
 env, env_params = environment.make("gymnax::MemoryChain-bsuite")
 
 cfg = DRQNConfig(
-    name="rppo",
+    name="drqn",
     learning_rate=3e-4,
     num_envs=10,
     num_eval_envs=10,
@@ -22,21 +30,21 @@ cfg = DRQNConfig(
     gamma=0.99,
     tau=1.0,
     target_network_frequency=500,
-    batch_size=64,
+    batch_size=16,
     start_e=1.0,
     end_e=0.05,
     exploration_fraction=0.5,
     learning_starts=10_000,
     train_frequency=10,
     double=False,
-    sequence_length=5,
+    sequence_length=6,
     burn_in_length=0,
     mask=False,
 )
 
-q_network = RecurrentNetwork(
-    feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(120,))),
-    torso=nn.GRUCell(features=84),
+q_network = SequenceNetwork(
+    feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
+    torso=RNN(cell=nn.GRUCell(features=128), unroll=16),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,
     ),
@@ -82,13 +90,21 @@ logger = Logger(
 logger_state = logger.init(cfg)
 
 key, state = agent.init(key)
+key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
+evaluation_statistics = Logger.get_episode_statistics(transitions, "evaluation")
+logger_state = logger.log(logger_state, evaluation_statistics, step=state.step.item())
+logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
+
+    start = time.perf_counter()
     key, state, transitions = agent.train(key, state, num_steps=num_train_steps)
+    end = time.perf_counter()
+
+    SPS = int(num_train_steps / (end - start))
 
     training_statistics = Logger.get_episode_statistics(transitions, "training")
-    training_statistics = Logger.get_episode_statistics(transitions, "training")
-    data = {**training_statistics, **transitions.losses}
+    data = {"SPS": SPS, **training_statistics, **transitions.losses}
     logger_state = logger.log(logger_state, data, step=state.step.item())
 
     key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)

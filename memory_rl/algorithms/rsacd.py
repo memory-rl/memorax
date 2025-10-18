@@ -26,8 +26,6 @@ class Batch:
 
     obs: Array
     """Batch of obs with shape [batch_size, obs_dim]"""
-    prev_done: Array
-    """Batch of done flags with shape [batch_size]"""
     action: Array
     """Batch of actions with shape [batch_size, action_dim]"""
     reward: Array
@@ -146,7 +144,6 @@ class RSACD:
 
         transition = Transition(
             obs=state.obs,  # type: ignore
-            prev_done=state.done,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             next_obs=next_obs,  # type: ignore
@@ -173,7 +170,7 @@ class RSACD:
         target_entropy = self.cfg.target_entropy_scale * jnp.log(action_dim)
 
         _, dist = self.actor_network.apply(
-            state.actor_params, batch.obs, batch.prev_done
+            state.actor_params, batch.obs, batch.done
         )
         entropy = dist.entropy().mean()
 
@@ -208,17 +205,17 @@ class RSACD:
 
         mask = jnp.ones_like(batch.reward)
         if self.cfg.mask:
-            episode_idx = jnp.cumsum(batch.prev_done, axis=1)
-            terminal = (episode_idx == 1) & batch.prev_done
+            episode_idx = jnp.cumsum(batch.done, axis=1)
+            terminal = (episode_idx == 1) & batch.done
             mask = (episode_idx == 0) | terminal
 
         _, (q1, q2) = self.critic_network.apply(
-            state.critic_params, batch.obs, batch.prev_done
+            state.critic_params, batch.obs, batch.done
         )
         q = jnp.minimum(q1, q2)
 
         def actor_loss_fn(actor_params):
-            _, dist = self.actor_network.apply(actor_params, batch.obs, batch.prev_done)
+            _, dist = self.actor_network.apply(actor_params, batch.obs, batch.done)
 
             actor_loss = -(
                 jnp.sum(dist.probs * q, axis=-1) + alpha * dist.entropy()
@@ -262,13 +259,13 @@ class RSACD:
 
         mask = jnp.ones_like(batch.reward)
         if self.cfg.mask:
-            episode_idx = jnp.cumsum(batch.prev_done, axis=1)
-            terminal = (episode_idx == 1) & batch.prev_done
+            episode_idx = jnp.cumsum(batch.done, axis=1)
+            terminal = (episode_idx == 1) & batch.done
             mask = (episode_idx == 0) | terminal
 
         def critic_loss_fn(critic_params):
             _, (q1_values, q2_values) = self.critic_network.apply(
-                critic_params, batch.obs, batch.prev_done
+                critic_params, batch.obs, batch.done
             )
 
             action = jnp.expand_dims(batch.action, -1)
@@ -382,7 +379,7 @@ class RSACD:
         alpha_params = self.alpha_network.init(alpha_key)
         alpha_optimizer_state = self.alpha_optimizer.init(alpha_params)
 
-        transition = Transition(obs=obs, prev_done=done, action=action, reward=reward, next_obs=obs, done=done, info=info)  # type: ignore
+        transition = Transition(obs=obs, action=action, reward=reward, next_obs=obs, done=done, info=info)  # type: ignore
         transition = jax.tree.map(lambda x: x[0], transition)
 
         buffer_state = self.buffer.init(transition)

@@ -3,15 +3,15 @@ import jax
 import jax.numpy as jnp
 from flax.linen.module import compact, nowrap
 from flax.linen import initializers
+import flax.linen as nn
 from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.activation import sigmoid
 from flax.linen.normalization import LayerNorm
 from flax.typing import Array, PRNGKey, Dtype, Initializer
-from flax.linen.recurrent import RNNCellBase
 
 
-class FFMCell(RNNCellBase):
-    """Fast & Forgetful Memory (FFM) cell."""
+class FFM(nn.Module):
+    """Fast & Forgetful Memory (FFM)."""
 
     features: int
     memory_size: int
@@ -35,17 +35,17 @@ class FFMCell(RNNCellBase):
         return jnp.zeros(mem_shape, dtype=self._complex_dtype_from(self.param_dtype))
 
     @property
-    def num_feature_axes(self) -> int:
-        return 1
-
-    def _get_ab(self) -> tuple[Array, Array]:
-        a = self.param(
+    def a(self):
+        return self.param(
             "a",
             lambda _: jnp.linspace(
                 -jnp.e, -1e-6, self.memory_size, dtype=self.param_dtype
             ),
         )
-        b = self.param(
+
+    @property
+    def b(self):
+        return self.param(
             "b",
             lambda _: (2 * jnp.pi)
             / jnp.linspace(
@@ -55,7 +55,6 @@ class FFMCell(RNNCellBase):
                 dtype=self.param_dtype,
             ),
         )
-        return a, b
 
     def _log_gamma(self, a, b, t):
         a = jnp.clip(a[:, None], a_max=jnp.array(-1e-6, dtype=self.param_dtype))
@@ -66,9 +65,7 @@ class FFMCell(RNNCellBase):
     def _gamma(self, a, b, t):
         return jnp.exp(self._log_gamma(a, b, t))
 
-    def _aggregate(self, x, carry, done):
-
-        a, b = self._get_ab()
+    def _aggregate(self, x, carry, mask):
 
         timestep = jnp.arange(-1, x.shape[0], dtype=jnp.float32)
         timestep = jax.lax.complex(timestep, jnp.zeros_like(timestep))
@@ -77,17 +74,16 @@ class FFMCell(RNNCellBase):
         x = jax.lax.complex(x, jnp.zeros_like(x))
         x = jnp.concatenate([carry, x], axis=0)
 
-        done = jnp.concatenate([jnp.array([False]), done], axis=0)
-        done = done.reshape(done.shape[0], 1, 1)
+        mask = jnp.concatenate([jnp.array([False]), mask], axis=0)
+        mask = mask.reshape(mask.shape[0], 1, 1)
 
         carry, *_ = jax.lax.associative_scan(
-            partial(self._associative_update, a, b),
-            (x, timestep, done),
+            partial(self._associative_update, self.a, self.b),
+            (x, timestep, mask),
             axis=0,
         )
 
         return carry[1:]
-
 
     def _associative_update(self, a, b, lhs, rhs):
         carry, i, done = lhs
@@ -98,44 +94,7 @@ class FFMCell(RNNCellBase):
 
     @compact
     def __call__(
-        self, carry: Array, inputs: Array
-    ) -> tuple[Array, Array]:
-
-        # Add time dimension
-        inputs = inputs[:, None, ...]
-        B, T, *_ = inputs.shape
-        dones = jnp.zeros((B, T), dtype=jnp.bool_)
-
-        dense = partial(
-            Dense,
-            use_bias=True,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-        ln = LayerNorm(use_scale=False, use_bias=False, name="ln")
-
-        gate_in = sigmoid(dense(features=self.memory_size, name="gate_in")(inputs))
-
-        gated_x = dense(features=self.memory_size, name="pre")(inputs) * gate_in
-
-        carry = jax.vmap(self._aggregate, in_axes=(0, 0, 0))(gated_x, carry, dones)
-
-        z_in = jnp.concatenate([jnp.real(carry), jnp.imag(carry)], axis=-1)
-        z_in = z_in.reshape((*z_in.shape[:-2], -1))
-
-        z = dense(features=self.features, name="mix")(z_in)
-
-        gate_out = sigmoid(dense(features=self.features, name="gate_out")(inputs))
-        skip = dense(features=self.features, name="skip")(inputs)
-        y = ln(z * gate_out) + skip * (1.0 - gate_out)
-
-        return carry, y.squeeze(1)
-
-    @compact
-    def apply_parallel(
-        self, carry: Array, inputs: Array, dones: Array
+        self, inputs: Array, mask: Array, initial_carry: Array
     ) -> tuple[Array, Array]:
         dense = partial(
             Dense,
@@ -151,7 +110,9 @@ class FFMCell(RNNCellBase):
 
         gated_x = dense(features=self.memory_size, name="pre")(inputs) * gate_in
 
-        carry = jax.vmap(self._aggregate, in_axes=(0, 0, 0))(gated_x, carry, dones)
+        carry = jax.vmap(self._aggregate, in_axes=(0, 0, 0))(
+            gated_x, initial_carry, mask
+        )
 
         z_in = jnp.concatenate([jnp.real(carry), jnp.imag(carry)], axis=-1)
         z_in = z_in.reshape((*z_in.shape[:-2], -1))

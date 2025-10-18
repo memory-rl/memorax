@@ -27,12 +27,20 @@ def dqn_components():
         head=head,
     )
 
-    buffer = fbx.make_flat_buffer(
+    # buffer = fbx.make_flat_buffer(
+    #     max_length=64,
+    #     min_length=4,
+    #     sample_batch_size=4,
+    #     add_sequences=False,
+    #     add_batch_size=2,
+    # )
+    buffer = fbx.make_prioritised_flat_buffer(
         max_length=64,
         min_length=4,
         sample_batch_size=4,
         add_sequences=False,
         add_batch_size=2,
+        priority_exponent=0.5,
     )
 
     cfg = DQNConfig(

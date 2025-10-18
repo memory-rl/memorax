@@ -14,26 +14,28 @@ A unified reinforcement learning framework featuring memory-augmented algorithms
 
 1. **Clone the repository**:
 
-   ```bash
-   git clone https://github.com/memory-rl/memory-rl.git
-   cd memory-rl
-   ```
+```bash
+git clone https://github.com/memory-rl/memory-rl.git
+cd memory-rl
+```
 
 2. **Install Python dependencies**:
 
-   ```bash
-   uv sync
-   ```
+```bash
+uv sync
+```
+
 Optionally you can add support for CUDA with
-   ```bash
-   uv sync --extra cuda
-   ```
+
+```bash
+uv sync --extra cuda
+```
 
 3. **Optional**: Set up Weights & Biases for logging by logging in:
 
-   ```bash
-   wandb login
-   ```
+```bash
+wandb login
+```
 
 ## Quick Start
 

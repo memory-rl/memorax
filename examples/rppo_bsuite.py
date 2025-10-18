@@ -12,6 +12,7 @@ from memory_rl.networks import (
     heads,
     SharedFeatureExtractor,
     S5,
+    RNN,
     SHMCell,
     FFM,
     GPT2,
@@ -25,7 +26,7 @@ num_eval_steps = 5_000
 # env, env_params = environment.make("gymnax::CartPole-v1")
 env, env_params = environment.make("gymnax::MemoryChain-bsuite")
 
-memory_length = 127
+memory_length = 32
 env_params = env_params.replace(
     memory_length=memory_length, max_steps_in_episode=memory_length + 1
 )
@@ -59,35 +60,35 @@ actor_network = SequenceNetwork(
     #     num_heads=4,
     #     context_length=128,
     # ),
-    torso=GTrXL(
-        features=128, num_layers=4, num_heads=4, context_length=64, memory_length=64
-    ),
+    # torso=GTrXL(
+    #     features=128, num_layers=4, num_heads=4, context_length=64, memory_length=64
+    # ),
     # torso=S5(features=128, state_size=32, num_layers=4),
     # torso=FFM(features=128, memory_size=32, context_size=16),
-    # torso=RNN(cell=nn.GRUCell(features=128)),
+    torso=RNN(cell=nn.GRUCell(features=128)),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
 )
 actor_optimizer = optax.chain(
     optax.clip_by_global_norm(cfg.max_grad_norm),
-    # optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
-    optax.contrib.muon(learning_rate=cfg.learning_rate),
+    optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
+    # optax.contrib.muon(learning_rate=cfg.learning_rate),
 )
 
 critic_network = SequenceNetwork(
     feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
-    torso=GPT2(
-        features=128,
-        num_layers=4,
-        num_heads=4,
-        context_length=128,
-    ),
+    # torso=GPT2(
+    #     features=128,
+    #     num_layers=4,
+    #     num_heads=4,
+    #     context_length=128,
+    # ),
     # torso=GTrXL(
     #     features=128, num_layers=4, num_heads=4, context_length=64, memory_length=64
     # ),
     # torso=FFM(features=128, memory_size=32, context_size=16),
-    # torso=RNN(cell=nn.GRUCell(features=128)),
+    torso=RNN(cell=nn.GRUCell(features=128)),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(

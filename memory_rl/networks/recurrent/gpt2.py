@@ -65,18 +65,14 @@ class MultiHeadAttentionBlock(nn.Module):
         key = jnp.concatenate([kv_cache.key, key], axis=1)[:, -self.context_length :]
 
         value = projection(name="value")(x)
-        value = jnp.concatenate([kv_cache.value, value], axis=1)[
-            :, -self.context_length :
-        ]
+        value = jnp.concatenate([kv_cache.value, value], axis=1)
 
         query_input = (
             jnp.cumsum(mask.astype(jnp.int32), axis=1)
             + jnp.max(jnp.cumsum(kv_cache.mask, axis=1), axis=1)[..., None]
         )
 
-        key_mask = jnp.concatenate([kv_cache.mask, mask], axis=1, dtype=jnp.int32)[
-            :, -self.context_length :
-        ]
+        key_mask = jnp.concatenate([kv_cache.mask, mask], axis=1, dtype=jnp.int32)
         key_input = jnp.cumsum(key_mask, axis=1)
 
         attention_mask = nn.make_attention_mask(
@@ -86,9 +82,7 @@ class MultiHeadAttentionBlock(nn.Module):
         query_input = jnp.arange(T) + self.context_length
         query_input = jnp.broadcast_to(query_input, (B, T))
         key_input = jnp.arange(self.context_length + T)
-        key_input = jnp.broadcast_to(key_input, (B, self.context_length + T))[
-            :, -self.context_length :
-        ]
+        key_input = jnp.broadcast_to(key_input, (B, self.context_length + T))
         causal_mask = nn.make_attention_mask(
             query_input, key_input, pairwise_fn=jnp.greater_equal
         )
@@ -120,9 +114,12 @@ class MultiHeadAttentionBlock(nn.Module):
         y = nn.Dropout(rate=self.dropout)(y, deterministic=not self.has_rng("dropout"))
 
         _, next_position = _get_positions(mask, start=kv_cache.position)
+        mask = mask[:, -self.context_length :]
+        key = key[:, -self.context_length :]
+        value = value[:, -self.context_length :]
 
         kv_cache = kv_cache.replace(
-            position=next_position, mask=key_mask, key=key, value=value
+            position=next_position, mask=mask, key=key, value=value
         )
 
         return y, kv_cache

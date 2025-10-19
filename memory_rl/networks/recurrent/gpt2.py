@@ -200,11 +200,11 @@ class GPT2Block(nn.Module):
 class GPT2(nn.Module):
 
     features: int
+    num_embeddings: int
     num_layers: int = 12
     num_heads: int = 12
     hidden_dim: Optional[int] = None
     context_length: int = 1024
-    num_embeddings: Optional[int] = None
     dropout: float = 0.0
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
@@ -235,7 +235,7 @@ class GPT2(nn.Module):
 
     def _add_positional_embedding(self, inputs, mask, carry: Carry):
         wpe = nn.Embed(
-            num_embeddings=self.num_embeddings or self.context_length,
+            num_embeddings=self.num_embeddings,
             features=self.features,
             embedding_init=self.kernel_init,
             dtype=self.dtype,

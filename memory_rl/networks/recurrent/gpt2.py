@@ -62,7 +62,7 @@ class MultiHeadAttentionBlock(nn.Module):
         query = projection(name="query")(x)
 
         key = projection(name="key")(x)
-        key = jnp.concatenate([kv_cache.key, key], axis=1)[:, -self.context_length :]
+        key = jnp.concatenate([kv_cache.key, key], axis=1)
 
         value = projection(name="value")(x)
         value = jnp.concatenate([kv_cache.value, value], axis=1)
@@ -114,7 +114,7 @@ class MultiHeadAttentionBlock(nn.Module):
         y = nn.Dropout(rate=self.dropout)(y, deterministic=not self.has_rng("dropout"))
 
         _, next_position = _get_positions(mask, start=kv_cache.position)
-        mask = mask[:, -self.context_length :]
+        mask = key_mask[:, -self.context_length :]
         key = key[:, -self.context_length :]
         value = value[:, -self.context_length :]
 

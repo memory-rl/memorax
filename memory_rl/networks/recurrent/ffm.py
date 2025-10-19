@@ -4,8 +4,7 @@ import jax.numpy as jnp
 from flax.linen.module import compact, nowrap
 from flax.linen import initializers
 import flax.linen as nn
-from flax.linen.linear import Dense, default_kernel_init
-from flax.linen.activation import sigmoid
+from flax.linen.linear import Dense
 from flax.linen.normalization import LayerNorm
 from flax.typing import Array, PRNGKey, Dtype, Initializer
 
@@ -16,11 +15,17 @@ class FFM(nn.Module):
     features: int
     memory_size: int
     context_size: int
+    num_steps: int
 
     min_period: int = 1
     max_period: int = 1024
 
-    kernel_init: Initializer = default_kernel_init
+    epsilon: float = 0.01
+    forgotten_at: float = 0.01
+
+    kernel_init: Initializer = nn.initializers.variance_scaling(
+        scale=2.0, mode="fan_in", distribution="uniform"
+    )
     bias_init: Initializer = initializers.zeros_init()
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
@@ -28,36 +33,36 @@ class FFM(nn.Module):
     def _complex_dtype_from(self, param_dtype):
         return jnp.complex64 if param_dtype == jnp.float32 else jnp.complex128
 
-    @nowrap
-    def initialize_carry(self, rng: PRNGKey, input: tuple[int, ...]) -> Array:
-        batch_dims = input[:-1]
-        mem_shape = batch_dims + (1,) + (self.memory_size, self.context_size)
-        return jnp.zeros(mem_shape, dtype=self._complex_dtype_from(self.param_dtype))
+    def setup(self) -> None:
+        dtype = self.dtype or jnp.float32
+        self.limit = jnp.log(jnp.finfo(dtype).max) / self.num_steps - self.epsilon
 
-    @property
-    def a(self):
-        return self.param(
+        low = -self.limit + self.epsilon
+        high = jnp.maximum(
+            jnp.minimum(-1e-6, jnp.log(self.forgotten_at) / self.max_period), low
+        )
+        self.a = self.param(
             "a",
-            lambda _: jnp.linspace(
-                -jnp.e, -1e-6, self.memory_size, dtype=self.param_dtype
-            ),
+            lambda _: jnp.linspace(low, high, self.memory_size, dtype=self.param_dtype),
         )
 
-    @property
-    def b(self):
-        return self.param(
+        self.b = self.param(
             "b",
             lambda _: (2 * jnp.pi)
             / jnp.linspace(
-                float(self.min_period),
-                float(self.max_period),
-                self.context_size,
+                self.min_period,
+                self.max_period,
+                self.context_size // 2,
                 dtype=self.param_dtype,
             ),
         )
 
     def _log_gamma(self, a, b, t):
-        a = jnp.clip(a[:, None], a_max=jnp.array(-1e-6, dtype=self.param_dtype))
+        a = jnp.clip(
+            a[:, None],
+            a_min=jnp.array(-self.limit, dtype=self.param_dtype),
+            a_max=jnp.array(-1e-8, dtype=self.param_dtype),
+        )
         b = b[None, :]
         ab = jax.lax.complex(a, b)
         return ab * t.reshape(t.shape[0], 1, 1)
@@ -67,15 +72,18 @@ class FFM(nn.Module):
 
     def _aggregate(self, x, carry, mask):
 
-        timestep = jnp.arange(-1, x.shape[0], dtype=jnp.float32)
+        timestep = jnp.arange(-1, x.shape[0], dtype=self.param_dtype)
         timestep = jax.lax.complex(timestep, jnp.zeros_like(timestep))
 
-        x = jnp.repeat(x.reshape(*x.shape, 1), self.context_size, axis=-1)
+        x = jnp.repeat(x.reshape(*x.shape, 1), self.context_size // 2, axis=-1)
         x = jax.lax.complex(x, jnp.zeros_like(x))
         x = jnp.concatenate([carry, x], axis=0)
 
-        mask = jnp.concatenate([jnp.array([False]), mask], axis=0)
-        mask = mask.reshape(mask.shape[0], 1, 1)
+        mask = jnp.concatenate(
+            [jnp.array([0]), jnp.cumsum(mask)],
+            axis=0,
+            dtype=jnp.int32,
+        )
 
         carry, *_ = jax.lax.associative_scan(
             partial(self._associative_update, self.a, self.b),
@@ -86,11 +94,24 @@ class FFM(nn.Module):
         return carry[1:]
 
     def _associative_update(self, a, b, lhs, rhs):
-        carry, i, done = lhs
-        x, j, done = rhs
-        carry = carry * self._gamma(a, b, j - i) * jnp.logical_not(done) + x
-        i = j
-        return carry, i, done
+        carry, i, id_lhs = lhs
+        x, j, id_rhs = rhs
+        done = id_rhs > id_lhs
+        done = done[..., None, None]
+        carry = carry * self._gamma(a, b, j - i) + x
+        carry = jnp.where(done, x, carry)
+        return carry, j, id_rhs
+
+    @nowrap
+    def initialize_carry(self, rng: PRNGKey, input_shape: tuple[int, ...]) -> Array:
+        batch_size, *_ = input_shape
+        mem_shape = (
+            batch_size,
+            1,
+            self.memory_size,
+            self.context_size // 2,
+        )
+        return jnp.zeros(mem_shape, dtype=self._complex_dtype_from(self.param_dtype))
 
     @compact
     def __call__(
@@ -106,21 +127,26 @@ class FFM(nn.Module):
         )
         ln = LayerNorm(use_scale=False, use_bias=False, name="ln")
 
-        gate_in = sigmoid(dense(features=self.memory_size, name="gate_in")(inputs))
-
-        gated_x = dense(features=self.memory_size, name="pre")(inputs) * gate_in
-
-        carry = jax.vmap(self._aggregate, in_axes=(0, 0, 0))(
-            gated_x, initial_carry, mask
+        pre = dense(features=2 * self.memory_size + 2 * self.features, name="pre")(
+            inputs
         )
+
+        y, skip, gate = jnp.split(
+            pre,
+            [self.memory_size, self.memory_size + self.features],
+            axis=-1,
+        )
+
+        in_gate, out_gate = jnp.split(nn.sigmoid(gate), [self.memory_size], axis=-1)
+
+        y = y * in_gate
+
+        carry = jax.vmap(self._aggregate, in_axes=(0, 0, 0))(y, initial_carry, mask)
 
         z_in = jnp.concatenate([jnp.real(carry), jnp.imag(carry)], axis=-1)
         z_in = z_in.reshape((*z_in.shape[:-2], -1))
-
         z = dense(features=self.features, name="mix")(z_in)
 
-        gate_out = sigmoid(dense(features=self.features, name="gate_out")(inputs))
-        skip = dense(features=self.features, name="skip")(inputs)
-        y = ln(z * gate_out) + skip * (1.0 - gate_out)
+        y = ln(z) * out_gate + skip * (1.0 - out_gate)
 
         return carry, y

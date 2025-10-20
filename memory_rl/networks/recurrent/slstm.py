@@ -10,6 +10,7 @@ import jax
 from jax import numpy as jnp
 from jax import random
 
+import flax.linen as nn
 from flax.linen import initializers, LayerNorm, GroupNorm
 from flax.linen.activation import sigmoid, tanh
 from flax.linen.dtypes import promote_dtype
@@ -29,93 +30,12 @@ CarryHistory = Any
 Output = Any
 
 
-class sLSTMCell(RNNCellBase):
-    r"""sLSTM cell from xLSTM (Beck et al., 2024)."""
-
-    features: int
-    activation_fn: Callable[..., Any] = tanh
-    forget_activation: str = "exp"  # 'exp' or 'sigmoid'
-    eps: float = 1e-6
-
-    kernel_init: Initializer = default_kernel_init
-    recurrent_kernel_init: Initializer = initializers.orthogonal()
-    bias_init: Initializer = initializers.zeros_init()
-    dtype: Dtype | None = None
-    param_dtype: Dtype = jnp.float32
-    carry_init: Initializer = initializers.zeros_init()
-
-    def _log_forget(self, f_raw: Array) -> Array:
-        if self.forget_activation == "exp":
-            # log(exp(f_raw)) = f_raw
-            return f_raw
-        elif self.forget_activation == "sigmoid":
-            # log(sigmoid(x)) = -softplus(-x)
-            return -jax.nn.softplus(-f_raw)
-        else:
-            raise ValueError("forget_activation must be 'exp' or 'sigmoid'.")
-
-    @compact
-    def __call__(
-        self, carry: tuple[Array, Array, Array, Array], inputs: Array
-    ) -> tuple[tuple[Array, Array, Array, Array], Array]:
-        c, n, h, m = carry
-        hidden_features = h.shape[-1]
-
-        dense_h = partial(
-            Dense,
-            features=hidden_features,
-            use_bias=True,
-            kernel_init=self.recurrent_kernel_init,
-            bias_init=self.bias_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-        dense_i = partial(
-            Dense,
-            features=hidden_features,
-            use_bias=False,
-            kernel_init=self.kernel_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-
-        z_tilde = dense_i(name="iz")(inputs) + dense_h(name="hz")(h)
-        i_tilde = dense_i(name="ii")(inputs) + dense_h(name="hi")(h)
-        f_tilde = dense_i(name="if")(inputs) + dense_h(name="hf")(h)
-        o_tilde = dense_i(name="io")(inputs) + dense_h(name="ho")(h)
-
-        z = self.activation_fn(z_tilde)
-        o = sigmoid(o_tilde)
-
-        log_f = self._log_forget(f_tilde)
-        m_new = jnp.maximum(log_f + m, i_tilde)
-        i_prime = jnp.exp(i_tilde - m_new)
-        f_prime = jnp.exp(log_f + m - m_new)
-
-        c_new = f_prime * c + i_prime * z
-        n_new = f_prime * n + i_prime
-
-        h_tilde = c_new / jnp.maximum(n_new, self.eps)
-        h_new = o * h_tilde
-
-        return (c_new, n_new, h_new, m_new), h_new
-
-    @nowrap
-    def initialize_carry(
-        self, rng: PRNGKey, input_shape: tuple[int, ...]
-    ) -> tuple[Array, Array, Array, Array]:
-        batch_dims = input_shape[:-1]
-        key_c, key_n, key_h, key_m = random.split(rng, 4)
-        mem_shape = batch_dims + (self.features,)
-        c = self.carry_init(key_c, mem_shape, self.param_dtype)
-        n = self.carry_init(key_n, mem_shape, self.param_dtype)
-        h = self.carry_init(key_h, mem_shape, self.param_dtype)
-        m = self.carry_init(key_m, mem_shape, self.param_dtype)
-        return (c, n, h, m)
-
-    @property
-    def num_feature_axes(self) -> int:
-        return 1
+def f_bias_init(key, shape, dtype):
+    """Initializes a weight matrix with a power law distribution."""
+    num_heads, head_dim = shape
+    return jnp.broadcast_to(
+        jnp.linspace(3.0, 6.0, head_dim, dtype=dtype), (num_heads, head_dim)
+    )
 
 
 class BlockDiagonalDense(Module):
@@ -195,7 +115,7 @@ class GatedMLP(Module):
         return y
 
 
-class sLSTMBlock(RNNCellBase):
+class sLSTMCell(RNNCellBase):
     r"""sLSTM Block (post up-projection)"""
 
     features: int
@@ -205,13 +125,13 @@ class sLSTMBlock(RNNCellBase):
 
     activation_fn: Callable[..., Any] = tanh
     forget_activation: str = "exp"  # 'exp' or 'sigmoid'
-    stabilize: bool = True
     eps: float = 1e-6
     mlp_pf: float = 4.0 / 3.0
 
     kernel_init: Initializer = default_kernel_init
-    recurrent_kernel_init: Initializer = initializers.orthogonal()
+    recurrent_kernel_init: Initializer = initializers.zeros_init()
     bias_init: Initializer = initializers.zeros_init()
+    dropout_rate: float = 0.0
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
     carry_init: Initializer = initializers.zeros_init()
@@ -230,6 +150,7 @@ class sLSTMBlock(RNNCellBase):
         inputs: Array,
     ) -> tuple[tuple[Array, Array, Array, Array, Array], Array]:
         c, n, h, m, conv_buf = carry
+
         if self.features % self.num_heads != 0:
             raise ValueError(
                 f"features ({self.features}) must be divisible by num_heads ({self.num_heads})."
@@ -237,7 +158,7 @@ class sLSTMBlock(RNNCellBase):
 
         x_ln = LayerNorm(
             use_scale=True,
-            use_bias=True,
+            use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="pre_ln",
@@ -273,7 +194,6 @@ class sLSTMBlock(RNNCellBase):
             self.num_heads,
             use_bias=True,
             kernel_init=self.recurrent_kernel_init,
-            bias_init=self.bias_init,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
@@ -285,10 +205,10 @@ class sLSTMBlock(RNNCellBase):
             "o": linear_block_diagonal_dense(name="x_o"),
         }
         lin_h = {
-            "z": recurrent_block_diagonal_dense(name="h_z"),
-            "i": recurrent_block_diagonal_dense(name="h_i"),
-            "f": recurrent_block_diagonal_dense(name="h_f"),
-            "o": recurrent_block_diagonal_dense(name="h_o"),
+            "z": recurrent_block_diagonal_dense(name="h_z", bias_init=self.bias_init),
+            "i": recurrent_block_diagonal_dense(name="h_i", bias_init=self.bias_init),
+            "f": recurrent_block_diagonal_dense(name="h_f", bias_init=f_bias_init),
+            "o": recurrent_block_diagonal_dense(name="h_o", bias_init=self.bias_init),
         }
 
         z_tilde = lin_x["z"](x_ln) + lin_h["z"](h)
@@ -309,18 +229,22 @@ class sLSTMBlock(RNNCellBase):
         h_tilde = c_new / jnp.maximum(n_new, self.eps)
         h_new = o * h_tilde
 
+        h_dropout = nn.Dropout(
+            rate=self.dropout_rate, deterministic=not self.has_rng("dropout")
+        )(h_new)
+
         h_norm = GroupNorm(
             num_groups=self.num_heads,
-            use_bias=True,
             use_scale=True,
+            use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="head_group_norm",
-        )(h_new)
+        )(h_dropout)
         h = h_norm + inputs
         h_ln = LayerNorm(
             use_scale=True,
-            use_bias=True,
+            use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="post_ln",
@@ -340,6 +264,29 @@ class sLSTMBlock(RNNCellBase):
 
         new_carry = (c_new, n_new, h_new, m_new, new_conv_buf)
         return new_carry, y
+
+    @staticmethod
+    @nowrap
+    def _initialize_carry(
+        rng: PRNGKey,
+        input_shape: tuple[int, ...],
+        *,
+        features,
+        carry_init=initializers.zeros_init(),
+        param_dtype=jnp.float32,
+        conv_kernel_size=4,
+    ) -> tuple[Array, Array, Array, Array, Array]:
+        """To be called by xLSTMCell"""
+        batch_dims = input_shape[:-1]
+        key_c, key_n, key_h, key_m, key_conv_buf = random.split(rng, 5)
+        mem_shape = batch_dims + (features,)
+        c = carry_init(key_c, mem_shape, param_dtype)
+        n = carry_init(key_n, mem_shape, param_dtype)
+        h = carry_init(key_h, mem_shape, param_dtype)
+        m = carry_init(key_m, mem_shape, param_dtype)
+        buf_shape = batch_dims + (max(conv_kernel_size - 1, 0), features)
+        convbuf = carry_init(key_conv_buf, buf_shape, param_dtype)
+        return (c, n, h, m, convbuf)
 
     @nowrap
     def initialize_carry(

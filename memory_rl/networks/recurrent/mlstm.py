@@ -10,6 +10,7 @@ import jax
 from jax import numpy as jnp
 from jax import random
 
+import flax.linen as nn
 from flax.linen import initializers, LayerNorm, GroupNorm
 from flax.linen.activation import sigmoid
 from flax.linen.linear import Dense, default_kernel_init
@@ -29,112 +30,31 @@ CarryHistory = Any
 Output = Any
 
 
-class mLSTMCell(RNNCellBase):
-    r"""mLSTM cell from xLSTM (Beck et al., 2024)."""
+def f_bias_init(key, shape, dtype):
+    """Initializes a weight matrix with a power law distribution."""
+    num_heads, *_ = shape
+    return jnp.linspace(3.0, 6.0, num_heads, dtype=dtype)
 
-    features: int
-    num_heads: int = 1
-    forget_activation: str = "exp"  # 'exp' or 'sigmoid'
-    kernel_init: Initializer = default_kernel_init
-    bias_init: Initializer = initializers.zeros_init()
-    dtype: Dtype | None = None
-    param_dtype: Dtype = jnp.float32
-    carry_init: Initializer = initializers.zeros_init()
 
-    def _log_forget(self, f_raw: Array) -> Array:
-        if self.forget_activation == "exp":
-            # log(exp(f_raw)) = f_raw
-            return f_raw
-        elif self.forget_activation == "sigmoid":
-            # log(sigmoid(x)) = -softplus(-x)
-            return -jax.nn.softplus(-f_raw)
-        else:
-            raise ValueError("forget_activation must be 'exp' or 'sigmoid'.")
+def small_init(embedding_dim: int):
+    def init(key, shape, dtype):
+        std = 1.0 / jnp.sqrt(embedding_dim)
+        return jax.random.normal(key, shape, dtype) * std
 
-    @compact
-    def __call__(self, carry, inputs):
-        (C, n, h, m) = carry
-        batch_dims = inputs.shape[:-1]
+    return init
 
-        head_dim = self.features // self.num_heads
 
-        dense_vec = partial(
-            Dense,
-            use_bias=True,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
+def wang_init(embedding_dim: int, num_blocks: int):
+    def init(key, shape, dtype):
+        base = jnp.sqrt(2.0) / jnp.sqrt(embedding_dim)
+        std = base / jnp.sqrt(max(1, num_blocks))
+        return jax.random.normal(key, shape, dtype) * std
 
-        q = dense_vec(name="Wq", features=self.features)(inputs)
-        k = dense_vec(name="Wk", features=self.features)(inputs)
-        v = dense_vec(name="Wv", features=self.features)(inputs)
-        o_tilde = dense_vec(name="Wo", features=self.features)(inputs)
-
-        def to_heads(x):
-            return x.reshape(x.shape[:-1] + (self.num_heads, head_dim))
-
-        q = to_heads(q)
-        k = to_heads(k) / jnp.sqrt(jnp.array(head_dim, dtype=self.param_dtype))
-        v = to_heads(v)
-        o = sigmoid(to_heads(o_tilde))
-
-        gate_dense = partial(
-            Dense,
-            features=self.num_heads,
-            use_bias=True,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
-        i_tilde = gate_dense(name="wi")(inputs)
-        f_tilde = gate_dense(name="wf")(inputs)
-
-        log_f = self._log_forget(f_tilde)
-
-        m_new = jnp.maximum(log_f + m, i_tilde)
-        i_prime = jnp.exp(i_tilde - m_new)
-        f_prime = jnp.exp(log_f + m - m_new)
-
-        C_new = f_prime[..., None, None] * C + i_prime[..., None, None] * (
-            v[..., :, None] * k[..., None, :]
-        )
-        n_new = f_prime[..., None] * n + i_prime[..., None] * k
-
-        denom = jnp.maximum(jnp.abs(jnp.sum(n_new * q, axis=-1)), jnp.asarray(1.0))
-        h_tilde = jnp.matmul(C_new, q[..., :, None])[..., :, 0] / denom[..., None]
-
-        h_new = o * h_tilde
-        h_new = h_new.reshape(batch_dims + (self.features,))
-
-        return (C_new, n_new, h_new, m_new), h_new
-
-    @nowrap
-    def initialize_carry(self, rng: PRNGKey, input_shape: tuple[int, ...]):
-        batch_dims = input_shape[:-1]
-        head_dim = self.features // self.num_heads
-
-        key_C, key_n, key_h, key_m = random.split(rng, 4)
-        C = self.carry_init(
-            key_C, batch_dims + (self.num_heads, head_dim, head_dim), self.param_dtype
-        )
-        n = self.carry_init(
-            key_n, batch_dims + (self.num_heads, head_dim), self.param_dtype
-        )
-        m = self.carry_init(key_m, batch_dims + (self.num_heads,), self.param_dtype)
-        h = self.carry_init(key_h, batch_dims + (self.features,), self.param_dtype)
-        return (C, n, h, m)
-
-    @property
-    def num_feature_axes(self) -> int:
-        return 1
+    return init
 
 
 class BlockDiagonalDense(Module):
 
-    num_heads: int
     block_size: int = 4
     use_bias: bool = True
     kernel_init: Initializer = default_kernel_init
@@ -145,11 +65,8 @@ class BlockDiagonalDense(Module):
     @compact
     def __call__(self, x: Array) -> Array:
         *batch, features = x.shape
-        if features % self.num_heads != 0:
-            raise ValueError(
-                f"features ({features}) must be divisible by num_heads ({self.num_heads})."
-            )
-        head_dim = features // self.num_heads
+        num_heads = features // self.block_size
+        head_dim = features // num_heads
 
         if head_dim % self.block_size != 0:
             raise ValueError(
@@ -157,19 +74,19 @@ class BlockDiagonalDense(Module):
             )
         block_dim = head_dim // self.block_size
 
-        x = x.reshape(*batch, self.num_heads, block_dim, self.block_size)
+        x = x.reshape(*batch, num_heads, block_dim, self.block_size)
 
         k = self.param(
             "kernel",
             self.kernel_init,
-            (self.num_heads, block_dim, self.block_size, self.block_size),
+            (num_heads, block_dim, self.block_size, self.block_size),
             self.param_dtype,
         )
         b = (
             self.param(
                 "bias",
                 self.bias_init,
-                (self.num_heads, block_dim, self.block_size),
+                (num_heads, block_dim, self.block_size),
                 self.param_dtype,
             )
             if self.use_bias
@@ -183,16 +100,18 @@ class BlockDiagonalDense(Module):
         return yh.reshape(*batch, features)
 
 
-class mLSTMBlock(RNNCellBase):
+class mLSTMCell(RNNCellBase):
 
     features: int
     num_heads: int = 4
     up_proj_factor: int = 2
     conv_kernel_size: int = 4
-    forget_activation: str = "exp"
+    forget_activation: str = "sigmoid"
+    num_blocks: int = 1
 
     kernel_init: Initializer = default_kernel_init
     bias_init: Initializer = initializers.zeros_init()
+    dropout_rate: float = 0.0
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
     carry_init: Initializer = initializers.zeros_init()
@@ -217,23 +136,22 @@ class mLSTMBlock(RNNCellBase):
 
         x_ln = LayerNorm(
             use_scale=True,
-            use_bias=True,
+            use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="pre_ln",
         )(inputs)
 
-        dense_up = partial(
-            Dense,
-            features=up_features,
-            use_bias=True,
-            kernel_init=self.kernel_init,
+        up = Dense(
+            features=2 * up_features,
+            use_bias=False,
+            kernel_init=small_init(self.features),
             bias_init=self.bias_init,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-        )
-        up_gate = dense_up(name="up_gate")(x_ln)
-        up_core = dense_up(name="up_core")(x_ln)
+            name="up_proj",
+        )(x_ln)
+        up_gate, up_core = jnp.split(up, 2, axis=-1)
 
         k_x = self.param(
             "conv_kernel",
@@ -251,10 +169,8 @@ class mLSTMBlock(RNNCellBase):
 
         linear_block_diagonal_dense = partial(
             BlockDiagonalDense,
-            num_heads=self.num_heads,
             use_bias=False,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
+            kernel_init=small_init(self.features),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
@@ -262,6 +178,8 @@ class mLSTMBlock(RNNCellBase):
         q = linear_block_diagonal_dense(name="q")(conv_x)
         k = linear_block_diagonal_dense(name="k")(conv_x)
         v = linear_block_diagonal_dense(name="v")(up_core)
+
+        qkv = jnp.concatenate([q, k, v], axis=-1)
 
         def to_heads(x):
             return x.reshape(x.shape[:-1] + (self.num_heads, head_dim))
@@ -274,13 +192,12 @@ class mLSTMBlock(RNNCellBase):
             Dense,
             features=self.num_heads,
             use_bias=True,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
+            kernel_init=initializers.zeros_init(),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
-        i_tilde = gate_dense(name="wi")(conv_x)
-        f_tilde = gate_dense(name="wf")(conv_x)
+        i_tilde = gate_dense(name="wi", bias_init=initializers.normal(stddev=0.1))(qkv)
+        f_tilde = gate_dense(name="wf", bias_init=f_bias_init)(qkv)
 
         log_f = self._log_forget(f_tilde)
 
@@ -293,43 +210,76 @@ class mLSTMBlock(RNNCellBase):
         )
         n_new = f_prime[..., None] * n + i_prime[..., None] * k
 
-        denom = jnp.maximum(jnp.abs(jnp.sum(n_new * q, axis=-1)), jnp.asarray(1.0))
+        denom = (
+            jnp.maximum(jnp.abs(jnp.sum(n_new * q, axis=-1)), jnp.exp(-m_new)) + 1e-6
+        )
         h_tilde = jnp.matmul(C_new, q[..., :, None])[..., :, 0] / denom[..., None]
         h_tilde = h_tilde.reshape(batch_dims + (up_features,))
 
         h_norm = GroupNorm(
             num_groups=self.num_heads,
-            use_bias=True,
             use_scale=True,
+            use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="head_group_norm",
         )(h_tilde)
 
-        lskip = Dense(
-            features=up_features,
-            use_bias=True,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="lskip",
-        )(conv_x)
-        h = h_norm + lskip
-        h = jax.nn.swish(up_gate) * h
+        lskip = self.param(
+            "lskip",
+            initializers.ones_init(),
+            (up_features,),
+            self.param_dtype,
+        )
+        h = h_norm + (lskip * conv_x)
+        h = h * jax.nn.silu(up_gate)
 
         out = Dense(
             features=self.features,
-            use_bias=True,
-            kernel_init=self.kernel_init,
+            use_bias=False,
+            kernel_init=wang_init(self.features, self.num_blocks),
             bias_init=self.bias_init,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="down_proj",
         )(h)
 
+        out = nn.Dropout(
+            rate=self.dropout_rate, deterministic=not self.has_rng("dropout")
+        )(out)
+
         y = out + inputs
         return (C_new, n_new, m_new, conv_buf_new), y
+
+    @staticmethod
+    @nowrap
+    def _initialize_carry(
+        rng: PRNGKey,
+        input_shape: tuple[int, ...],
+        *,
+        features,
+        carry_init=initializers.zeros_init(),
+        up_proj_factor=2,
+        num_heads=4,
+        conv_kernel_size=4,
+        param_dtype=jnp.float32,
+    ) -> tuple[Array, Array, Array, Array]:
+        """To be called by xLSTMCell"""
+        batch_dims = input_shape[:-1]
+        up_features = features * up_proj_factor
+        head_dim = up_features // num_heads
+        key_c, key_n, key_m, key_conv_buf = random.split(rng, 4)
+        C = carry_init(
+            key_c, (batch_dims + (num_heads, head_dim, head_dim)), param_dtype
+        )
+        n = carry_init(key_n, (batch_dims + (num_heads, head_dim)), param_dtype)
+        m = carry_init(key_m, (batch_dims + (num_heads,)), param_dtype)
+        conv_buf = carry_init(
+            key_conv_buf,
+            batch_dims + (up_features, max(conv_kernel_size - 1, 0)),
+            param_dtype,
+        )
+        return (C, n, m, conv_buf)
 
     @nowrap
     def initialize_carry(

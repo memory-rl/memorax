@@ -8,9 +8,10 @@ import jax
 from jax import numpy as jnp
 from jax import random
 
+import flax.linen as nn
 from flax.linen import LayerNorm, initializers
 from flax.linen.activation import sigmoid
-from flax.linen.linear import Dense
+from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.module import compact, nowrap
 from flax.typing import (
     Array,
@@ -20,6 +21,8 @@ from flax.typing import (
 )
 from flax.linen.recurrent import RNNCellBase
 
+from memory_rl.networks.recurrent.utils import kaiming_uniform, xavier_uniform
+
 A = TypeVar("A")
 Carry = Any
 CarryHistory = Any
@@ -27,20 +30,16 @@ Output = Any
 
 
 class SHMCell(RNNCellBase):
-    r"""Stable Hadamard Memory (SHM) cell."""
+    """Stable Hadamard Memory (SHM) cell."""
 
     features: int
-    output_features: int | None = None
+    output_features: int
     num_thetas: int = 128
     sample_theta: bool = True
 
-    kernel_init: Initializer = initializers.variance_scaling(
-        2.0, "fan_in", "uniform"
-    )  # Kaiming uniform
+    kernel_init: Initializer = default_kernel_init
     bias_init: Initializer = initializers.zeros_init()
-    theta_init: Initializer = initializers.variance_scaling(
-        1.0, "fan_avg", "uniform"
-    )  # Xavier uniform
+    theta_init: Initializer = xavier_uniform()
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
     carry_init: Initializer = initializers.zeros_init()
@@ -61,9 +60,9 @@ class SHMCell(RNNCellBase):
             epsilon=1e-5, dtype=self.dtype, param_dtype=self.param_dtype, name="ln"
         )(inputs)
 
-        v = dense(name="v", features=self.features)(inputs)
-        k = jax.nn.relu(dense(name="k", features=self.features)(inputs))
-        q = jax.nn.relu(dense(name="q", features=self.features)(inputs))
+        v = dense(name="value", features=self.features)(inputs)
+        k = jax.nn.relu(dense(name="key", features=self.features)(inputs))
+        q = jax.nn.relu(dense(name="query", features=self.features)(inputs))
         v_c = dense(name="vc", features=self.features)(inputs)
         eta = sigmoid(dense(name="eta", features=1)(inputs))
 
@@ -94,17 +93,9 @@ class SHMCell(RNNCellBase):
 
         h = jnp.einsum("...ij,...j->...i", carry, q)
 
-        if self.output_features is not None:
-            h = Dense(
-                features=self.output_features,
-                use_bias=True,
-                dtype=self.dtype,
-                kernel_init=self.kernel_init,
-                bias_init=self.bias_init,
-                name="out",
-            )(h)
+        y = nn.Dense(self.output_features, name="output")(h)
 
-        return carry, h
+        return carry, y
 
     @nowrap
     def initialize_carry(self, rng: PRNGKey, input_shape: tuple[int, ...]) -> Array:

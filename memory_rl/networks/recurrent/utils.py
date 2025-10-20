@@ -4,6 +4,8 @@ import jax.numpy as jnp
 from jax.nn.initializers import lecun_normal
 from jax.lib import xla_bridge
 
+from flax import linen as nn
+
 Implementation = Literal["xla", "cudnn"]
 
 
@@ -26,8 +28,10 @@ def get_attention_implementation() -> Implementation:
 
     return "xla"
 
+
 def add_time_axis(x: jax.Array):
     return x[:, None, ...]
+
 
 def get_time_axis_and_input_shape(inputs: jax.Array, num_feature_axes=1):
     time_axis = inputs.ndim - (num_feature_axes + 1)
@@ -51,6 +55,14 @@ def mask_carry(mask, carry, initial_carry):
         initial_carry,
         carry,
     )
+
+
+def kaiming_uniform():
+    return nn.initializers.variance_scaling(2.0, "fan_in", "uniform")
+
+
+def xavier_uniform():
+    return nn.initializers.variance_scaling(1.0, "fan_avg", "uniform")
 
 
 def make_hippo(n: int) -> jnp.ndarray:

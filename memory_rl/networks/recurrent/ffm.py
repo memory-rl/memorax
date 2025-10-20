@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from flax.linen.module import compact, nowrap
 from flax.linen import initializers
 import flax.linen as nn
-from flax.linen.linear import Dense
+from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.normalization import LayerNorm
 from flax.typing import Array, PRNGKey, Dtype, Initializer
 
@@ -21,11 +21,9 @@ class FFM(nn.Module):
     max_period: int = 1024
 
     epsilon: float = 0.01
-    forgotten_at: float = 0.01
+    beta: float = 0.01
 
-    kernel_init: Initializer = nn.initializers.variance_scaling(
-        scale=2.0, mode="fan_in", distribution="uniform"
-    )
+    kernel_init: Initializer = default_kernel_init
     bias_init: Initializer = initializers.zeros_init()
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
@@ -39,7 +37,7 @@ class FFM(nn.Module):
 
         low = -self.limit + self.epsilon
         high = jnp.maximum(
-            jnp.minimum(-1e-6, jnp.log(self.forgotten_at) / self.max_period), low
+            jnp.minimum(-1e-6, jnp.log(self.beta) / self.max_period), low
         )
         self.a = self.param(
             "a",

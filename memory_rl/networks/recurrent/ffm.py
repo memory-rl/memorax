@@ -15,7 +15,8 @@ class FFM(nn.Module):
     features: int
     memory_size: int
     context_size: int
-    num_steps: int
+
+    retention_horizon: int = 1024
 
     min_period: int = 1
     max_period: int = 1024
@@ -32,8 +33,9 @@ class FFM(nn.Module):
         return jnp.complex64 if param_dtype == jnp.float32 else jnp.complex128
 
     def setup(self) -> None:
-        dtype = self.dtype or jnp.float32
-        self.limit = jnp.log(jnp.finfo(dtype).max) / self.num_steps - self.epsilon
+        self.limit = (
+            jnp.log(jnp.finfo(self.param_dtype).max) / self.max_period - self.epsilon
+        )
 
         low = -self.limit + self.epsilon
         high = jnp.maximum(
@@ -50,20 +52,23 @@ class FFM(nn.Module):
             / jnp.linspace(
                 self.min_period,
                 self.max_period,
-                self.context_size // 2,
+                self.context_size,
                 dtype=self.param_dtype,
             ),
         )
 
     def _log_gamma(self, a, b, t):
         a = jnp.clip(
-            a[:, None],
+            a,
             a_min=jnp.array(-self.limit, dtype=self.param_dtype),
             a_max=jnp.array(-1e-8, dtype=self.param_dtype),
         )
-        b = b[None, :]
+        a = jnp.reshape(a, (1, self.memory_size, 1))
+        b = jnp.reshape(b, (1, 1, self.context_size))
         ab = jax.lax.complex(a, b)
-        return ab * t.reshape(t.shape[0], 1, 1)
+
+        T, *_ = t.shape
+        return ab * t.reshape(T, 1, 1)
 
     def _gamma(self, a, b, t):
         return jnp.exp(self._log_gamma(a, b, t))
@@ -73,7 +78,7 @@ class FFM(nn.Module):
         timestep = jnp.arange(-1, x.shape[0], dtype=self.param_dtype)
         timestep = jax.lax.complex(timestep, jnp.zeros_like(timestep))
 
-        x = jnp.repeat(x.reshape(*x.shape, 1), self.context_size // 2, axis=-1)
+        x = jnp.repeat(x.reshape(*x.shape, 1), self.context_size, axis=-1)
         x = jax.lax.complex(x, jnp.zeros_like(x))
         x = jnp.concatenate([carry, x], axis=0)
 
@@ -84,17 +89,17 @@ class FFM(nn.Module):
         )
 
         carry, *_ = jax.lax.associative_scan(
-            partial(self._associative_update, self.a, self.b),
+            partial(self._update, self.a, self.b),
             (x, timestep, mask),
             axis=0,
         )
 
         return carry[1:]
 
-    def _associative_update(self, a, b, lhs, rhs):
+    def _update(self, a, b, lhs, rhs):
         carry, i, id_lhs = lhs
         x, j, id_rhs = rhs
-        done = id_rhs > id_lhs
+        done = id_rhs != id_lhs
         done = done[..., None, None]
         carry = carry * self._gamma(a, b, j - i) + x
         carry = jnp.where(done, x, carry)
@@ -107,7 +112,7 @@ class FFM(nn.Module):
             batch_size,
             1,
             self.memory_size,
-            self.context_size // 2,
+            self.context_size,
         )
         return jnp.zeros(mem_shape, dtype=self._complex_dtype_from(self.param_dtype))
 
@@ -125,26 +130,23 @@ class FFM(nn.Module):
         )
         ln = LayerNorm(use_scale=False, use_bias=False, name="ln")
 
-        pre = dense(features=2 * self.memory_size + 2 * self.features, name="pre")(
-            inputs
+        pre = dense(features=self.memory_size, name="pre")(inputs)
+        input_gate = nn.sigmoid(
+            dense(features=self.memory_size, name="input_gate")(inputs)
         )
-
-        y, skip, gate = jnp.split(
-            pre,
-            [self.memory_size, self.memory_size + self.features],
-            axis=-1,
+        output_gate = nn.sigmoid(
+            dense(features=self.features, name="output_gate")(inputs)
         )
+        skip = dense(features=self.features, name="skip")(inputs)
 
-        in_gate, out_gate = jnp.split(nn.sigmoid(gate), [self.memory_size], axis=-1)
+        x = pre * input_gate
 
-        y = y * in_gate
-
-        carry = jax.vmap(self._aggregate, in_axes=(0, 0, 0))(y, initial_carry, mask)
+        carry = jax.vmap(self._aggregate, in_axes=(0, 0, 0))(x, initial_carry, mask)
 
         z_in = jnp.concatenate([jnp.real(carry), jnp.imag(carry)], axis=-1)
         z_in = z_in.reshape((*z_in.shape[:-2], -1))
         z = dense(features=self.features, name="mix")(z_in)
 
-        y = ln(z) * out_gate + skip * (1.0 - out_gate)
+        y = ln(z) * output_gate + skip * (1.0 - output_gate)
 
         return carry, y

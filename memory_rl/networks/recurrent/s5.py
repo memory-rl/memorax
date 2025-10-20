@@ -16,6 +16,7 @@ from .utils import (
     add_time_axis,
 )
 
+
 class S5Layer(nn.Module):
     features: int
     state_size: int
@@ -143,12 +144,15 @@ class S5Layer(nn.Module):
         mask = jnp.concatenate([jnp.zeros(1), mask])
         mask = add_time_axis(mask)
 
-        _, carry, _ = jax.lax.associative_scan(self._binary_operator_reset, (a, b_x, mask))
+        _, carry, _ = jax.lax.associative_scan(
+            self._binary_operator_reset, (a, b_x, mask)
+        )
         carry = carry[1:]
 
         ys = jax.vmap(lambda x: (c_tilde @ x).real)(carry)
         ys = ys + jax.vmap(lambda x: d * x)(x)
         return carry[jnp.newaxis, -1], ys
+
 
 class S5Block(nn.Module):
     features: int
@@ -173,20 +177,22 @@ class S5Block(nn.Module):
     ):
         skip = x
         x = nn.LayerNorm()(x)
-        carry, x = jax.vmap(S5Layer(
-            features=self.features,
-            state_size=self.state_size,
-            c_init=self.c_init,
-            discretization=self.discretization,
-            dt_min=self.dt_min,
-            dt_max=self.dt_max,
-            clip_eigens=self.clip_eigens,
-            step_rescale=self.step_rescale,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-        ))(x, mask, carry)
+        carry, x = jax.vmap(
+            S5Layer(
+                features=self.features,
+                state_size=self.state_size,
+                c_init=self.c_init,
+                discretization=self.discretization,
+                dt_min=self.dt_min,
+                dt_max=self.dt_max,
+                clip_eigens=self.clip_eigens,
+                step_rescale=self.step_rescale,
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                kernel_init=self.kernel_init,
+                bias_init=self.bias_init,
+            )
+        )(x, mask, carry)
         x = nn.LayerNorm()(x)
         x = nn.gelu(x)
         x = x + skip
@@ -201,7 +207,7 @@ class S5(nn.Module):
     discretization: str = "zoh"
     dt_min: float = 0.001
     dt_max: float = 0.1
-    clip_eigens: bool = False
+    clip_eigenvectors: bool = False
     step_rescale: float = 1.0
     dtype: Any = jnp.float32
     param_dtype: Any = jnp.float32
@@ -211,7 +217,14 @@ class S5(nn.Module):
     def initialize_carry(self, rng: jax.Array, input_shape: Tuple[int, ...]) -> tuple:
         batch_size, *_ = input_shape
 
-        initial_carry = jnp.zeros((batch_size, 1, self.state_size,), dtype=jnp.complex64)
+        initial_carry = jnp.zeros(
+            (
+                batch_size,
+                1,
+                self.state_size,
+            ),
+            dtype=jnp.complex64,
+        )
         return tuple(initial_carry for _ in range(self.num_layers))
 
     @nn.compact
@@ -233,7 +246,7 @@ class S5(nn.Module):
                 discretization=self.discretization,
                 dt_min=self.dt_min,
                 dt_max=self.dt_max,
-                clip_eigens=self.clip_eigens,
+                clip_eigens=self.clip_eigenvectors,
                 step_rescale=self.step_rescale,
                 dtype=self.dtype,
                 param_dtype=self.param_dtype,

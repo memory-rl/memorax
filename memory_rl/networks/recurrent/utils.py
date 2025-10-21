@@ -58,12 +58,45 @@ def mask_carry(mask, carry, initial_carry):
 
 
 def kaiming_uniform():
-    return nn.initializers.variance_scaling(2.0, "fan_in", "uniform")
+    return nn.initializers.variance_scaling(2.0 / (1 + 5), "fan_in", "uniform")
 
 
 def xavier_uniform():
     return nn.initializers.variance_scaling(1.0, "fan_avg", "uniform")
 
+def uniform(minval, maxval):
+    def init(key, shape, dtype):
+        return jax.random.uniform(key, shape, minval=minval, maxval=maxval, dtype=dtype)
+
+    return init
+
+class CausalConv1d(nn.Module):
+    features: int
+    kernel_size: int = 4
+    use_bias: bool = True
+    use_channel_mixing: bool = False
+    dtype: jnp.dtype = jnp.float32
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        if self.use_channel_mixing:
+            groups = 1
+        else:
+            groups = x.shape[-1]
+        padding = self.kernel_size - 1
+        fan_in = self.kernel_size * (x.shape[-1] // groups)
+        x = nn.Conv(
+            features=self.features,
+            kernel_size=(self.kernel_size,),
+            kernel_init=kaiming_uniform(),
+            bias_init=uniform(minval=-1.0 / jnp.sqrt(fan_in), maxval=1.0 / jnp.sqrt(fan_in)),
+            feature_group_count=groups,
+            padding=[(padding, 0)],
+            use_bias=self.use_bias,
+            dtype=self.dtype,
+            name="causal_conv_1d",
+        )(x)
+        return x
 
 def make_hippo(n: int) -> jnp.ndarray:
     p = jnp.sqrt(1.0 + 2.0 * jnp.arange(n))

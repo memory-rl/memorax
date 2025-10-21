@@ -24,6 +24,8 @@ from flax.typing import (
     Initializer,
 )
 
+from memory_rl.networks.recurrent.utils import CausalConv1d
+
 A = TypeVar("A")
 Carry = Any
 CarryHistory = Any
@@ -36,28 +38,26 @@ def f_bias_init(key, shape, dtype):
     return jnp.linspace(3.0, 6.0, num_heads, dtype=dtype)
 
 
-def small_init(embedding_dim: int):
+def small_init(dim):
     def init(key, shape, dtype):
-        std = 1.0 / jnp.sqrt(embedding_dim)
+        std = jnp.sqrt(2.0 / (5.0 * dim))
         return jax.random.normal(key, shape, dtype) * std
-
     return init
 
 
-def wang_init(embedding_dim: int, num_blocks: int):
+def wang_init(dim, num_blocks):
     def init(key, shape, dtype):
-        base = jnp.sqrt(2.0) / jnp.sqrt(embedding_dim)
-        std = base / jnp.sqrt(max(1, num_blocks))
+        std = 2.0 / (num_blocks * jnp.sqrt(dim))
         return jax.random.normal(key, shape, dtype) * std
-
     return init
 
 
 class BlockDiagonalDense(Module):
 
+    features: int
     block_size: int = 4
     use_bias: bool = True
-    kernel_init: Initializer = default_kernel_init
+    kernel_init: Initializer | None = None
     bias_init: Initializer = initializers.zeros_init()
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
@@ -74,30 +74,31 @@ class BlockDiagonalDense(Module):
             )
         block_dim = head_dim // self.block_size
 
-        x = x.reshape(*batch, num_heads, block_dim, self.block_size)
-
-        k = self.param(
+        kernel_init = self.kernel_init if self.kernel_init is not None else small_init(head_dim)
+        kernel = self.param(
             "kernel",
-            self.kernel_init,
-            (num_heads, block_dim, self.block_size, self.block_size),
+            kernel_init,
+            (num_heads, head_dim, head_dim),
             self.param_dtype,
         )
-        b = (
-            self.param(
-                "bias",
-                self.bias_init,
-                (num_heads, block_dim, self.block_size),
-                self.param_dtype,
+        x, kernel = promote_dtype(x, kernel, dtype=self.dtype)
+        x = x.reshape(*batch, num_heads, block_dim, head_dim)
+        x = jnp.einsum("...hd,hod->...ho", x, kernel)
+        x = x.reshape(*x.shape[:-2], -1)
+        if self.use_bias:
+            bias = (
+                self.param(
+                    "bias",
+                    self.bias_init,
+                    (self.features),
+                    self.param_dtype,
+                )
             )
-            if self.use_bias
-            else None
-        )
+            bias = promote_dtype(bias, dtype=self.dtype)
+            bias = jnp.broadcast_to(bias, x.shape)
+            x = x + bias
 
-        x, k, b = promote_dtype(x, k, b, dtype=self.dtype)
-        yh = jnp.einsum("...hbs,hbst->...hbt", x, k)
-        if b is not None:
-            yh = yh + b
-        return yh.reshape(*batch, features)
+        return x
 
 
 class mLSTMCell(RNNCellBase):
@@ -153,24 +154,25 @@ class mLSTMCell(RNNCellBase):
         )(x_ln)
         up_gate, up_core = jnp.split(up, 2, axis=-1)
 
-        k_x = self.param(
-            "conv_kernel",
-            self.kernel_init,
-            (up_features, self.conv_kernel_size),
-            self.param_dtype,
-        )
-
-        causal_window = jnp.concatenate([up_core[..., None], conv_buf], axis=-1)
-        conv_x = jnp.einsum("...fk,fk->...f", causal_window, k_x)
-        conv_x = jax.nn.silu(conv_x)
-        conv_buf_new = jnp.concatenate(
-            [up_core[..., None], conv_buf[..., :-1]], axis=-1
-        )
+        # k_x = self.param(
+        #     "conv_kernel",
+        #     self.kernel_init,
+        #     (up_features, self.conv_kernel_size),
+        #     self.param_dtype,
+        # )
+        #
+        # causal_window = jnp.concatenate([up_core[..., None], conv_buf], axis=-1)
+        # conv_x = jnp.einsum("...fk,fk->...f", causal_window, k_x)
+        # conv_x = jax.nn.silu(conv_x)
+        # conv_buf_new = jnp.concatenate(
+        #     [up_core[..., None], conv_buf[..., :-1]], axis=-1
+        # )
+        conv_x = CausalConv1d(features=up_features, kernel_size=self.conv_kernel_size, use_bias=False, use_channel_mixing=True)(up_core)
+        conv_x_act = jax.nn.silu(conv_x)
 
         linear_block_diagonal_dense = partial(
             BlockDiagonalDense,
-            use_bias=False,
-            kernel_init=small_init(self.features),
+            features=up_features,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )

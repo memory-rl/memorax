@@ -25,6 +25,8 @@ class Batch:
 
     obs: Array
     """Batch of obs with shape [batch_size, obs_dim]"""
+    prev_done: Array
+    """Batch of prev done flags with shape [batch_size]"""
     action: Array
     """Batch of actions with shape [batch_size, action_dim]"""
     reward: Array
@@ -141,6 +143,7 @@ class RSAC:
 
         transition = Transition(
             obs=state.obs,  # type: ignore
+            prev_done=state.done,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             next_obs=next_obs,  # type: ignore
@@ -207,6 +210,7 @@ class RSAC:
 
         transition = Transition(
             obs=obs,
+            prev_done=done,
             action=action,
             reward=reward,
             next_obs=obs,
@@ -264,17 +268,17 @@ class RSAC:
     @partial(jax.jit, static_argnames=["self"])
     def _update_actor(self, key, state: RSACState, batch: Batch):
         alpha = self.alpha_network.apply(state.alpha_params)
-        mask = jnp.ones_like(batch.done, dtype=bool)
+        mask = jnp.ones_like(batch.prev_done, dtype=bool)
         if self.cfg.mask:
-            episode_idx = jnp.cumsum(batch.done.astype(jnp.int32), axis=1)
-            terminal = (episode_idx == 1) & batch.done
+            episode_idx = jnp.cumsum(batch.prev_done.astype(jnp.int32), axis=1)
+            terminal = (episode_idx == 1) & batch.prev_done
             mask = (episode_idx == 0) | terminal
 
         def actor_loss_fn(actor_params):
-            _, dist = self.actor_network.apply(actor_params, batch.obs, batch.done)
+            _, dist = self.actor_network.apply(actor_params, batch.obs, batch.prev_done)
             actions, log_probs = dist.sample_and_log_prob(seed=key)
             _, (q1, q2) = self.critic_network.apply(
-                state.critic_params, batch.obs, batch.done, actions
+                state.critic_params, batch.obs, batch.prev_done, actions
             )
             q = jnp.minimum(q1, q2)
             actor_loss = (log_probs * alpha - q.squeeze(-1)).mean(where=mask)
@@ -316,15 +320,15 @@ class RSAC:
 
         target_q = jax.lax.stop_gradient(target_q)
 
-        mask = jnp.ones_like(batch.done, dtype=bool)
+        mask = jnp.ones_like(batch.prev_done, dtype=bool)
         if self.cfg.mask:
-            episode_idx = jnp.cumsum(batch.done.astype(jnp.int32), axis=1)
-            terminal = (episode_idx == 1) & batch.done
+            episode_idx = jnp.cumsum(batch.prev_done.astype(jnp.int32), axis=1)
+            terminal = (episode_idx == 1) & batch.prev_done
             mask = (episode_idx == 0) | terminal
 
         def critic_loss_fn(critic_params):
             _, (q1, q2) = self.critic_network.apply(
-                critic_params, batch.obs, batch.done, batch.action
+                critic_params, batch.obs, batch.prev_done, batch.action
             )
             q1_error = q1.squeeze(-1) - target_q
             q2_error = q2.squeeze(-1) - target_q

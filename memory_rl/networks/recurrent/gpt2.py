@@ -50,6 +50,8 @@ class MultiHeadAttentionBlock(nn.Module):
 
         B, T, *_ = x.shape
 
+        assert T <= self.context_length, f"T must be less than or equal to context_length, but was T: {T}, context_length: {self.context_length}"
+
         projection = partial(
             nn.DenseGeneral,
             features=(self.num_heads, head_dim),
@@ -63,9 +65,12 @@ class MultiHeadAttentionBlock(nn.Module):
 
         key = projection(name="key")(x)
         key = jnp.concatenate([kv_cache.key, key], axis=1)
+        key = key[:, -self.context_length :]
 
         value = projection(name="value")(x)
         value = jnp.concatenate([kv_cache.value, value], axis=1)
+        value = value[:, -self.context_length :]
+
 
         query_input = (
             jnp.cumsum(mask.astype(jnp.int32), axis=1)
@@ -74,6 +79,7 @@ class MultiHeadAttentionBlock(nn.Module):
 
         key_mask = jnp.concatenate([kv_cache.mask, mask], axis=1, dtype=jnp.int32)
         key_input = jnp.cumsum(key_mask, axis=1)
+        key_input = key_input[:, -self.context_length :]
 
         attention_mask = nn.make_attention_mask(
             query_input, key_input, pairwise_fn=jnp.equal
@@ -83,9 +89,11 @@ class MultiHeadAttentionBlock(nn.Module):
         query_input = jnp.broadcast_to(query_input, (B, T))
         key_input = jnp.arange(self.context_length + T)
         key_input = jnp.broadcast_to(key_input, (B, self.context_length + T))
+        key_input = key_input[:, -self.context_length :]
         causal_mask = nn.make_attention_mask(
             query_input, key_input, pairwise_fn=jnp.greater_equal
         )
+
 
         B, _, T, S = attention_mask.shape
         attention_mask = jnp.broadcast_to(attention_mask, (B, self.num_heads, T, S))
@@ -115,9 +123,6 @@ class MultiHeadAttentionBlock(nn.Module):
 
         _, next_position = _get_positions(mask, start=kv_cache.position)
         mask = key_mask[:, -self.context_length :]
-        key = key[:, -self.context_length :]
-        value = value[:, -self.context_length :]
-
         kv_cache = kv_cache.replace(
             position=next_position, mask=mask, key=key, value=value
         )

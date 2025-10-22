@@ -17,41 +17,34 @@ from memory_rl.networks import (
     FFM,
     GPT2,
     GTrXL,
-    sLSTMCell,
-    mLSTMCell,
+    sLSTMBlock,
+    mLSTMBlock,
     xLSTMCell,
 )
 
-total_timesteps = 5_000_000
-num_train_steps = 50_000
+total_timesteps = 15_000_000
+num_train_steps = 100_000
 num_eval_steps = 10_000
 
-# env, env_params = environment.make("gymnax::CartPole-v1")
-env, env_params = environment.make("gymnax::UmbrellaChain-bsuite")
-
-memory_length = 63
-env_params = env_params.replace(
-    chain_length=memory_length, max_steps_in_episode=memory_length + 1
-)
-
+env, env_params = environment.make("popjym::RepeatPreviousMedium")
 
 cfg = RPPOConfig(
     name="rppo",
-    learning_rate=3e-4,
-    num_envs=32,
+    learning_rate=5e-5,
+    num_envs=64,
     num_eval_envs=16,
-    num_steps=128,
+    num_steps=1024,
     anneal_lr=True,
-    gamma=0.999,
+    gamma=0.99,
     gae_lambda=0.95,
     num_minibatches=8,
-    update_epochs=4,
+    update_epochs=30,
     normalize_advantage=True,
     clip_coef=0.2,
     clip_vloss=True,
     ent_coef=0.0,
-    vf_coef=0.5,
-    max_grad_norm=0.5,
+    vf_coef=1.0,
+    max_grad_norm=1.0,
     learning_starts=0,
 )
 
@@ -71,13 +64,9 @@ actor_network = SequenceNetwork(
     #     context_length=128,
     #     memory_length=1,
     # ),
-    # torso=S5(features=128, state_size=256, num_layers=4),
-    # torso=FFM(
-    #     features=128,
-    #     memory_size=32,
-    #     context_size=4,
-    # ),
-    torso=RNN(cell=mLSTMCell(features=128)),
+    # torso=S5(features=128, state_size=32, num_layers=4),
+    torso=FFM(features=128, memory_size=32, context_size=8, num_steps=cfg.num_steps),
+    # torso=RNN(cell=xLSTMCell(features=256, pattern=("m", "s"))),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
@@ -104,13 +93,8 @@ critic_network = SequenceNetwork(
     #     context_length=256,
     #     memory_length=1,
     # ),
-    # torso=S5(features=128, state_size=256, num_layers=4),
-    # torso=FFM(
-    #     features=128,
-    #     memory_size=32,
-    #     context_size=4,
-    # ),
-    torso=RNN(cell=sLSTMCell(features=128)),
+    torso=FFM(features=128, memory_size=32, context_size=8, num_steps=cfg.num_steps),
+    # torso=RNN(cell=xLSTMCell(features=256, pattern=("m", "s"))),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(

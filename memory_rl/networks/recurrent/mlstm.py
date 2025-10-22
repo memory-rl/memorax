@@ -11,7 +11,7 @@ from jax import numpy as jnp
 from jax import random
 
 import flax.linen as nn
-from flax.linen import initializers, LayerNorm, GroupNorm
+from flax.linen import initializers, LayerNorm
 from flax.linen.activation import sigmoid
 from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.dtypes import promote_dtype
@@ -24,7 +24,7 @@ from flax.typing import (
     Initializer,
 )
 
-from memory_rl.networks.recurrent.utils import CausalConv1d
+from memory_rl.networks.recurrent.utils import CausalConv1d, MultiHeadLayerNorm
 
 A = TypeVar("A")
 Carry = Any
@@ -42,6 +42,7 @@ def small_init(dim):
     def init(key, shape, dtype):
         std = jnp.sqrt(2.0 / (5.0 * dim))
         return jax.random.normal(key, shape, dtype) * std
+
     return init
 
 
@@ -49,6 +50,7 @@ def wang_init(dim, num_blocks):
     def init(key, shape, dtype):
         std = 2.0 / (num_blocks * jnp.sqrt(dim))
         return jax.random.normal(key, shape, dtype) * std
+
     return init
 
 
@@ -66,35 +68,31 @@ class BlockDiagonalDense(Module):
     def __call__(self, x: Array) -> Array:
         *batch, features = x.shape
         num_heads = features // self.block_size
-        head_dim = features // num_heads
 
-        if head_dim % self.block_size != 0:
+        if features % self.block_size != 0:
             raise ValueError(
-                f"head_dim ({head_dim}) must be divisible by block_size ({self.block_size})."
+                f"head_dim ({features}) must be divisible by block_size ({self.block_size})."
             )
-        block_dim = head_dim // self.block_size
 
-        kernel_init = self.kernel_init if self.kernel_init is not None else small_init(head_dim)
+        kernel_init = self.kernel_init or small_init(self.block_size)
         kernel = self.param(
             "kernel",
             kernel_init,
-            (num_heads, head_dim, head_dim),
+            (num_heads, self.block_size, self.block_size),
             self.param_dtype,
         )
         x, kernel = promote_dtype(x, kernel, dtype=self.dtype)
-        x = x.reshape(*batch, num_heads, block_dim, head_dim)
+        x = x.reshape(*batch, num_heads, self.block_size)
         x = jnp.einsum("...hd,hod->...ho", x, kernel)
-        x = x.reshape(*x.shape[:-2], -1)
+        x = x.reshape(*batch, -1)
+
         if self.use_bias:
-            bias = (
-                self.param(
-                    "bias",
-                    self.bias_init,
-                    (self.features),
-                    self.param_dtype,
-                )
+            bias = self.param(
+                "bias",
+                self.bias_init,
+                self.features,
+                self.param_dtype,
             )
-            bias = promote_dtype(bias, dtype=self.dtype)
             bias = jnp.broadcast_to(bias, x.shape)
             x = x + bias
 
@@ -129,7 +127,7 @@ class mLSTMCell(RNNCellBase):
 
     @compact
     def __call__(self, carry, inputs):
-        (C, n, m, conv_buf) = carry
+        (C, n, m) = carry
         batch_dims = inputs.shape[:-1]
         up_features = self.features * self.up_proj_factor
         head_dim = up_features // self.num_heads
@@ -154,20 +152,11 @@ class mLSTMCell(RNNCellBase):
         )(x_ln)
         up_gate, up_core = jnp.split(up, 2, axis=-1)
 
-        # k_x = self.param(
-        #     "conv_kernel",
-        #     self.kernel_init,
-        #     (up_features, self.conv_kernel_size),
-        #     self.param_dtype,
-        # )
-        #
-        # causal_window = jnp.concatenate([up_core[..., None], conv_buf], axis=-1)
-        # conv_x = jnp.einsum("...fk,fk->...f", causal_window, k_x)
-        # conv_x = jax.nn.silu(conv_x)
-        # conv_buf_new = jnp.concatenate(
-        #     [up_core[..., None], conv_buf[..., :-1]], axis=-1
-        # )
-        conv_x = CausalConv1d(features=up_features, kernel_size=self.conv_kernel_size, use_bias=False, use_channel_mixing=True)(up_core)
+        conv_x = CausalConv1d(
+            features=up_features,
+            kernel_size=self.conv_kernel_size,
+            dtype=self.dtype,
+        )(up_core)
         conv_x_act = jax.nn.silu(conv_x)
 
         linear_block_diagonal_dense = partial(
@@ -183,23 +172,25 @@ class mLSTMCell(RNNCellBase):
 
         qkv = jnp.concatenate([q, k, v], axis=-1)
 
-        def to_heads(x):
-            return x.reshape(x.shape[:-1] + (self.num_heads, head_dim))
-
-        q = to_heads(q)
-        k = to_heads(k) / jnp.sqrt(jnp.array(head_dim, dtype=self.param_dtype))
-        v = to_heads(v)
-
         gate_dense = partial(
             Dense,
             features=self.num_heads,
-            use_bias=True,
             kernel_init=initializers.zeros_init(),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
         i_tilde = gate_dense(name="wi", bias_init=initializers.normal(stddev=0.1))(qkv)
         f_tilde = gate_dense(name="wf", bias_init=f_bias_init)(qkv)
+
+        def to_heads(x):
+            B, S, *_ = x.shape
+            x = x.reshape(B, S, self.num_heads, -1)
+            x = x.transpose((0, 2, 1, 3))
+            return x
+
+        q = to_heads(q)
+        k = to_heads(k) / jnp.sqrt(jnp.array(head_dim, dtype=self.param_dtype))
+        v = to_heads(v)
 
         log_f = self._log_forget(f_tilde)
 
@@ -208,7 +199,7 @@ class mLSTMCell(RNNCellBase):
         f_prime = jnp.exp(log_f + m - m_new)
 
         C_new = f_prime[..., None, None] * C + i_prime[..., None, None] * (
-            v[..., :, None] * k[..., None, :]
+            k[..., None, :] @ v[..., :, None]
         )
         n_new = f_prime[..., None] * n + i_prime[..., None] * k
 
@@ -218,13 +209,9 @@ class mLSTMCell(RNNCellBase):
         h_tilde = jnp.matmul(C_new, q[..., :, None])[..., :, 0] / denom[..., None]
         h_tilde = h_tilde.reshape(batch_dims + (up_features,))
 
-        h_norm = GroupNorm(
-            num_groups=self.num_heads,
+        h_norm = MultiHeadLayerNorm(
             use_scale=True,
             use_bias=False,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="head_group_norm",
         )(h_tilde)
 
         lskip = self.param(
@@ -233,10 +220,10 @@ class mLSTMCell(RNNCellBase):
             (up_features,),
             self.param_dtype,
         )
-        h = h_norm + (lskip * conv_x)
+        h = h_norm + (lskip * conv_x_act)
         h = h * jax.nn.silu(up_gate)
 
-        out = Dense(
+        y = Dense(
             features=self.features,
             use_bias=False,
             kernel_init=wang_init(self.features, self.num_blocks),
@@ -246,12 +233,11 @@ class mLSTMCell(RNNCellBase):
             name="down_proj",
         )(h)
 
-        out = nn.Dropout(
+        y = nn.Dropout(
             rate=self.dropout_rate, deterministic=not self.has_rng("dropout")
-        )(out)
+        )(y)
 
-        y = out + inputs
-        return (C_new, n_new, m_new, conv_buf_new), y
+        return (C_new, n_new, m_new), y
 
     @staticmethod
     @nowrap
@@ -265,32 +251,27 @@ class mLSTMCell(RNNCellBase):
         num_heads=4,
         conv_kernel_size=4,
         param_dtype=jnp.float32,
-    ) -> tuple[Array, Array, Array, Array]:
+    ) -> tuple[Array, Array, Array]:
         """To be called by xLSTMCell"""
         batch_dims = input_shape[:-1]
         up_features = features * up_proj_factor
         head_dim = up_features // num_heads
-        key_c, key_n, key_m, key_conv_buf = random.split(rng, 4)
+        key_c, key_n, key_m = random.split(rng, 3)
         C = carry_init(
             key_c, (batch_dims + (num_heads, head_dim, head_dim)), param_dtype
         )
         n = carry_init(key_n, (batch_dims + (num_heads, head_dim)), param_dtype)
         m = carry_init(key_m, (batch_dims + (num_heads,)), param_dtype)
-        conv_buf = carry_init(
-            key_conv_buf,
-            batch_dims + (up_features, max(conv_kernel_size - 1, 0)),
-            param_dtype,
-        )
-        return (C, n, m, conv_buf)
+        return (C, n, m)
 
     @nowrap
     def initialize_carry(
         self, rng: PRNGKey, input_shape: tuple[int, ...]
-    ) -> tuple[Array, Array, Array, Array]:
+    ) -> tuple[Array, Array, Array]:
         batch_dims = input_shape[:-1]
         up_features = self.features * self.up_proj_factor
         head_dim = up_features // self.num_heads
-        key_c, key_n, key_m, key_conv_buf = random.split(rng, 4)
+        key_c, key_n, key_m = random.split(rng, 3)
         C = self.carry_init(
             key_c, (batch_dims + (self.num_heads, head_dim, head_dim)), self.param_dtype
         )
@@ -298,12 +279,7 @@ class mLSTMCell(RNNCellBase):
             key_n, (batch_dims + (self.num_heads, head_dim)), self.param_dtype
         )
         m = self.carry_init(key_m, (batch_dims + (self.num_heads,)), self.param_dtype)
-        conv_buf = self.carry_init(
-            key_conv_buf,
-            batch_dims + (up_features, max(self.conv_kernel_size - 1, 0)),
-            self.param_dtype,
-        )
-        return (C, n, m, conv_buf)
+        return (C, n, m)
 
     @property
     def num_feature_axes(self) -> int:

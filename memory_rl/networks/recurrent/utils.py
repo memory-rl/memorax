@@ -1,4 +1,5 @@
 from typing import Callable, Tuple, Literal
+from flax.typing import Dtype
 import jax
 import jax.numpy as jnp
 from jax.nn.initializers import lecun_normal
@@ -64,18 +65,37 @@ def kaiming_uniform():
 def xavier_uniform():
     return nn.initializers.variance_scaling(1.0, "fan_avg", "uniform")
 
+
 def uniform(minval, maxval):
     def init(key, shape, dtype):
         return jax.random.uniform(key, shape, minval=minval, maxval=maxval, dtype=dtype)
 
     return init
 
+
+def MultiHeadLayerNorm(
+    use_scale: bool = True,
+    use_bias: bool = False,
+    eps: float = 1e-5,
+    dtype: jnp.dtype = jnp.float32,
+    axis: int = 1,
+    **kwargs,
+):
+    return nn.vmap(
+        nn.LayerNorm,
+        variable_axes={"params": 0},
+        in_axes=axis,
+        out_axes=axis,
+        split_rngs={"params": True},
+    )(epsilon=eps, use_bias=use_bias, use_scale=use_scale, dtype=dtype, **kwargs)
+
+
 class CausalConv1d(nn.Module):
     features: int
     kernel_size: int = 4
     use_bias: bool = True
     use_channel_mixing: bool = False
-    dtype: jnp.dtype = jnp.float32
+    dtype: Dtype | None = None
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -89,7 +109,9 @@ class CausalConv1d(nn.Module):
             features=self.features,
             kernel_size=(self.kernel_size,),
             kernel_init=kaiming_uniform(),
-            bias_init=uniform(minval=-1.0 / jnp.sqrt(fan_in), maxval=1.0 / jnp.sqrt(fan_in)),
+            bias_init=uniform(
+                minval=-1.0 / jnp.sqrt(fan_in), maxval=1.0 / jnp.sqrt(fan_in)
+            ),
             feature_group_count=groups,
             padding=[(padding, 0)],
             use_bias=self.use_bias,
@@ -97,6 +119,7 @@ class CausalConv1d(nn.Module):
             name="causal_conv_1d",
         )(x)
         return x
+
 
 def make_hippo(n: int) -> jnp.ndarray:
     p = jnp.sqrt(1.0 + 2.0 * jnp.arange(n))

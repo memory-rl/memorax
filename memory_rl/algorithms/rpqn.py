@@ -116,6 +116,7 @@ class RPQN:
 
         transition = Transition(
             obs=state.obs,  # type: ignore
+            prev_done=state.done,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             next_obs=next_obs,  # type: ignore
@@ -183,7 +184,7 @@ class RPQN:
             _, q_value = self.q_network.apply(
                 params,
                 observation=transitions.obs,
-                mask=transitions.done,
+                mask=transitions.prev_done,
                 initial_carry=hidden_state,
                 rngs={"memory": memory_key},
             )

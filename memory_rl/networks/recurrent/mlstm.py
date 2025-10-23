@@ -24,13 +24,20 @@ from flax.typing import (
     Initializer,
 )
 
-from memory_rl.networks.recurrent.utils import BlockDiagonalDense, CausalConv1d, MultiHeadLayerNorm, wang_init, small_init, f_bias_init, add_time_axis
+from memory_rl.networks.recurrent.utils import (
+    BlockDiagonalDense,
+    CausalConv1d,
+    MultiHeadLayerNorm,
+    wang_init,
+    small_init,
+    f_bias_init,
+    add_time_axis,
+)
 
 A = TypeVar("A")
 Carry = Any
 CarryHistory = Any
 Output = Any
-
 
 
 class mLSTMCell(nn.Module):
@@ -93,15 +100,11 @@ class mLSTMCell(nn.Module):
         i_prime = jnp.exp(i_tilde - m_new)
         f_prime = jnp.exp(log_f + m - m_new)
 
-        c_new = f_prime * c + i_prime * (
-            k @ v.swapaxes(-1, -2)
-        )
+        c_new = f_prime * c + i_prime * (k @ v.swapaxes(-1, -2))
         n_new = f_prime * n + i_prime * k
 
         nominator = q.swapaxes(-1, -2) @ c_new
-        denominator = (
-            jnp.maximum(jnp.abs(q.swapaxes(-1, -2) @ n_new), jnp.exp(-m_new))
-        )
+        denominator = jnp.maximum(jnp.abs(q.swapaxes(-1, -2) @ n_new), jnp.exp(-m_new))
         h_tilde = nominator / (denominator + 1e-6)
 
         h_norm = MultiHeadLayerNorm(
@@ -112,6 +115,7 @@ class mLSTMCell(nn.Module):
         h_norm = h_norm.swapaxes(1, 2).reshape(B, S, -1)
 
         return (c_new, n_new, m_new), h_norm
+
 
 class mLSTMLayer(nn.Module):
 
@@ -128,7 +132,6 @@ class mLSTMLayer(nn.Module):
     dtype: Dtype | None = None
     param_dtype: jnp.dtype = jnp.float32
     carry_init: Initializer = initializers.zeros_init()
-
 
     @compact
     def __call__(self, carry, inputs):
@@ -163,8 +166,8 @@ class mLSTMLayer(nn.Module):
             param_dtype=self.param_dtype,
         )
 
-        q = linear_block_diagonal_dense(name="q")(conv_x)
-        k = linear_block_diagonal_dense(name="k")(conv_x)
+        q = linear_block_diagonal_dense(name="q")(conv_x_act)
+        k = linear_block_diagonal_dense(name="k")(conv_x_act)
         v = linear_block_diagonal_dense(name="v")(up_core)
 
         cell_state, h_tilde = mLSTMCell(
@@ -234,4 +237,3 @@ class mLSTMLayer(nn.Module):
         conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, up_features))
 
         return cell_state, conv_state
-

@@ -37,6 +37,7 @@ def get_attention_implementation() -> Implementation:
 def add_time_axis(x: jax.Array):
     return x[:, None, ...]
 
+
 def remove_time_axis(x: jax.Array):
     return x.squeeze(1)
 
@@ -122,7 +123,7 @@ class BlockDiagonalDense(nn.Module):
                 f"head_dim ({features}) must be divisible by block_size ({self.block_size})."
             )
 
-        kernel_init = self.kernel_init or small_init(self.block_size)
+        kernel_init = self.kernel_init or small_init(self.features)
         kernel = self.param(
             "kernel",
             kernel_init,
@@ -145,6 +146,7 @@ class BlockDiagonalDense(nn.Module):
             x = x + bias
 
         return x
+
 
 def MultiHeadLayerNorm(
     use_scale: bool = True,
@@ -172,13 +174,20 @@ class CausalConv1d(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, state: jnp.ndarray) -> tuple:
-        kernel = self.param("kernel", variance_scaling(1.0, "fan_in", "truncated_normal"), (self.kernel_size, self.features), self.param_dtype)
+        kernel = self.param(
+            "kernel",
+            variance_scaling(1.0, "fan_in", "truncated_normal"),
+            (self.kernel_size, self.features),
+            self.param_dtype,
+        )
 
         conv_state = jnp.concatenate([state[:, 1:, :], x], axis=1)
         y = jnp.einsum("bkf,kf->bf", conv_state, kernel)[:, None, :]
 
         if self.use_bias:
-            bias = self.param("bias", nn.initializers.zeros_init(), (self.features,), self.param_dtype)
+            bias = self.param(
+                "bias", nn.initializers.zeros_init(), (self.features,), self.param_dtype
+            )
             y = y + bias
         return conv_state, y
 

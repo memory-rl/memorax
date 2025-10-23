@@ -22,12 +22,20 @@ from flax.typing import (
     Initializer,
 )
 
-from memory_rl.networks.recurrent.utils import CausalConv1d, MultiHeadLayerNorm, add_time_axis, f_bias_init, BlockDiagonalDense, remove_time_axis
+from memory_rl.networks.recurrent.utils import (
+    CausalConv1d,
+    MultiHeadLayerNorm,
+    add_time_axis,
+    f_bias_init,
+    BlockDiagonalDense,
+    remove_time_axis,
+)
 
 A = TypeVar("A")
 Carry = Any
 CarryHistory = Any
 Output = Any
+
 
 class sLSTMCell(nn.Module):
     features: int
@@ -40,9 +48,6 @@ class sLSTMCell(nn.Module):
     eps: float
     mlp_pf: float
 
-    kernel_init: Initializer
-    recurrent_kernel_init: Initializer
-    bias_init: Initializer
     dropout_rate: float
     dtype: Dtype | None
     param_dtype: Dtype
@@ -74,10 +79,26 @@ class sLSTMCell(nn.Module):
             param_dtype=self.param_dtype,
         )
 
-        i = i + recurrent_block_diagonal_dense(name="i")(h) + self.param("i_bias", self.bias_init, (self.features,), self.param_dtype)
-        f = f + recurrent_block_diagonal_dense(name="f")(h) + self.param("f_bias", f_bias_init, (self.features,), self.param_dtype)
-        z = z + recurrent_block_diagonal_dense(name="z")(h) + self.param("z_bias", self.bias_init, (self.features,), self.param_dtype)
-        o = o + recurrent_block_diagonal_dense(name="o")(h) + self.param("o_bias", self.bias_init, (self.features,), self.param_dtype)
+        i = (
+            i
+            + recurrent_block_diagonal_dense(name="i")(h)
+            + self.param("i_bias", self.bias_init, (self.features,), self.param_dtype)
+        )
+        f = (
+            f
+            + recurrent_block_diagonal_dense(name="f")(h)
+            + self.param("f_bias", f_bias_init, (self.features,), self.param_dtype)
+        )
+        z = (
+            z
+            + recurrent_block_diagonal_dense(name="z")(h)
+            + self.param("z_bias", self.bias_init, (self.features,), self.param_dtype)
+        )
+        o = (
+            o
+            + recurrent_block_diagonal_dense(name="o")(h)
+            + self.param("o_bias", self.bias_init, (self.features,), self.param_dtype)
+        )
 
         o = sigmoid(o)
 
@@ -135,15 +156,17 @@ class sLSTMLayer(nn.Module):
                 f"features ({self.features}) must be divisible by num_heads ({self.num_heads})."
             )
 
-
         if self.use_causal_conv:
             x = add_time_axis(inputs)
-            conv_state, conv_x = CausalConv1d(features=self.features, kernel_size=self.conv_kernel_size, param_dtype=self.param_dtype)(x, conv_state)
+            conv_state, conv_x = CausalConv1d(
+                features=self.features,
+                kernel_size=self.conv_kernel_size,
+                param_dtype=self.param_dtype,
+            )(x, conv_state)
             conv_x_act = jax.nn.silu(conv_x)
             conv_x_act = remove_time_axis(conv_x_act)
         else:
             conv_x_act = inputs
-
 
         linear_block_diagonal_dense = partial(
             BlockDiagonalDense,
@@ -167,9 +190,6 @@ class sLSTMLayer(nn.Module):
             forget_activation=self.forget_activation,
             eps=self.eps,
             mlp_pf=self.mlp_pf,
-            kernel_init=self.kernel_init,
-            recurrent_kernel_init=self.recurrent_kernel_init,
-            bias_init=self.bias_init,
             dropout_rate=self.dropout_rate,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
@@ -212,4 +232,3 @@ class sLSTMLayer(nn.Module):
 
         conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, features))
         return cell_state, conv_state
-

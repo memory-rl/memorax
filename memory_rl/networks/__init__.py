@@ -6,8 +6,6 @@ from memory_rl.networks.recurrent import (
     FFM,
     GPT2,
     RNN,
-    sLSTMCell,
-    mLSTMCell,
     xLSTMCell,
     GTrXL,
     SHMCell,

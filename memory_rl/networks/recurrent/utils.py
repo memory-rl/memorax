@@ -1,11 +1,15 @@
 from typing import Callable, Tuple, Literal
-from flax.typing import Dtype
+from flax.linen.initializers import variance_scaling
+from flax.typing import Dtype, Initializer
 import jax
 import jax.numpy as jnp
 from jax.nn.initializers import lecun_normal
 from jax.lib import xla_bridge
 
 from flax import linen as nn
+from flax.linen.dtypes import promote_dtype
+
+from memory_rl.utils.typing import Array
 
 Implementation = Literal["xla", "cudnn"]
 
@@ -32,6 +36,9 @@ def get_attention_implementation() -> Implementation:
 
 def add_time_axis(x: jax.Array):
     return x[:, None, ...]
+
+def remove_time_axis(x: jax.Array):
+    return x.squeeze(1)
 
 
 def get_time_axis_and_input_shape(inputs: jax.Array, num_feature_axes=1):
@@ -73,6 +80,72 @@ def uniform(minval, maxval):
     return init
 
 
+def f_bias_init(key, shape, dtype):
+    """Initializes a weight matrix with a power law distribution."""
+    num_heads, *_ = shape
+    return jnp.linspace(3.0, 6.0, num_heads, dtype=dtype)
+
+
+def small_init(dim):
+    def init(key, shape, dtype):
+        std = jnp.sqrt(2.0 / (5.0 * dim))
+        return jax.random.normal(key, shape, dtype) * std
+
+    return init
+
+
+def wang_init(dim, num_blocks):
+    def init(key, shape, dtype):
+        std = 2.0 / (num_blocks * jnp.sqrt(dim))
+        return jax.random.normal(key, shape, dtype) * std
+
+    return init
+
+
+class BlockDiagonalDense(nn.Module):
+
+    features: int
+    block_size: int = 4
+    use_bias: bool = True
+    kernel_init: Initializer | None = None
+    bias_init: Initializer = nn.initializers.zeros_init()
+    dtype: Dtype | None = None
+    param_dtype: Dtype = jnp.float32
+
+    @nn.compact
+    def __call__(self, x: Array) -> jax.Array:
+        *batch, features = x.shape
+        num_heads = features // self.block_size
+
+        if features % self.block_size != 0:
+            raise ValueError(
+                f"head_dim ({features}) must be divisible by block_size ({self.block_size})."
+            )
+
+        kernel_init = self.kernel_init or small_init(self.block_size)
+        kernel = self.param(
+            "kernel",
+            kernel_init,
+            (num_heads, self.block_size, self.block_size),
+            self.param_dtype,
+        )
+        x, kernel = promote_dtype(x, kernel, dtype=self.dtype)
+        x = x.reshape(*batch, num_heads, self.block_size)
+        x = jnp.einsum("...hd,hod->...ho", x, kernel)
+        x = x.reshape(*batch, -1)
+
+        if self.use_bias:
+            bias = self.param(
+                "bias",
+                self.bias_init,
+                (self.features,),
+                self.param_dtype,
+            )
+            bias = jnp.broadcast_to(bias, x.shape)
+            x = x + bias
+
+        return x
+
 def MultiHeadLayerNorm(
     use_scale: bool = True,
     use_bias: bool = False,
@@ -95,30 +168,19 @@ class CausalConv1d(nn.Module):
     kernel_size: int = 4
     use_bias: bool = True
     use_channel_mixing: bool = False
-    dtype: Dtype | None = None
+    param_dtype: jnp.dtype = jnp.float32
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        if self.use_channel_mixing:
-            groups = 1
-        else:
-            groups = x.shape[-1]
-        padding = self.kernel_size - 1
-        fan_in = self.kernel_size * (x.shape[-1] // groups)
-        x = nn.Conv(
-            features=self.features,
-            kernel_size=(self.kernel_size,),
-            kernel_init=kaiming_uniform(),
-            bias_init=uniform(
-                minval=-1.0 / jnp.sqrt(fan_in), maxval=1.0 / jnp.sqrt(fan_in)
-            ),
-            feature_group_count=groups,
-            padding=[(padding, 0)],
-            use_bias=self.use_bias,
-            dtype=self.dtype,
-            name="causal_conv_1d",
-        )(x)
-        return x
+    def __call__(self, x: jnp.ndarray, state: jnp.ndarray) -> tuple:
+        kernel = self.param("kernel", variance_scaling(1.0, "fan_in", "truncated_normal"), (self.kernel_size, self.features), self.param_dtype)
+
+        conv_state = jnp.concatenate([state[:, 1:, :], x], axis=1)
+        y = jnp.einsum("bkf,kf->bf", conv_state, kernel)[:, None, :]
+
+        if self.use_bias:
+            bias = self.param("bias", nn.initializers.zeros_init(), (self.features,), self.param_dtype)
+            y = y + bias
+        return conv_state, y
 
 
 def make_hippo(n: int) -> jnp.ndarray:

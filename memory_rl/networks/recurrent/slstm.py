@@ -11,12 +11,10 @@ from jax import numpy as jnp
 from jax import random
 
 import flax.linen as nn
-from flax.linen import initializers, LayerNorm, GroupNorm
+from flax.linen import initializers, GroupNorm
 from flax.linen.activation import sigmoid, tanh
-from flax.linen.dtypes import promote_dtype
 from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.module import Module, compact, nowrap
-from flax.linen.recurrent import RNNCellBase
 from flax.typing import (
     Array,
     PRNGKey,
@@ -24,107 +22,86 @@ from flax.typing import (
     Initializer,
 )
 
+from memory_rl.networks.recurrent.utils import CausalConv1d, MultiHeadLayerNorm, add_time_axis, f_bias_init, BlockDiagonalDense, remove_time_axis
+
 A = TypeVar("A")
 Carry = Any
 CarryHistory = Any
 Output = Any
 
-
-def f_bias_init(key, shape, dtype):
-    """Initializes a weight matrix with a power law distribution."""
-    num_heads, head_dim = shape
-    return jnp.broadcast_to(
-        jnp.linspace(3.0, 6.0, head_dim, dtype=dtype), (num_heads, head_dim)
-    )
-
-
-class BlockDiagonalDense(Module):
-
-    num_heads: int
-    use_bias: bool = True
-    kernel_init: Initializer = default_kernel_init
-    bias_init: Initializer = initializers.zeros_init()
-    dtype: Dtype | None = None
-    param_dtype: Dtype = jnp.float32
-
-    @compact
-    def __call__(self, x: Array) -> Array:
-        features = x.shape[-1]
-        if features % self.num_heads != 0:
-            raise ValueError(
-                f"features ({features}) must be divisible by num_heads ({self.num_heads})."
-            )
-        dh = features // self.num_heads
-        xh = x.reshape(x.shape[:-1] + (self.num_heads, dh))
-
-        k = self.param(
-            "kernel", self.kernel_init, (self.num_heads, dh, dh), self.param_dtype
-        )
-        b = (
-            self.param("bias", self.bias_init, (self.num_heads, dh), self.param_dtype)
-            if self.use_bias
-            else None
-        )
-
-        xh, k, b = promote_dtype(xh, k, b, dtype=self.dtype)
-        yh = jnp.einsum("...hd,hdf->...hf", xh, k)
-        if b is not None:
-            yh = yh + b
-        return yh.reshape(x.shape[:-1] + (features,))
-
-
-class GatedMLP(Module):
-    """Gated MLP and projection factor (pf)."""
-
+class sLSTMCell(nn.Module):
     features: int
-    gate: Callable = jax.nn.gelu
-    pf: float = 4.0 / 3.0
-    kernel_init: Initializer = default_kernel_init
-    bias_init: Initializer = initializers.zeros_init()
-    dtype: Dtype | None = None
-    param_dtype: Dtype = jnp.float32
+    num_heads: int
+    use_causal_conv: bool
+    conv_kernel_size: int
+
+    activation_fn: Callable[..., Any]
+    forget_activation: str
+    eps: float
+    mlp_pf: float
+
+    kernel_init: Initializer
+    recurrent_kernel_init: Initializer
+    bias_init: Initializer
+    dropout_rate: float
+    dtype: Dtype | None
+    param_dtype: Dtype
+    carry_init: Initializer
+
+    def _log_forget(self, f_raw: Array) -> Array:
+        if self.forget_activation == "exp":
+            return f_raw
+        elif self.forget_activation == "sigmoid":
+            return -jax.nn.softplus(-f_raw)
+        raise ValueError("forget_activation must be 'exp' or 'sigmoid'.")
 
     @compact
-    def __call__(self, x: Array) -> Array:
-        inner = int(math.ceil(self.pf * self.features))
-        u = Dense(
-            inner,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="up_a",
-        )(x)
-        v = Dense(
-            inner,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="up_b",
-        )(x)
-        gated = self.gate(u) * v
-        y = Dense(
+    def __call__(
+        self,
+        i,
+        f,
+        z,
+        o,
+        carry: tuple,
+    ):
+        c, n, m, h = carry
+
+        recurrent_block_diagonal_dense = partial(
+            BlockDiagonalDense,
             self.features,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
+            use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="down",
-        )(gated)
-        return y
+        )
+
+        i = i + recurrent_block_diagonal_dense(name="i")(h) + self.param("i_bias", self.bias_init, (self.features,), self.param_dtype)
+        f = f + recurrent_block_diagonal_dense(name="f")(h) + self.param("f_bias", f_bias_init, (self.features,), self.param_dtype)
+        z = z + recurrent_block_diagonal_dense(name="z")(h) + self.param("z_bias", self.bias_init, (self.features,), self.param_dtype)
+        o = o + recurrent_block_diagonal_dense(name="o")(h) + self.param("o_bias", self.bias_init, (self.features,), self.param_dtype)
+
+        o = sigmoid(o)
+
+        log_f = self._log_forget(f)
+        m_new = jnp.where(jnp.all(n == 0.0), i, jnp.maximum(log_f + m, i))
+        i_p = jnp.minimum(jnp.exp(i - m_new), jnp.ones_like(i))
+        f_p = jnp.minimum(jnp.exp(log_f + m - m_new), jnp.ones_like(f))
+
+        c_new = f_p * c + i_p * self.activation_fn(z)
+        n_new = f_p * n + i_p
+        h_tilde = c_new / jnp.maximum(n_new, self.eps)
+        h_new = o * h_tilde
+
+        return (c_new, n_new, m_new, h_new), h_new
 
 
-class sLSTMCell(RNNCellBase):
-    r"""sLSTM Block (post up-projection)"""
-
+class sLSTMLayer(nn.Module):
     features: int
     num_heads: int = 4
     use_causal_conv: bool = True
     conv_kernel_size: int = 4
 
     activation_fn: Callable[..., Any] = tanh
-    forget_activation: str = "exp"  # 'exp' or 'sigmoid'
+    forget_activation: str = "sigmoid"  # 'exp' or 'sigmoid'
     eps: float = 1e-6
     mlp_pf: float = 4.0 / 3.0
 
@@ -133,7 +110,7 @@ class sLSTMCell(RNNCellBase):
     bias_init: Initializer = initializers.zeros_init()
     dropout_rate: float = 0.0
     dtype: Dtype | None = None
-    param_dtype: Dtype = jnp.float32
+    param_dtype: jnp.dtype = jnp.float32
     carry_init: Initializer = initializers.zeros_init()
 
     def _log_forget(self, f_raw: Array) -> Array:
@@ -146,124 +123,71 @@ class sLSTMCell(RNNCellBase):
     @compact
     def __call__(
         self,
-        carry: tuple[Array, Array, Array, Array, Array],
+        carry: tuple,
         inputs: Array,
-    ) -> tuple[tuple[Array, Array, Array, Array, Array], Array]:
-        c, n, h, m, conv_buf = carry
+    ):
+        cell_state, conv_state = carry
 
+        B, *_ = inputs.shape
+        head_dim = self.features // self.num_heads
         if self.features % self.num_heads != 0:
             raise ValueError(
                 f"features ({self.features}) must be divisible by num_heads ({self.num_heads})."
             )
 
-        x_ln = LayerNorm(
-            use_scale=True,
-            use_bias=False,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="pre_ln",
-        )(inputs)
 
         if self.use_causal_conv:
-            k_x = self.param(
-                "conv_kernel",
-                self.kernel_init,
-                (self.conv_kernel_size, self.features),
-                self.param_dtype,
-            )
-            causal_window = jnp.concatenate([x_ln[..., None, :], conv_buf], axis=-2)
-            conv_x = jnp.sum(causal_window * k_x, axis=-2)
-            conv_x = jax.nn.silu(conv_x)
-            new_conv_buf = jnp.concatenate(
-                [x_ln[..., None, :], conv_buf[..., :-1, :]], axis=-2
-            )
+            x = add_time_axis(inputs)
+            conv_state, conv_x = CausalConv1d(features=self.features, kernel_size=self.conv_kernel_size, param_dtype=self.param_dtype)(x, conv_state)
+            conv_x_act = jax.nn.silu(conv_x)
+            conv_x_act = remove_time_axis(conv_x_act)
         else:
-            conv_x = 0.0
-            new_conv_buf = conv_buf
+            conv_x_act = inputs
+
 
         linear_block_diagonal_dense = partial(
             BlockDiagonalDense,
-            self.num_heads,
+            self.features,
             use_bias=False,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
+
+        i = linear_block_diagonal_dense(name="i")(conv_x_act)
+        f = linear_block_diagonal_dense(name="f")(conv_x_act)
+        z = linear_block_diagonal_dense(name="z")(inputs)
+        o = linear_block_diagonal_dense(name="o")(inputs)
+
+        cell_state, y = sLSTMCell(
+            features=self.features,
+            num_heads=self.num_heads,
+            use_causal_conv=self.use_causal_conv,
+            conv_kernel_size=self.conv_kernel_size,
+            activation_fn=self.activation_fn,
+            forget_activation=self.forget_activation,
+            eps=self.eps,
+            mlp_pf=self.mlp_pf,
             kernel_init=self.kernel_init,
+            recurrent_kernel_init=self.recurrent_kernel_init,
+            bias_init=self.bias_init,
+            dropout_rate=self.dropout_rate,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-        )
-        recurrent_block_diagonal_dense = partial(
-            BlockDiagonalDense,
-            self.num_heads,
-            use_bias=True,
-            kernel_init=self.recurrent_kernel_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-        )
+            carry_init=self.carry_init,
+        )(i, f, z, o, cell_state)
 
-        lin_x = {
-            "z": linear_block_diagonal_dense(name="x_z"),
-            "i": linear_block_diagonal_dense(name="x_i"),
-            "f": linear_block_diagonal_dense(name="x_f"),
-            "o": linear_block_diagonal_dense(name="x_o"),
-        }
-        lin_h = {
-            "z": recurrent_block_diagonal_dense(name="h_z", bias_init=self.bias_init),
-            "i": recurrent_block_diagonal_dense(name="h_i", bias_init=self.bias_init),
-            "f": recurrent_block_diagonal_dense(name="h_f", bias_init=f_bias_init),
-            "o": recurrent_block_diagonal_dense(name="h_o", bias_init=self.bias_init),
-        }
-
-        z_tilde = lin_x["z"](x_ln) + lin_h["z"](h)
-        i_tilde = lin_x["i"](conv_x) + lin_h["i"](h)
-        f_tilde = lin_x["f"](conv_x) + lin_h["f"](h)
-        o_tilde = lin_x["o"](x_ln) + lin_h["o"](h)
-
-        z = self.activation_fn(z_tilde)
-        o = sigmoid(o_tilde)
-
-        log_f = self._log_forget(f_tilde)
-        m_new = jnp.maximum(log_f + m, i_tilde)
-        i_p = jnp.exp(i_tilde - m_new)
-        f_p = jnp.exp(log_f + m - m_new)
-
-        c_new = f_p * c + i_p * z
-        n_new = f_p * n + i_p
-        h_tilde = c_new / jnp.maximum(n_new, self.eps)
-        h_new = o * h_tilde
+        y = y.reshape(B, self.num_heads, 1, head_dim)
 
         h_dropout = nn.Dropout(
             rate=self.dropout_rate, deterministic=not self.has_rng("dropout")
-        )(h_new)
+        )(y)
 
-        h_norm = GroupNorm(
-            num_groups=self.num_heads,
+        h_norm = MultiHeadLayerNorm(
             use_scale=True,
             use_bias=False,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="head_group_norm",
         )(h_dropout)
-        h = h_norm + inputs
-        h_ln = LayerNorm(
-            use_scale=True,
-            use_bias=False,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="post_ln",
-        )(h)
 
-        out = GatedMLP(
-            self.features,
-            pf=self.mlp_pf,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="geglu",
-        )(h_ln)
-
-        y = out + h
-
-        new_carry = (c_new, n_new, h_new, m_new, new_conv_buf)
-        return new_carry, y
+        return (cell_state, conv_state), h_norm.reshape(B, self.features)
 
     @staticmethod
     @nowrap
@@ -275,34 +199,17 @@ class sLSTMCell(RNNCellBase):
         carry_init=initializers.zeros_init(),
         param_dtype=jnp.float32,
         conv_kernel_size=4,
-    ) -> tuple[Array, Array, Array, Array, Array]:
+    ) -> tuple:
         """To be called by xLSTMCell"""
         batch_dims = input_shape[:-1]
-        key_c, key_n, key_h, key_m, key_conv_buf = random.split(rng, 5)
+        key_c, key_n, key_h, key_m, key_conv = random.split(rng, 5)
         mem_shape = batch_dims + (features,)
         c = carry_init(key_c, mem_shape, param_dtype)
         n = carry_init(key_n, mem_shape, param_dtype)
-        h = carry_init(key_h, mem_shape, param_dtype)
         m = carry_init(key_m, mem_shape, param_dtype)
-        buf_shape = batch_dims + (max(conv_kernel_size - 1, 0), features)
-        convbuf = carry_init(key_conv_buf, buf_shape, param_dtype)
-        return (c, n, h, m, convbuf)
+        h = carry_init(key_h, mem_shape, param_dtype)
+        cell_state = (c, n, m, h)
 
-    @nowrap
-    def initialize_carry(
-        self, rng: PRNGKey, input_shape: tuple[int, ...]
-    ) -> tuple[Array, Array, Array, Array, Array]:
-        batch_dims = input_shape[:-1]
-        key_c, key_n, key_h, key_m, key_conv_buf = random.split(rng, 5)
-        mem_shape = batch_dims + (self.features,)
-        c = self.carry_init(key_c, mem_shape, self.param_dtype)
-        n = self.carry_init(key_n, mem_shape, self.param_dtype)
-        h = self.carry_init(key_h, mem_shape, self.param_dtype)
-        m = self.carry_init(key_m, mem_shape, self.param_dtype)
-        buf_shape = batch_dims + (max(self.conv_kernel_size - 1, 0), self.features)
-        convbuf = self.carry_init(key_conv_buf, buf_shape, self.param_dtype)
-        return (c, n, h, m, convbuf)
+        conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, features))
+        return cell_state, conv_state
 
-    @property
-    def num_feature_axes(self) -> int:
-        return 1

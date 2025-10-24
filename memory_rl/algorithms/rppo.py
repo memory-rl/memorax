@@ -73,6 +73,7 @@ class RPPO:
             observation=jnp.expand_dims(state.timestep.obs, 1),
             mask=jnp.expand_dims(state.timestep.done, 1),
             action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
             initial_carry=state.actor_carry,
         )
         action = jnp.argmax(probs.logits, axis=-1)
@@ -83,6 +84,7 @@ class RPPO:
             observation=jnp.expand_dims(state.timestep.obs, 1),
             mask=jnp.expand_dims(state.timestep.done, 1),
             action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
             initial_carry=state.critic_carry,
         )
 
@@ -110,6 +112,7 @@ class RPPO:
             observation=jnp.expand_dims(state.timestep.obs, 1),
             mask=jnp.expand_dims(state.timestep.done, 1),
             action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
             initial_carry=state.actor_carry,
             rngs={"memory": actor_memory_key},
         )
@@ -121,6 +124,7 @@ class RPPO:
             observation=jnp.expand_dims(state.timestep.obs, 1),
             mask=jnp.expand_dims(state.timestep.done, 1),
             action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
             initial_carry=state.critic_carry,
             rngs={"memory": critic_memory_key},
         )
@@ -176,6 +180,7 @@ class RPPO:
                 observation=transitions.obs,
                 mask=transitions.prev_done,
                 action=jnp.expand_dims(transitions.action, -1),
+                reward=jnp.expand_dims(transitions.reward, -1),
                 initial_carry=initial_actor_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
@@ -228,6 +233,7 @@ class RPPO:
                 observation=transitions.obs,
                 mask=transitions.prev_done,
                 action=jnp.expand_dims(transitions.action, -1),
+                reward=jnp.expand_dims(transitions.reward, -1),
                 initial_carry=initial_critic_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
@@ -344,6 +350,7 @@ class RPPO:
             observation=jnp.expand_dims(state.timestep.obs, 1),
             mask=jnp.expand_dims(state.timestep.done, 1),
             action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
             initial_carry=state.critic_carry,
         )
 
@@ -410,7 +417,7 @@ class RPPO:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        action = jnp.zeros(self.env.action_space(self.env_params).n, dtype=jnp.int32)
+        action = jnp.zeros(self.cfg.num_envs, dtype=jnp.int32)
         reward = jnp.zeros(self.cfg.num_envs, dtype=jnp.float32)
         done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
         actor_carry = self.actor.initialize_carry(obs.shape)
@@ -425,6 +432,7 @@ class RPPO:
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
             action=jnp.expand_dims(action, (1, 2)),
+            reward=jnp.expand_dims(reward, (1, 2)),
             initial_carry=actor_carry,
         )
         critic_params = self.critic.init(
@@ -436,6 +444,7 @@ class RPPO:
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
             action=jnp.expand_dims(action, (1, 2)),
+            reward=jnp.expand_dims(reward, (1, 2)),
             initial_carry=critic_carry,
         )
 
@@ -486,7 +495,7 @@ class RPPO:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        action = jnp.zeros(self.env.action_space(self.env_params).n, dtype=jnp.int32)
+        action = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.int32)
         reward = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.float32)
         done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
         initial_actor_carry = self.actor.initialize_carry(obs.shape)

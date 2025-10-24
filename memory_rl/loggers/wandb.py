@@ -7,6 +7,8 @@ from typing import Any, Optional
 import wandb
 from wandb.sdk.wandb_run import Run
 
+from memory_rl.utils.stats import naniqm
+
 
 @chex.dataclass(frozen=True)
 class WandbLoggerState(BaseLoggerState):
@@ -46,9 +48,20 @@ class WandbLogger(BaseLogger[WandbLoggerState]):
 
     def emit(self, state: WandbLoggerState) -> WandbLoggerState:
         for step, data in sorted(state.buffer.items()):
+            training_iqm_episode_returns = naniqm(data["training/mean_episode_returns"])
+            evaluation_iqm_episode_returns = naniqm(
+                data["evaluation/mean_episode_returns"]
+            )
             for seed, run in state.runs.items():
                 run.log(
                     {k: v[seed] if k != "SPS" else v for k, v in data.items()},
+                    step=step,
+                )
+                run.log(
+                    {
+                        "training/iqm_episode_returns": training_iqm_episode_returns,
+                        "evaluation/iqm_episode_returns": evaluation_iqm_episode_returns,
+                    },
                     step=step,
                 )
 

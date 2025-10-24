@@ -11,7 +11,7 @@ from memory_rl.networks import (
     MLP,
     SequenceNetwork,
     heads,
-    SeparateFeatureExtractor,
+    FeatureExtractor,
     S5,
     SHMCell,
     FFM,
@@ -48,7 +48,7 @@ cfg = RPPOConfig(
 )
 
 actor_network = SequenceNetwork(
-    feature_extractor=SeparateFeatureExtractor(
+    feature_extractor=FeatureExtractor(
         observation_extractor=MLP(
             features=(192,), kernel_init=nn.initializers.orthogonal(scale=1.414)
         ),
@@ -72,7 +72,7 @@ actor_optimizer = optax.chain(
 )
 
 critic_network = SequenceNetwork(
-    feature_extractor=SeparateFeatureExtractor(
+    feature_extractor=FeatureExtractor(
         observation_extractor=MLP(
             features=(192,), kernel_init=nn.initializers.orthogonal(scale=1.414)
         ),
@@ -109,7 +109,7 @@ agent = RPPO(
 
 logger = Logger(
     [
-        DashboardLogger(title="RPPO Craftax Example", total_timesteps=total_timesteps),
+        DashboardLogger(title="RPPO Craftax Example", name="RPPO", env_id="Craftax", total_timesteps=total_timesteps),
     ]
 )
 logger_state = logger.init(asdict(cfg))

@@ -410,7 +410,7 @@ class RPPO:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        action = jnp.zeros(self.env.action_space(self.env_params).n)
+        action = jnp.zeros(self.env.action_space(self.env_params).n, dtype=jnp.int32)
         reward = jnp.zeros(self.cfg.num_envs, dtype=jnp.float32)
         done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
         actor_carry = self.actor.initialize_carry(obs.shape)
@@ -486,7 +486,7 @@ class RPPO:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        action = jnp.zeros(self.env.action_space(self.env_params).n)
+        action = jnp.zeros(self.env.action_space(self.env_params).n, dtype=jnp.int32)
         reward = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.float32)
         done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
         initial_actor_carry = self.actor.initialize_carry(obs.shape)

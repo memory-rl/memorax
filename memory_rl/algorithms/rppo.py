@@ -14,7 +14,7 @@ from memory_rl.utils.typing import (
     EnvState,
     Key,
 )
-from memory_rl.utils import generalized_advantage_estimatation, Transition
+from memory_rl.utils import generalized_advantage_estimatation, Transition, Timestep
 
 
 @struct.dataclass(frozen=True)
@@ -45,9 +45,7 @@ class RPPOConfig:
 @struct.dataclass(frozen=True)
 class RPPOState:
     step: int
-    obs: Array
-    action: Array
-    done: Array
+    timestep: Timestep
     env_state: EnvState
     actor_params: core.FrozenDict[str, Any]
     actor_optimizer_state: optax.OptState
@@ -72,9 +70,9 @@ class RPPO:
     ) -> tuple[Key, RPPOState, Array, Array]:
         actor_carry, probs = self.actor.apply(
             state.actor_params,
-            observation=jnp.expand_dims(state.obs, 1),
-            mask=jnp.expand_dims(state.done, 1),
-            action=jnp.expand_dims(state.action, (1, 2)),
+            observation=jnp.expand_dims(state.timestep.obs, 1),
+            mask=jnp.expand_dims(state.timestep.done, 1),
+            action=jnp.expand_dims(state.timestep.action, (1, 2)),
             initial_carry=state.actor_carry,
         )
         action = jnp.argmax(probs.logits, axis=-1)
@@ -82,9 +80,9 @@ class RPPO:
 
         critic_carry, value = self.critic.apply(
             state.critic_params,
-            observation=jnp.expand_dims(state.obs, 1),
-            mask=jnp.expand_dims(state.done, 1),
-            action=jnp.expand_dims(state.action, (1, 2)),
+            observation=jnp.expand_dims(state.timestep.obs, 1),
+            mask=jnp.expand_dims(state.timestep.done, 1),
+            action=jnp.expand_dims(state.timestep.action, (1, 2)),
             initial_carry=state.critic_carry,
         )
 
@@ -109,9 +107,9 @@ class RPPO:
         ) = jax.random.split(key, 4)
         actor_carry, probs = self.actor.apply(
             state.actor_params,
-            observation=jnp.expand_dims(state.obs, 1),
-            mask=jnp.expand_dims(state.done, 1),
-            action=jnp.expand_dims(state.action, (1, 2)),
+            observation=jnp.expand_dims(state.timestep.obs, 1),
+            mask=jnp.expand_dims(state.timestep.done, 1),
+            action=jnp.expand_dims(state.timestep.action, (1, 2)),
             initial_carry=state.actor_carry,
             rngs={"memory": actor_memory_key},
         )
@@ -120,9 +118,9 @@ class RPPO:
 
         critic_carry, value = self.critic.apply(
             state.critic_params,
-            observation=jnp.expand_dims(state.obs, 1),
-            mask=jnp.expand_dims(state.done, 1),
-            action=jnp.expand_dims(state.action, (1, 2)),
+            observation=jnp.expand_dims(state.timestep.obs, 1),
+            mask=jnp.expand_dims(state.timestep.done, 1),
+            action=jnp.expand_dims(state.timestep.action, (1, 2)),
             initial_carry=state.critic_carry,
             rngs={"memory": critic_memory_key},
         )
@@ -143,28 +141,26 @@ class RPPO:
         key, action_key, step_key = jax.random.split(key, 3)
         key, state, action, log_prob, value = policy(action_key, state)
 
-        num_envs = state.obs.shape[0]
+        num_envs = state.timestep.obs.shape[0]
         step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
 
         transition = Transition(
-            obs=state.obs,  # type: ignore
+            obs=state.timestep.obs,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             done=done,  # type: ignore
             info=info,  # type: ignore
             log_prob=log_prob,  # type: ignore
             value=value,  # type: ignore
-            prev_done=state.done,
+            prev_done=state.timestep.done,
         )
 
         state = state.replace(
             step=state.step + self.cfg.num_envs,
-            obs=next_obs,
-            action=action,
-            done=done,
+            timestep=Timestep(obs=next_obs, action=action, reward=reward, done=done),
             env_state=env_state,
         )
         return (key, state), transition
@@ -345,9 +341,9 @@ class RPPO:
 
         _, final_value = self.critic.apply(
             state.critic_params,
-            observation=jnp.expand_dims(state.obs, 1),
-            mask=jnp.expand_dims(state.done, 1),
-            action=jnp.expand_dims(state.action, (1, 2)),
+            observation=jnp.expand_dims(state.timestep.obs, 1),
+            mask=jnp.expand_dims(state.timestep.done, 1),
+            action=jnp.expand_dims(state.timestep.action, (1, 2)),
             initial_carry=state.critic_carry,
         )
 
@@ -402,21 +398,20 @@ class RPPO:
         (
             key,
             env_key,
-            action_key,
             actor_key,
             actor_memory_key,
             actor_dropout_key,
             critic_key,
             critic_memory_key,
             critic_dropout_key,
-        ) = jax.random.split(key, 9)
+        ) = jax.random.split(key, 8)
 
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        action_keys = jax.random.split(action_key, self.cfg.num_envs)
-        action = jax.vmap(self.env.action_space(self.env_params).sample)(action_keys)
+        action = jnp.zeros(self.env.action_space(self.env_params).n)
+        reward = jnp.zeros(self.cfg.num_envs, dtype=jnp.float32)
         done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
         actor_carry = self.actor.initialize_carry(obs.shape)
         critic_carry = self.critic.initialize_carry(obs.shape)
@@ -451,9 +446,7 @@ class RPPO:
             key,
             RPPOState(
                 step=0,  # type: ignore
-                obs=obs,  # type: ignore
-                action=action,  # type: ignore
-                done=done,  # type: ignore
+                timestep=Timestep(obs=obs, action=action, reward=reward, done=done),
                 actor_carry=actor_carry,  # type: ignore
                 critic_carry=critic_carry,  # type: ignore
                 env_state=env_state,  # type: ignore
@@ -488,20 +481,18 @@ class RPPO:
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key, state, num_steps):
 
-        key, reset_key, action_key = jax.random.split(key, 3)
+        key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        action_keys = jax.random.split(action_key, self.cfg.num_eval_envs)
-        action = jax.vmap(self.env.action_space(self.env_params).sample)(action_keys)
+        action = jnp.zeros(self.env.action_space(self.env_params).n)
+        reward = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.float32)
         done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
         initial_actor_carry = self.actor.initialize_carry(obs.shape)
         initial_critic_carry = self.critic.initialize_carry(obs.shape)
         state = state.replace(
-            obs=obs,
-            action=action,
-            done=done,
+            timestep=Timestep(obs=obs, action=action, reward=reward, done=done),
             actor_carry=initial_actor_carry,
             critic_carry=initial_critic_carry,
             env_state=env_state,

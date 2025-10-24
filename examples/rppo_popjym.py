@@ -10,7 +10,7 @@ from memory_rl.networks import (
     MLP,
     SequenceNetwork,
     heads,
-    SharedFeatureExtractor,
+    FeatureExtractor,
     S5,
     RNN,
     SHMCell,
@@ -49,7 +49,7 @@ cfg = RPPOConfig(
 )
 
 actor_network = SequenceNetwork(
-    feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
+    feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(128,))),
     # torso=GPT2(
     #     features=128,
     #     num_embeddings=env_params.max_steps_in_episode,
@@ -78,7 +78,7 @@ actor_optimizer = optax.chain(
 )
 
 critic_network = SequenceNetwork(
-    feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
+    feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(128,))),
     # torso=GPT2(
     #     features=128,
     #     num_embeddings=env_params.max_steps_in_episode,

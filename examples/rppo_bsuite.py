@@ -10,7 +10,7 @@ from memory_rl.networks import (
     MLP,
     SequenceNetwork,
     heads,
-    SharedFeatureExtractor,
+    FeatureExtractor,
     S5,
     RNN,
     SHMCell,
@@ -27,7 +27,7 @@ num_eval_steps = 10_000
 # env, env_params = environment.make("gymnax::CartPole-v1")
 env, env_params = environment.make("gymnax::MemoryChain-bsuite")
 
-memory_length = 511
+memory_length = 255
 env_params = env_params.replace(
     memory_length=memory_length, max_steps_in_episode=memory_length + 1
 )
@@ -54,7 +54,11 @@ cfg = RPPOConfig(
 )
 
 actor_network = SequenceNetwork(
-    feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
+    feature_extractor=FeatureExtractor(
+        observation_extractor=MLP(
+            features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+        ),
+    ),
     # torso=GPT2(
     #     features=128,
     #     num_embeddings=env_params.max_steps_in_episode,
@@ -75,7 +79,7 @@ actor_network = SequenceNetwork(
     #     memory_size=32,
     #     context_size=4,
     # ),
-    torso=RNN(cell=xLSTMCell(features=128, pattern=("m", "s"))),
+    torso=RNN(cell=xLSTMCell(features=128, pattern=("s"))),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
@@ -87,7 +91,11 @@ actor_optimizer = optax.chain(
 )
 
 critic_network = SequenceNetwork(
-    feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
+    feature_extractor=FeatureExtractor(
+        observation_extractor=MLP(
+            features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+        ),
+    ),
     # torso=GPT2(
     #     features=128,
     #     num_embeddings=env_params.max_steps_in_episode,
@@ -108,7 +116,7 @@ critic_network = SequenceNetwork(
     #     memory_size=32,
     #     context_size=4,
     # ),
-    torso=RNN(cell=xLSTMCell(features=128, pattern=("m", "s"))),
+    torso=RNN(cell=xLSTMCell(features=128, pattern=("s"))),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(

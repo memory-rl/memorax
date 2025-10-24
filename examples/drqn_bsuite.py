@@ -12,7 +12,7 @@ from memory_rl.networks import (
     SequenceNetwork,
     RNN,
     heads,
-    SharedFeatureExtractor,
+    FeatureExtractor,
 )
 
 total_timesteps = 500_000
@@ -43,7 +43,7 @@ cfg = DRQNConfig(
 )
 
 q_network = SequenceNetwork(
-    feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(128,))),
+    feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(128,))),
     torso=RNN(cell=nn.GRUCell(features=128), unroll=16),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,

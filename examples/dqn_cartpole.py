@@ -5,7 +5,7 @@ import flashbax as fbx
 from memory_rl.algorithms.dqn import DQN, DQNConfig
 from memory_rl.environments import environment
 from memory_rl.loggers import Logger, DashboardLogger
-from memory_rl.networks import MLP, Network, heads, SharedFeatureExtractor
+from memory_rl.networks import MLP, Network, heads, FeatureExtractor
 
 total_timesteps = 500_000
 num_train_steps = 50_000
@@ -32,7 +32,7 @@ cfg = DQNConfig(
 )
 
 q_network = Network(
-    feature_extractor=SharedFeatureExtractor(extractor=MLP(features=(120,))),
+    feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(120,))),
     torso=MLP(features=(84,)),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,

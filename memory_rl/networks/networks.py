@@ -42,27 +42,14 @@ class SequenceNetwork(nn.Module):
         mask: Array,
         action: Optional[Array] = None,
         reward: Optional[Array] = None,
-        done: Optional[Array] = None,
         initial_carry: Carry | None = None,
         **kwargs,
     ):
         x = self.feature_extractor(
-            observation, action=action, reward=reward, done=done, **kwargs
+            observation, action=action, reward=reward, **kwargs
         )
 
         carry, x = self.torso(x, mask=mask, initial_carry=initial_carry, **kwargs)
-        # hidden_state, x = MaskedRNN(
-        #     self.torso,
-        #     time_major=False,
-        #     unroll=16,
-        #     return_carry=True,
-        #     split_rngs={"params": False, "memory": True, "dropout": True},
-        #     variable_broadcast={"params", "constants"},
-        # )(
-        #     x,
-        #     mask,
-        #     **kwargs,
-        # )
         return carry, self.head(x, **kwargs)
 
     @nn.nowrap

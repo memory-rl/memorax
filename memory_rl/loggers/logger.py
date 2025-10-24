@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from memory_rl.utils.stats import naniqm
 from memory_rl.utils.typing import Array
 
 PyTree: TypeAlias = Any
@@ -87,6 +88,7 @@ class Logger(BaseLogger[LoggerState]):
                 f"{prefix}/std_{metric}": jnp.nanstd(a),
                 f"{prefix}/min_{metric}": jnp.nanmin(a),
                 f"{prefix}/max_{metric}": jnp.nanmax(a),
+                f"{prefix}/iqm_{metric}": naniqm(a),
             }
 
         num_episodes = {"num_episodes": transitions.num_episodes}

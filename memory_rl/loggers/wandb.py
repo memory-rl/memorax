@@ -3,7 +3,7 @@ from dataclasses import field
 from .logger import BaseLogger, BaseLoggerState, PyTree
 
 import chex
-from typing import Any, Optional
+from typing import Optional
 import wandb
 from wandb.sdk.wandb_run import Run
 

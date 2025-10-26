@@ -1,5 +1,4 @@
 from typing import Callable, Tuple, Literal
-from flax.linen.initializers import variance_scaling
 from flax.typing import Dtype, Initializer
 import jax
 import jax.numpy as jnp

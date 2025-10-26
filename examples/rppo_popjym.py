@@ -1,6 +1,7 @@
 import time
 
 import jax
+import jax.numpy as jnp
 import flax.linen as nn
 import optax
 from memory_rl.algorithms.rppo import RPPO, RPPOConfig
@@ -11,37 +12,29 @@ from memory_rl.networks import (
     SequenceNetwork,
     heads,
     FeatureExtractor,
-    S5,
     RNN,
-    SHMCell,
-    FFM,
-    GPT2,
-    GTrXL,
-    sLSTMBlock,
-    mLSTMBlock,
-    xLSTMCell,
 )
 
 total_timesteps = 15_000_000
-num_train_steps = 100_000
+num_train_steps = 1024 * 64
 num_eval_steps = 10_000
 
-env, env_params = environment.make("popjym::RepeatPreviousMedium")
+env, env_params = environment.make("popjym::RepeatFirstEasy")
 
 cfg = RPPOConfig(
     name="rppo",
     learning_rate=5e-5,
     num_envs=64,
-    num_eval_envs=16,
+    num_eval_envs=10,
     num_steps=1024,
-    anneal_lr=True,
+    anneal_lr=False,
     gamma=0.99,
-    gae_lambda=0.95,
+    gae_lambda=1.0,
     num_minibatches=8,
     update_epochs=30,
     normalize_advantage=True,
     clip_coef=0.2,
-    clip_vloss=True,
+    clip_vloss=False,
     ent_coef=0.0,
     vf_coef=1.0,
     max_grad_norm=1.0,
@@ -49,7 +42,10 @@ cfg = RPPOConfig(
 )
 
 actor_network = SequenceNetwork(
-    feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(128,))),
+    feature_extractor=FeatureExtractor(
+        observation_extractor=MLP(features=(192,)),
+        action_extractor=MLP(features=(64,)),
+    ),
     # torso=GPT2(
     #     features=128,
     #     num_embeddings=env_params.max_steps_in_episode,
@@ -65,8 +61,8 @@ actor_network = SequenceNetwork(
     #     memory_length=1,
     # ),
     # torso=S5(features=128, state_size=32, num_layers=4),
-    torso=FFM(features=128, memory_size=32, context_size=8, num_steps=cfg.num_steps),
-    # torso=RNN(cell=xLSTMCell(features=256, pattern=("m", "s"))),
+    # torso=FFM(features=128, memory_size=32, context_size=8),
+    torso=RNN(cell=nn.GRUCell(features=256), unroll=16),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
@@ -78,7 +74,10 @@ actor_optimizer = optax.chain(
 )
 
 critic_network = SequenceNetwork(
-    feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(128,))),
+    feature_extractor=FeatureExtractor(
+        observation_extractor=MLP(features=(192,)),
+        action_extractor=MLP(features=(64,)),
+    ),
     # torso=GPT2(
     #     features=128,
     #     num_embeddings=env_params.max_steps_in_episode,
@@ -93,8 +92,9 @@ critic_network = SequenceNetwork(
     #     context_length=256,
     #     memory_length=1,
     # ),
-    torso=FFM(features=128, memory_size=32, context_size=8, num_steps=cfg.num_steps),
+    # torso=FFM(features=128, memory_size=32, context_size=8, num_steps=cfg.num_steps),
     # torso=RNN(cell=xLSTMCell(features=256, pattern=("m", "s"))),
+    torso=RNN(cell=nn.GRUCell(features=256), unroll=16),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(
@@ -121,9 +121,16 @@ logger_state = logger.init(cfg)
 
 key, state = agent.init(key)
 
+mmer_evaluation = -jnp.inf
+mmer_training = -jnp.inf
+
 key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
 evaluation_statistics = Logger.get_episode_statistics(transitions, "evaluation")
-logger_state = logger.log(logger_state, evaluation_statistics, step=state.step.item())
+mmer_evaluation = jnp.maximum(
+    mmer_evaluation, evaluation_statistics["evaluation/mean_episode_returns"]
+)
+data = {**evaluation_statistics, "evaluation/mmer": mmer_evaluation}
+logger_state = logger.log(logger_state, data, step=state.step.item())
 logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
@@ -136,12 +143,22 @@ for i in range(0, total_timesteps, num_train_steps):
     SPS = int(num_train_steps / (end - start))
 
     training_statistics = Logger.get_episode_statistics(transitions, "training")
-    data = {"SPS": SPS, **training_statistics, **transitions.losses}
+    mmer_training = jnp.maximum(
+        mmer_training, training_statistics["training/mean_episode_returns"]
+    )
+    data = {
+        "SPS": SPS,
+        **training_statistics,
+        **transitions.losses,
+        "training/mmer": mmer_training,
+    }
     logger_state = logger.log(logger_state, data, step=state.step.item())
 
     key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
     evaluation_statistics = Logger.get_episode_statistics(transitions, "evaluation")
-    logger_state = logger.log(
-        logger_state, evaluation_statistics, step=state.step.item()
+    mmer_evaluation = jnp.maximum(
+        mmer_evaluation, evaluation_statistics["evaluation/mean_episode_returns"]
     )
+    data = {**evaluation_statistics, "evaluation/mmer": mmer_evaluation}
+    logger_state = logger.log(logger_state, data, step=state.step.item())
     logger.emit(logger_state)

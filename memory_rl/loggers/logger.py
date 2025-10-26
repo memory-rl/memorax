@@ -1,12 +1,10 @@
 from abc import ABC, abstractmethod
-from functools import partial
 from typing import Any, Generic, TypeVar, TypeAlias
 
 import jax
 import jax.numpy as jnp
 from flax import struct
 
-from memory_rl.utils.stats import naniqm
 from memory_rl.utils.typing import Array
 
 PyTree: TypeAlias = Any

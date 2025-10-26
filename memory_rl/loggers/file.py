@@ -2,7 +2,7 @@ from collections import defaultdict
 from dataclasses import field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, DefaultDict, Mapping, Optional
+from typing import DefaultDict
 
 from flax import struct
 

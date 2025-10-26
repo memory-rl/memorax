@@ -3,7 +3,6 @@ from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 from flax import struct
 import optax
 from flax import core

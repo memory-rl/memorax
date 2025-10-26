@@ -1,5 +1,4 @@
 import jax
-import flax.linen as nn
 import optax
 import flashbax as fbx
 from memory_rl.algorithms.dqn import DQN, DQNConfig

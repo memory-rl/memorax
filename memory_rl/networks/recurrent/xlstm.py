@@ -1,21 +1,13 @@
-from dataclasses import field
 from typing import (
     Optional,
-    Tuple,
-    Literal,
     Any,
     TypeVar,
 )
 
 from jax import random
-import jax.numpy as jnp
 import flax.linen as nn
-from flax.linen import initializers
 from flax.linen.module import compact, nowrap
 from flax.linen.recurrent import RNNCellBase
-from flax.typing import (
-    PRNGKey,
-)
 
 from .slstm import sLSTMLayer
 from .mlstm import mLSTMLayer

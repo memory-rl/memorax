@@ -1,5 +1,4 @@
 from functools import partial  # pylint: disable=g-importing-member
-import math
 from typing import (
     Any,
     TypeVar,
@@ -11,10 +10,10 @@ from jax import numpy as jnp
 from jax import random
 
 import flax.linen as nn
-from flax.linen import initializers, GroupNorm
+from flax.linen import initializers
 from flax.linen.activation import sigmoid, tanh
-from flax.linen.linear import Dense, default_kernel_init
-from flax.linen.module import Module, compact, nowrap
+from flax.linen.linear import default_kernel_init
+from flax.linen.module import compact, nowrap
 from flax.typing import (
     Array,
     PRNGKey,

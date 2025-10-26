@@ -2,23 +2,17 @@ from functools import partial  # pylint: disable=g-importing-member
 from typing import (
     Any,
     TypeVar,
-    Callable,
 )
-import math
 
 import jax
 from jax import numpy as jnp
 from jax import random
 
 import flax.linen as nn
-from flax.linen import initializers, LayerNorm
-from flax.linen.activation import sigmoid
+from flax.linen import initializers
 from flax.linen.linear import Dense, default_kernel_init
-from flax.linen.dtypes import promote_dtype
-from flax.linen.module import compact, nowrap, Module
-from flax.linen.recurrent import RNNCellBase
+from flax.linen.module import compact, nowrap
 from flax.typing import (
-    Array,
     PRNGKey,
     Dtype,
     Initializer,

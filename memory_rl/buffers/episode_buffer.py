@@ -3,9 +3,9 @@ from typing import TYPE_CHECKING, Callable, Optional
 from chex import PRNGKey
 
 if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
-    from dataclasses import dataclass
+    pass
 else:
-    from chex import dataclass
+    pass
 
 import chex
 import jax

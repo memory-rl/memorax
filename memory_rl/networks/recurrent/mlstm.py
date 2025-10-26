@@ -44,26 +44,12 @@ class mLSTMCell(nn.Module):
 
     features: int
     num_heads: int
-    up_proj_factor: int
-    conv_kernel_size: int
-    forget_activation: str
-    num_blocks: int
 
     kernel_init: Initializer
     bias_init: Initializer
     dtype: Dtype | None
     param_dtype: Dtype
     carry_init: Initializer
-
-    def _log_forget(self, f_raw: Array) -> Array:
-        if self.forget_activation == "exp":
-            # log(exp(f_raw)) = f_raw
-            return f_raw
-        elif self.forget_activation == "sigmoid":
-            # log(sigmoid(x)) = -softplus(-x)
-            return -jax.nn.softplus(-f_raw)
-        else:
-            raise ValueError("forget_activation must be 'exp' or 'sigmoid'.")
 
     @compact
     def __call__(self, q, k, v, carry):
@@ -94,7 +80,7 @@ class mLSTMCell(nn.Module):
         f_tilde = gate(name="wf", bias_init=f_bias_init)(qkv)
         f_tilde = f_tilde.swapaxes(-1, -2)[..., None]
 
-        log_f = self._log_forget(f_tilde)
+        log_f = -jax.nn.softplus(-f_tilde)
 
         m_new = jnp.maximum(log_f + m, i_tilde)
         i_prime = jnp.exp(i_tilde - m_new)
@@ -123,7 +109,6 @@ class mLSTMLayer(nn.Module):
     num_heads: int = 4
     up_proj_factor: int = 2
     conv_kernel_size: int = 4
-    forget_activation: str = "sigmoid"
     num_blocks: int = 1
 
     kernel_init: Initializer = default_kernel_init
@@ -173,10 +158,6 @@ class mLSTMLayer(nn.Module):
         cell_state, h_tilde = mLSTMCell(
             features=up_features,
             num_heads=self.num_heads,
-            up_proj_factor=self.up_proj_factor,
-            conv_kernel_size=self.conv_kernel_size,
-            forget_activation=self.forget_activation,
-            num_blocks=self.num_blocks,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
             dtype=self.dtype,

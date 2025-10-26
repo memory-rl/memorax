@@ -88,7 +88,6 @@ class Logger(BaseLogger[LoggerState]):
                 f"{prefix}/std_{metric}": jnp.nanstd(a),
                 f"{prefix}/min_{metric}": jnp.nanmin(a),
                 f"{prefix}/max_{metric}": jnp.nanmax(a),
-                f"{prefix}/iqm_{metric}": naniqm(a),
             }
 
         num_episodes = {"num_episodes": transitions.num_episodes}

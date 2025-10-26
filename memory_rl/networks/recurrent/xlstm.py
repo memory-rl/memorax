@@ -33,7 +33,6 @@ class xLSTMBlock(nn.Module):
     kernel_init: Any = None
     bias_init: Any = None
 
-
     @compact
     def __call__(self, carry, inputs):
         skip = inputs
@@ -47,10 +46,10 @@ class xLSTMBlock(nn.Module):
             x = self.ffn(x) + skip
         return carry, x
 
-
     @nowrap
     def initialize_carry(self, rng, input_shape):
         return self.layer.initialize_carry(rng, input_shape)
+
 
 class xLSTMCell(RNNCellBase):
     features: int
@@ -58,7 +57,6 @@ class xLSTMCell(RNNCellBase):
 
     kernel_init: Any = None
     bias_init: Any = None
-
 
     @compact
     def __call__(self, carry, inputs):

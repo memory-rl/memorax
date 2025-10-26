@@ -2,6 +2,7 @@ from flax import struct
 
 from memory_rl.utils.typing import Array
 
+
 @struct.dataclass(frozen=True)
 class Timestep:
     obs: Array

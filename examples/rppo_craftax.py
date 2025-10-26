@@ -104,7 +104,12 @@ agent = RPPO(
 
 logger = Logger(
     [
-        DashboardLogger(title="RPPO Craftax Example", name="RPPO", env_id="Craftax", total_timesteps=total_timesteps),
+        DashboardLogger(
+            title="RPPO Craftax Example",
+            name="RPPO",
+            env_id="Craftax",
+            total_timesteps=total_timesteps,
+        ),
     ]
 )
 logger_state = logger.init(asdict(cfg))

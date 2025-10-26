@@ -4,7 +4,6 @@ import flax.linen as nn
 import jax.numpy as jnp
 
 
-
 class MLP(nn.Module):
 
     features: Sequence[int]

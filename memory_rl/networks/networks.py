@@ -43,9 +43,7 @@ class SequenceNetwork(nn.Module):
         initial_carry: Carry | None = None,
         **kwargs,
     ):
-        x = self.feature_extractor(
-            observation, action=action, reward=reward, **kwargs
-        )
+        x = self.feature_extractor(observation, action=action, reward=reward, **kwargs)
 
         carry, x = self.torso(x, mask=mask, initial_carry=initial_carry, **kwargs)
         return carry, self.head(x, **kwargs)

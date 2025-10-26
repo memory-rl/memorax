@@ -50,7 +50,9 @@ class MultiHeadAttentionBlock(nn.Module):
 
         B, T, *_ = x.shape
 
-        assert T <= self.context_length, f"T must be less than or equal to context_length, but was T: {T}, context_length: {self.context_length}"
+        assert (
+            T <= self.context_length
+        ), f"T must be less than or equal to context_length, but was T: {T}, context_length: {self.context_length}"
 
         projection = partial(
             nn.DenseGeneral,
@@ -70,7 +72,6 @@ class MultiHeadAttentionBlock(nn.Module):
         value = projection(name="value")(x)
         value = jnp.concatenate([kv_cache.value, value], axis=1)
         value = value[:, -self.context_length :]
-
 
         query_input = (
             jnp.cumsum(mask.astype(jnp.int32), axis=1)
@@ -93,7 +94,6 @@ class MultiHeadAttentionBlock(nn.Module):
         causal_mask = nn.make_attention_mask(
             query_input, key_input, pairwise_fn=jnp.greater_equal
         )
-
 
         B, _, T, S = attention_mask.shape
         attention_mask = jnp.broadcast_to(attention_mask, (B, self.num_heads, T, S))

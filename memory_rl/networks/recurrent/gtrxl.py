@@ -87,8 +87,9 @@ class RelativeMultiHeadAttentionBlock(Module):
         B, T, *_ = x.shape
         head_dim = self.features // self.num_heads
 
-        assert T <= self.context_length + self.memory_length, f"T must be less than or equal to context_length + memory_length, but was T: {T}, context_length + memory_length: {self.context_length + self.memory_length}"
-
+        assert (
+            T <= self.context_length + self.memory_length
+        ), f"T must be less than or equal to context_length + memory_length, but was T: {T}, context_length + memory_length: {self.context_length + self.memory_length}"
 
         projection = partial(
             nn.DenseGeneral,
@@ -131,7 +132,7 @@ class RelativeMultiHeadAttentionBlock(Module):
         bd = jnp.einsum("btnh,mnh->btnm", query_v, r)
         bd = jnp.transpose(bd, (0, 2, 1, 3))
 
-        bd = _relative_shift(bd)[..., -(self.memory_length + self.context_length):]
+        bd = _relative_shift(bd)[..., -(self.memory_length + self.context_length) :]
 
         bias = (bd / jnp.sqrt(head_dim)).astype(self.param_dtype)
 

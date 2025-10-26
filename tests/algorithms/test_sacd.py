@@ -1,13 +1,11 @@
 import flax.linen as nn
 import gymnax  # type: ignore
 import jax
-import jax.numpy as jnp
 import optax
 import flashbax as fbx
 import pytest
 
 from memory_rl.algorithms.sacd import SACD, SACDConfig
-from memory_rl.buffers import make_episode_buffer
 from memory_rl.networks import heads, SeparateFeatureExtractor, Network
 from memory_rl.networks.mlp import MLP
 

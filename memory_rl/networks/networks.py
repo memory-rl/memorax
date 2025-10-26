@@ -3,9 +3,7 @@ from typing import Optional
 import flax.linen as nn
 from flax.linen.recurrent import Carry
 import jax
-import jax.numpy as jnp
 
-from memory_rl.networks.recurrent.utils import get_time_axis_and_input_shape, mask_carry
 from memory_rl.utils.typing import Array
 
 

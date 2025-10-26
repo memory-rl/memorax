@@ -2,7 +2,6 @@
 # thought i leave it here as reference for now on how to use the tmaze_env
 
 import jax
-import jax.numpy as jnp
 from memory_rl.environments.tmaze_env import make_tmaze_env
 
 def pretty_obs(obs):

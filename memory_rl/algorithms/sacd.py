@@ -10,7 +10,6 @@ from flax import core, struct
 from memory_rl.utils import Transition, periodic_incremental_update
 from memory_rl.utils.typing import (
     Array,
-    Buffer,
     BufferState,
     Environment,
     EnvParams,

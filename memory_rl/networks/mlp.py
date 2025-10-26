@@ -3,7 +3,6 @@ from typing import Callable, Sequence, Union, Optional
 import flax.linen as nn
 import jax.numpy as jnp
 
-import jax
 
 
 class MLP(nn.Module):

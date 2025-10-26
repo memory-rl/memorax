@@ -2,10 +2,8 @@ import jax
 import jax.numpy as jnp
 import gymnax
 import navix as nx
-from navix.entities import Player, Goal
 from navix.spaces import Discrete, Continuous
 from flax import struct
-from functools import partial
 
 from memory_rl.utils import NavixGymnaxWrapper
 

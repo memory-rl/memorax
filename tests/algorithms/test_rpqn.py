@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 
 import flax.linen as nn
 import gymnax  # type: ignore

@@ -6,17 +6,12 @@ import flax.linen as nn
 import optax
 from memory_rl.algorithms.rppo import RPPO, RPPOConfig
 from memory_rl.environments import environment
-from memory_rl.loggers import Logger, DashboardLogger, WandbLogger
+from memory_rl.loggers import Logger, DashboardLogger
 from memory_rl.networks import (
     MLP,
     SequenceNetwork,
     heads,
     FeatureExtractor,
-    S5,
-    SHMCell,
-    FFM,
-    GPT2,
-    GTrXL,
     xLSTMCell,
 )
 from memory_rl.networks.recurrent.rnn import RNN

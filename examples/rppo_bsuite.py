@@ -11,16 +11,11 @@ from memory_rl.networks import (
     SequenceNetwork,
     heads,
     FeatureExtractor,
-    S5,
     RNN,
-    SHMCell,
-    FFM,
-    GPT2,
-    GTrXL,
     xLSTMCell,
 )
 
-total_timesteps = 5_000_000
+total_timesteps = 1_000_000
 num_train_steps = 50_000
 num_eval_steps = 10_000
 
@@ -38,7 +33,7 @@ cfg = RPPOConfig(
     learning_rate=3e-4,
     num_envs=32,
     num_eval_envs=16,
-    num_steps=512,
+    num_steps=256,
     anneal_lr=True,
     gamma=0.999,
     gae_lambda=0.95,
@@ -46,17 +41,20 @@ cfg = RPPOConfig(
     update_epochs=4,
     normalize_advantage=True,
     clip_coef=0.2,
-    clip_vloss=True,
-    ent_coef=0.0,
+    clip_vloss=False,
+    ent_coef=0.01,
     vf_coef=0.5,
-    max_grad_norm=0.5,
+    max_grad_norm=1.0,
     learning_starts=0,
 )
 
 actor_network = SequenceNetwork(
     feature_extractor=FeatureExtractor(
         observation_extractor=MLP(
-            features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+            features=(112,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+        ),
+        action_extractor=MLP(
+            features=(16,), kernel_init=nn.initializers.orthogonal(scale=1.414)
         ),
     ),
     # torso=GPT2(
@@ -80,6 +78,7 @@ actor_network = SequenceNetwork(
     #     context_size=4,
     # ),
     torso=RNN(cell=xLSTMCell(features=128, pattern=("s"))),
+    # torso=RNN(cell=nn.GRUCell(features=128), unroll=16),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
@@ -93,7 +92,10 @@ actor_optimizer = optax.chain(
 critic_network = SequenceNetwork(
     feature_extractor=FeatureExtractor(
         observation_extractor=MLP(
-            features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+            features=(112,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+        ),
+        action_extractor=MLP(
+            features=(16,), kernel_init=nn.initializers.orthogonal(scale=1.414)
         ),
     ),
     # torso=GPT2(
@@ -117,6 +119,7 @@ critic_network = SequenceNetwork(
     #     context_size=4,
     # ),
     torso=RNN(cell=xLSTMCell(features=128, pattern=("s"))),
+    # torso=RNN(cell=nn.GRUCell(features=128), unroll=16),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(

@@ -1,9 +1,7 @@
-from types import SimpleNamespace
 
 import flax.linen as nn
 import gymnax  # type: ignore
 import jax
-import jax.numpy as jnp
 import optax
 import pytest
 

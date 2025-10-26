@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import field
-from typing import Any, Optional
+from typing import Optional
 
 from flax import struct
 from neptune_scale import Run

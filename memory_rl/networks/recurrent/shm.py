@@ -21,7 +21,7 @@ from flax.typing import (
 )
 from flax.linen.recurrent import RNNCellBase
 
-from memory_rl.networks.recurrent.utils import kaiming_uniform, xavier_uniform
+from memory_rl.networks.recurrent.utils import xavier_uniform
 
 A = TypeVar("A")
 Carry = Any

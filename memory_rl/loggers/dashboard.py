@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import field
-from typing import Any, DefaultDict, Mapping, Optional
+from typing import Any, DefaultDict, Optional
 
 from flax import struct
 

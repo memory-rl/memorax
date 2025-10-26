@@ -1,4 +1,3 @@
-import flax.linen as nn
 import gymnax  # type: ignore
 import jax
 import flashbax as fbx

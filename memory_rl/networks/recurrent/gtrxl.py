@@ -19,7 +19,6 @@ from flax.typing import (
     Initializer,
 )
 
-from memory_rl.networks.recurrent.utils import get_attention_implementation
 
 A = TypeVar("A")
 Carry = Any

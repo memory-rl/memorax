@@ -48,10 +48,10 @@ class WandbLogger(BaseLogger[WandbLoggerState]):
 
     def emit(self, state: WandbLoggerState) -> WandbLoggerState:
         for step, data in sorted(state.buffer.items()):
-            training_iqm_episode_returns = naniqm(data["training/mean_episode_returns"])
+            training_iqm_episode_returns = naniqm(data["training/mean_episode_returns"]) if "training/mean_episode_returns" in data else None
             evaluation_iqm_episode_returns = naniqm(
                 data["evaluation/mean_episode_returns"]
-            )
+            ) if "evaluation/mean_episode_returns" in data else None
             for seed, run in state.runs.items():
                 run.log(
                     {k: v[seed] if k != "SPS" else v for k, v in data.items()},

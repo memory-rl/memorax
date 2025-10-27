@@ -14,6 +14,8 @@ class Transition:
     reward: Optional[Array] = None
     done: Optional[Array] = None
     info: Optional[dict] = None
+    prev_action: Optional[Array] = None
+    prev_reward: Optional[Array] = None
     prev_done: Optional[Array] = None
     next_obs: Optional[Array] = None
     log_prob: Optional[Array] = None

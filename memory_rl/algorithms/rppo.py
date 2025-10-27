@@ -159,6 +159,8 @@ class RPPO:
             info=info,  # type: ignore
             log_prob=log_prob,  # type: ignore
             value=value,  # type: ignore
+            prev_action=jnp.where(state.timestep.done, 0, state.timestep.action),  # type: ignore
+            prev_reward=jnp.where(state.timestep.done, 0, state.timestep.reward),  # type: ignore
             prev_done=state.timestep.done,
         )
 
@@ -179,8 +181,8 @@ class RPPO:
                 params,
                 observation=transitions.obs,
                 mask=transitions.prev_done,
-                action=jnp.expand_dims(transitions.action, -1),
-                reward=jnp.expand_dims(transitions.reward, -1),
+                action=jnp.expand_dims(transitions.prev_action, -1),
+                reward=jnp.expand_dims(transitions.prev_reward, -1),
                 initial_carry=initial_actor_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
@@ -232,8 +234,8 @@ class RPPO:
                 params,
                 observation=transitions.obs,
                 mask=transitions.prev_done,
-                action=jnp.expand_dims(transitions.action, -1),
-                reward=jnp.expand_dims(transitions.reward, -1),
+                action=jnp.expand_dims(transitions.prev_action, -1),
+                reward=jnp.expand_dims(transitions.prev_reward, -1),
                 initial_carry=initial_critic_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )

@@ -88,7 +88,7 @@ class Logger(BaseLogger[LoggerState]):
                 f"{prefix}/max_{metric}": jnp.nanmax(a),
             }
 
-        num_episodes = {"num_episodes": transitions.num_episodes}
+        num_episodes = {f"{prefix}/num_episodes": transitions.num_episodes}
         episode_lengths = describe(transitions.episode_lengths, "episode_lengths")
         episode_returns = describe(transitions.episode_returns, "episode_returns")
 

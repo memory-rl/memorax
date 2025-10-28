@@ -27,6 +27,8 @@ class FileLogger(BaseLogger[FileLoggerState]):
     def init(self, cfg: dict) -> FileLoggerState:
         if "actor" in cfg["algorithm"]:
             cell = cfg["algorithm"]["actor"]["torso"]["_target_"]
+            if "RNN" in cell:
+                cell = cfg["algorithm"]["actor"]["torso"]["cell"]["_target_"]
         else:
             cell = cfg["algorithm"]["torso"]["_target_"]
         cell = cell.split(".")[-1]
@@ -74,7 +76,14 @@ class FileLogger(BaseLogger[FileLoggerState]):
             for seed, path in state.paths.items():
 
                 for metric, value in {
-                    k: v[seed] if k != "SPS" else v for k, v in data.items()
+                    k: (
+                        v[seed]
+                        if not (
+                            isinstance(v, int) or isinstance(v, float) or v.ndim == 0
+                        )
+                        else v
+                    )
+                    for k, v in data.items()
                 }.items():
                     metric_path = (path / f"{metric}.csv").resolve()
                     metric_path.parent.mkdir(exist_ok=True, parents=True)

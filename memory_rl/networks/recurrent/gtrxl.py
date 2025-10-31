@@ -148,8 +148,10 @@ class RelativeMultiHeadAttentionBlock(Module):
 
         key_mask = jnp.concatenate(
             [memory.mask, kv_cache.mask, mask], axis=1, dtype=jnp.int32
-        )[:, -(self.memory_length + self.context_length) :]
-        key_input = jnp.cumsum(key_mask, axis=1)
+        )
+        key_input = jnp.cumsum(key_mask, axis=1)[
+            :, -(self.memory_length + self.context_length) :
+        ]
 
         attention_mask = nn.make_attention_mask(
             query_input, key_input, pairwise_fn=jnp.equal

@@ -39,25 +39,10 @@ Output = Any
 class sLSTMCell(nn.Module):
     features: int
     num_heads: int
-    use_causal_conv: bool
-    conv_kernel_size: int
-
-    activation_fn: Callable[..., Any]
-    forget_activation: str
     eps: float
-    mlp_pf: float
-
     dropout_rate: float
     dtype: Dtype | None
     param_dtype: Dtype
-    carry_init: Initializer
-
-    def _log_forget(self, f_raw: Array) -> Array:
-        if self.forget_activation == "exp":
-            return f_raw
-        elif self.forget_activation == "sigmoid":
-            return -jax.nn.softplus(-f_raw)
-        raise ValueError("forget_activation must be 'exp' or 'sigmoid'.")
 
     @compact
     def __call__(
@@ -73,7 +58,9 @@ class sLSTMCell(nn.Module):
         recurrent_block_diagonal_dense = partial(
             BlockDiagonalDense,
             self.features,
+            num_heads=self.num_heads,
             use_bias=False,
+            kernel_init=nn.initializers.zeros_init(),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
@@ -91,7 +78,7 @@ class sLSTMCell(nn.Module):
         f = (
             f
             + recurrent_block_diagonal_dense(name="f")(h)
-            + self.param("f_bias", f_bias_init, (self.features,), self.param_dtype)
+            + self.param("f_bias", f_bias_init(self.num_heads, head_dim=self.features // self.num_heads), (self.features,), self.param_dtype)
         )
         z = (
             z
@@ -116,12 +103,12 @@ class sLSTMCell(nn.Module):
 
         o = sigmoid(o)
 
-        log_f = self._log_forget(f)
+        log_f = -jax.nn.softplus(-f)
         m_new = jnp.where(jnp.all(n == 0.0), i, jnp.maximum(log_f + m, i))
         i_p = jnp.minimum(jnp.exp(i - m_new), jnp.ones_like(i))
         f_p = jnp.minimum(jnp.exp(log_f + m - m_new), jnp.ones_like(f))
 
-        c_new = f_p * c + i_p * self.activation_fn(z)
+        c_new = f_p * c + i_p * nn.tanh(z)
         n_new = f_p * n + i_p
         h_tilde = c_new / jnp.maximum(n_new, self.eps)
         h_new = o * h_tilde
@@ -135,25 +122,12 @@ class sLSTMLayer(nn.Module):
     use_causal_conv: bool = True
     conv_kernel_size: int = 4
 
-    activation_fn: Callable[..., Any] = tanh
-    forget_activation: str = "sigmoid"  # 'exp' or 'sigmoid'
     eps: float = 1e-6
-    mlp_pf: float = 4.0 / 3.0
 
-    kernel_init: Initializer = default_kernel_init
-    recurrent_kernel_init: Initializer = initializers.zeros_init()
-    bias_init: Initializer = initializers.zeros_init()
     dropout_rate: float = 0.0
     dtype: Dtype | None = None
     param_dtype: jnp.dtype = jnp.float32
-    carry_init: Initializer = initializers.zeros_init()
 
-    def _log_forget(self, f_raw: Array) -> Array:
-        if self.forget_activation == "exp":
-            return f_raw
-        elif self.forget_activation == "sigmoid":
-            return -jax.nn.softplus(-f_raw)
-        raise ValueError("forget_activation must be 'exp' or 'sigmoid'.")
 
     @compact
     def __call__(
@@ -185,6 +159,7 @@ class sLSTMLayer(nn.Module):
         linear_block_diagonal_dense = partial(
             BlockDiagonalDense,
             self.features,
+            num_heads=self.num_heads,
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
@@ -198,28 +173,22 @@ class sLSTMLayer(nn.Module):
         cell_state, y = sLSTMCell(
             features=self.features,
             num_heads=self.num_heads,
-            use_causal_conv=self.use_causal_conv,
-            conv_kernel_size=self.conv_kernel_size,
-            activation_fn=self.activation_fn,
-            forget_activation=self.forget_activation,
             eps=self.eps,
-            mlp_pf=self.mlp_pf,
             dropout_rate=self.dropout_rate,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            carry_init=self.carry_init,
         )(i, f, z, o, cell_state)
 
-        y = y.reshape(B, self.num_heads, 1, head_dim)
-
-        h_dropout = nn.Dropout(
+        y = nn.Dropout(
             rate=self.dropout_rate, deterministic=not self.has_rng("dropout")
         )(y)
+
+        y = y.reshape(B, self.num_heads, 1, head_dim)
 
         h_norm = MultiHeadLayerNorm(
             use_scale=True,
             use_bias=False,
-        )(h_dropout)
+        )(y)
 
         return (cell_state, conv_state), h_norm.reshape(B, self.features)
 

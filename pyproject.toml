@@ -20,6 +20,7 @@ dependencies = [
     "wandb>=0.21.0",
     "neptune-scale>=0.27.0",
     "tensorboardx>=2.6.4",
+    "popjym>=0.0.1",
 ]
 
 [project.optional-dependencies]

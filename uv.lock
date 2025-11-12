@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'linux'",
@@ -1674,6 +1674,7 @@ dependencies = [
     { name = "gymnax" },
     { name = "jax" },
     { name = "neptune-scale" },
+    { name = "popjym" },
     { name = "tensorboardx" },
     { name = "wandb" },
 ]
@@ -1750,6 +1751,7 @@ requires-dist = [
     { name = "playground", marker = "extra == 'playground'", specifier = ">=0.0.5" },
     { name = "popgym-arcade", marker = "extra == 'all'", specifier = ">=0.0.4" },
     { name = "popgym-arcade", marker = "extra == 'popgym-arcade'", specifier = ">=0.0.4" },
+    { name = "popjym", specifier = ">=0.0.1" },
     { name = "popjym", marker = "extra == 'all'" },
     { name = "popjym", marker = "extra == 'popjym'", git = "https://github.com/EdanToledo/popjym.git" },
     { name = "tensorboardx", specifier = ">=2.6.4" },

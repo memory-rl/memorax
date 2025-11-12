@@ -13,6 +13,11 @@ from memory_rl.networks import (
     heads,
     FeatureExtractor,
     RNN,
+    SHMCell,
+    FFM,
+    GPT2,
+    GTrXL,
+    xLSTMCell,
 )
 
 total_timesteps = 15_000_000
@@ -33,8 +38,8 @@ cfg = RPPOConfig(
     num_minibatches=8,
     update_epochs=30,
     normalize_advantage=True,
-    clip_coef=0.2,
-    clip_vloss=False,
+    clip_coef=0.3,
+    clip_vloss=True,
     ent_coef=0.0,
     vf_coef=1.0,
     max_grad_norm=1.0,
@@ -61,8 +66,9 @@ actor_network = SequenceNetwork(
     #     memory_length=1,
     # ),
     # torso=S5(features=128, state_size=32, num_layers=4),
-    # torso=FFM(features=128, memory_size=32, context_size=8),
-    torso=RNN(cell=nn.GRUCell(features=256), unroll=16),
+    # torso=FFM(features=128, memory_size=32, context_size=8, num_steps=cfg.num_steps),
+    # torso=RNN(cell=xLSTMCell(features=256, pattern=("m", "s"))),
+    torso=RNN(cell=nn.GRUCell(features=128), unroll=16),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
@@ -70,7 +76,6 @@ actor_network = SequenceNetwork(
 actor_optimizer = optax.chain(
     optax.clip_by_global_norm(cfg.max_grad_norm),
     optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
-    # optax.contrib.muon(learning_rate=cfg.learning_rate),
 )
 
 critic_network = SequenceNetwork(
@@ -94,7 +99,7 @@ critic_network = SequenceNetwork(
     # ),
     # torso=FFM(features=128, memory_size=32, context_size=8, num_steps=cfg.num_steps),
     # torso=RNN(cell=xLSTMCell(features=256, pattern=("m", "s"))),
-    torso=RNN(cell=nn.GRUCell(features=256), unroll=16),
+    torso=RNN(cell=nn.GRUCell(features=128), unroll=16),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(
@@ -121,6 +126,7 @@ logger_state = logger.init(cfg)
 
 key, state = agent.init(key)
 
+<<<<<<< Updated upstream
 mmer_evaluation = -jnp.inf
 mmer_training = -jnp.inf
 
@@ -131,6 +137,15 @@ mmer_evaluation = jnp.maximum(
 )
 data = {**evaluation_statistics, "evaluation/mmer": mmer_evaluation}
 logger_state = logger.log(logger_state, data, step=state.step.item())
+=======
+evaluation_mmer = -jnp.inf
+traning_mmer = -jnp.inf
+
+key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
+evaluation_statistics = Logger.get_episode_statistics(transitions, "evaluation")
+evaluation_mmer = jnp.maximum(evaluation_mmer, evaluation_statistics["evaluation/mean_episode_returns"])
+logger_state = logger.log(logger_state, {**evaluation_statistics, "evaluation/MMER": evaluation_mmer}, step=state.step.item())
+>>>>>>> Stashed changes
 logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
@@ -143,6 +158,7 @@ for i in range(0, total_timesteps, num_train_steps):
     SPS = int(num_train_steps / (end - start))
 
     training_statistics = Logger.get_episode_statistics(transitions, "training")
+<<<<<<< Updated upstream
     mmer_training = jnp.maximum(
         mmer_training, training_statistics["training/mean_episode_returns"]
     )
@@ -152,12 +168,22 @@ for i in range(0, total_timesteps, num_train_steps):
         **transitions.losses,
         "training/mmer": mmer_training,
     }
+=======
+    traning_mmer = jnp.maximum(traning_mmer, training_statistics["training/mean_episode_returns"])
+    data = {"SPS": SPS, **training_statistics, **transitions.losses, "training/MMER": traning_mmer}
+>>>>>>> Stashed changes
     logger_state = logger.log(logger_state, data, step=state.step.item())
 
     key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
     evaluation_statistics = Logger.get_episode_statistics(transitions, "evaluation")
+<<<<<<< Updated upstream
     mmer_evaluation = jnp.maximum(
         mmer_evaluation, evaluation_statistics["evaluation/mean_episode_returns"]
+=======
+    evaluation_mmer = jnp.maximum(evaluation_mmer, evaluation_statistics["evaluation/mean_episode_returns"])
+    logger_state = logger.log(
+        logger_state, {**evaluation_statistics, "evaluation/MMER": evaluation_mmer}, step=state.step.item()
+>>>>>>> Stashed changes
     )
     data = {**evaluation_statistics, "evaluation/mmer": mmer_evaluation}
     logger_state = logger.log(logger_state, data, step=state.step.item())

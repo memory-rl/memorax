@@ -106,7 +106,8 @@ class MultiHeadAttentionBlock(nn.Module):
             key.astype(jnp.bfloat16),
             value.astype(jnp.bfloat16),
             mask=nn.combine_masks(attention_mask, causal_mask, dtype=jnp.bool),
-            implementation=get_attention_implementation(),
+            # implementation=get_attention_implementation(),
+            implementation="xla"
         )
 
         y = nn.DenseGeneral(

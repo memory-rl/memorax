@@ -80,10 +80,15 @@ def uniform(minval, maxval):
     return init
 
 
-def f_bias_init(key, shape, dtype):
+def f_bias_init(num_heads, head_dim):
     """Initializes a weight matrix with a power law distribution."""
-    num_heads, *_ = shape
-    return jnp.linspace(3.0, 6.0, num_heads, dtype=dtype)
+    def init(key, shape, dtype):
+        x = jnp.arange(head_dim) / jnp.maximum(1.0, head_dim - 1)
+        v = -(-5.0 + 12.0 * (x ** 0.3))
+        b = jnp.tile(v, reps=(num_heads,))
+        return b.astype(dtype)
+
+    return init
 
 
 def small_init(dim):
@@ -105,7 +110,7 @@ def wang_init(dim, num_blocks):
 class BlockDiagonalDense(nn.Module):
 
     features: int
-    block_size: int = 4
+    num_heads: int
     use_bias: bool = True
     kernel_init: Initializer | None = None
     bias_init: Initializer = nn.initializers.zeros_init()
@@ -115,22 +120,16 @@ class BlockDiagonalDense(nn.Module):
     @nn.compact
     def __call__(self, x: Array) -> jax.Array:
         *batch, features = x.shape
-        num_heads = features // self.block_size
+        block_size = features // self.num_heads
 
-        if features % self.block_size != 0:
-            raise ValueError(
-                f"head_dim ({features}) must be divisible by block_size ({self.block_size})."
-            )
-
-        kernel_init = self.kernel_init or small_init(self.features // num_heads)
+        kernel_init = self.kernel_init or small_init(block_size)
         kernel = self.param(
             "kernel",
             kernel_init,
-            (num_heads, self.block_size, self.block_size),
+            (self.num_heads, block_size, block_size),
             self.param_dtype,
         )
-        x, kernel = promote_dtype(x, kernel, dtype=self.dtype)
-        x = x.reshape(*batch, num_heads, self.block_size)
+        x = x.reshape(*batch, self.num_heads, -1)
         x = jnp.einsum("...hd,hod->...ho", x, kernel)
         x = x.reshape(*batch, -1)
 
@@ -147,21 +146,45 @@ class BlockDiagonalDense(nn.Module):
         return x
 
 
-def MultiHeadLayerNorm(
-    use_scale: bool = True,
-    use_bias: bool = False,
-    eps: float = 1e-5,
-    dtype: jnp.dtype = jnp.float32,
-    axis: int = 1,
-    **kwargs,
-):
-    return nn.vmap(
-        nn.LayerNorm,
-        variable_axes={"params": 0},
-        in_axes=axis,
-        out_axes=axis,
-        split_rngs={"params": True},
-    )(epsilon=eps, use_bias=use_bias, use_scale=use_scale, dtype=dtype, **kwargs)
+class MultiHeadLayerNorm(nn.Module):
+    eps: float = 1e-5
+    use_scale: bool = True
+    use_bias: bool = False
+    residual_weight: bool = True
+    dtype: Dtype | None = None
+    param_dtype: Dtype = jnp.float32
+
+    @nn.compact
+    def __call__(self, x):
+        B, NH, S, DH = x.shape
+
+        y = nn.vmap(
+            nn.LayerNorm,
+            variable_axes={"params": 0},
+            split_rngs={"params": True},
+            in_axes=1, out_axes=1,
+        )(
+            epsilon=self.eps,
+            use_scale=False,
+            use_bias=False,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )(x)
+
+        if self.use_scale:
+            gamma = self.param(
+                "weight", nn.initializers.zeros_init(), (NH, DH), self.param_dtype
+            )
+            scale = (1.0 + gamma) if self.residual_weight else gamma
+            y = y * scale[None, :, None, :].astype(y.dtype)
+
+        if self.use_bias:
+            beta = self.param(
+                "bias", nn.initializers.zeros_init(), (NH, DH), self.param_dtype
+            )
+            y = y + beta[None, :, None, :].astype(y.dtype)
+
+        return y
 
 
 class CausalConv1d(nn.Module):

@@ -70,8 +70,7 @@ class mLSTMCell(nn.Module):
         )
         i_tilde = gate(name="wi", bias_init=initializers.normal(stddev=0.1))(qkv)
         i_tilde = i_tilde.swapaxes(-1, -2)[..., None]
-
-        f_tilde = gate(name="wf", bias_init=f_bias_init)(qkv)
+        f_tilde = gate(name="wf", bias_init=f_bias_init(self.num_heads, head_dim=self.features // self.num_heads))(qkv)
         f_tilde = f_tilde.swapaxes(-1, -2)[..., None]
 
         log_f = -jax.nn.softplus(-f_tilde)
@@ -141,6 +140,8 @@ class mLSTMLayer(nn.Module):
         linear_block_diagonal_dense = partial(
             BlockDiagonalDense,
             features=up_features,
+            num_heads=self.num_heads,
+            use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )

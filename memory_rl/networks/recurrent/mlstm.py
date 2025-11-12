@@ -22,9 +22,9 @@ from memory_rl.networks.recurrent.utils import (
     BlockDiagonalDense,
     CausalConv1d,
     MultiHeadLayerNorm,
+    linspace_init,
     wang_init,
     small_init,
-    f_bias_init,
     add_time_axis,
 )
 
@@ -70,7 +70,7 @@ class mLSTMCell(nn.Module):
         )
         i_tilde = gate(name="wi", bias_init=initializers.normal(stddev=0.1))(qkv)
         i_tilde = i_tilde.swapaxes(-1, -2)[..., None]
-        f_tilde = gate(name="wf", bias_init=f_bias_init(self.num_heads, head_dim=self.features // self.num_heads))(qkv)
+        f_tilde = gate(name="wf", bias_init=linspace_init(start=3.0, stop=6.0))(qkv)
         f_tilde = f_tilde.swapaxes(-1, -2)[..., None]
 
         log_f = -jax.nn.softplus(-f_tilde)

@@ -25,7 +25,7 @@ from memory_rl.networks.recurrent.utils import (
     CausalConv1d,
     MultiHeadLayerNorm,
     add_time_axis,
-    f_bias_init,
+    powerlaw_init,
     BlockDiagonalDense,
     remove_time_axis,
 )
@@ -78,7 +78,7 @@ class sLSTMCell(nn.Module):
         f = (
             f
             + recurrent_block_diagonal_dense(name="f")(h)
-            + self.param("f_bias", f_bias_init(self.num_heads, head_dim=self.features // self.num_heads), (self.features,), self.param_dtype)
+            + self.param("f_bias", powerlaw_init(self.num_heads, head_dim=self.features // self.num_heads), (self.features,), self.param_dtype)
         )
         z = (
             z
@@ -204,14 +204,18 @@ class sLSTMLayer(nn.Module):
         conv_kernel_size=4,
     ) -> tuple:
         """To be called by xLSTMCell"""
-        batch_dims = input_shape[:-1]
+        *batch_dims, in_features = input_shape
         key_c, key_n, key_h, key_m, key_conv = random.split(rng, 5)
-        mem_shape = batch_dims + (features,)
+        mem_shape = (*batch_dims, features,)
         c = carry_init(key_c, mem_shape, param_dtype)
         n = carry_init(key_n, mem_shape, param_dtype)
         m = carry_init(key_m, mem_shape, param_dtype)
         h = carry_init(key_h, mem_shape, param_dtype)
         cell_state = (c, n, m, h)
 
-        conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, features))
+        conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, in_features))
+
+        breakpoint()
+        jax.debug.breakpoint()
+
         return cell_state, conv_state

@@ -11,4 +11,5 @@ from memory_rl.networks.recurrent import (
     GTrXL,
     SHMCell,
     S5,
+    LRU,
 )

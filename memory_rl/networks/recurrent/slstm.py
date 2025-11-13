@@ -78,7 +78,12 @@ class sLSTMCell(nn.Module):
         f = (
             f
             + recurrent_block_diagonal_dense(name="f")(h)
-            + self.param("f_bias", powerlaw_init(self.num_heads, head_dim=self.features // self.num_heads), (self.features,), self.param_dtype)
+            + self.param(
+                "f_bias",
+                powerlaw_init(self.num_heads, head_dim=self.features // self.num_heads),
+                (self.features,),
+                self.param_dtype,
+            )
         )
         z = (
             z
@@ -127,7 +132,6 @@ class sLSTMLayer(nn.Module):
     dropout_rate: float = 0.0
     dtype: Dtype | None = None
     param_dtype: jnp.dtype = jnp.float32
-
 
     @compact
     def __call__(
@@ -204,18 +208,18 @@ class sLSTMLayer(nn.Module):
         conv_kernel_size=4,
     ) -> tuple:
         """To be called by xLSTMCell"""
-        *batch_dims, in_features = input_shape
+        *batch_dims, _ = input_shape
         key_c, key_n, key_h, key_m, key_conv = random.split(rng, 5)
-        mem_shape = (*batch_dims, features,)
+        mem_shape = (
+            *batch_dims,
+            features,
+        )
         c = carry_init(key_c, mem_shape, param_dtype)
         n = carry_init(key_n, mem_shape, param_dtype)
         m = carry_init(key_m, mem_shape, param_dtype)
         h = carry_init(key_h, mem_shape, param_dtype)
         cell_state = (c, n, m, h)
 
-        conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, in_features))
-
-        breakpoint()
-        jax.debug.breakpoint()
+        conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, features))
 
         return cell_state, conv_state

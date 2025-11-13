@@ -12,6 +12,9 @@ from memory_rl.networks import (
     heads,
     FeatureExtractor,
     RNN,
+    GPT2,
+    GTrXL,
+    LRU,
     xLSTMCell,
 )
 
@@ -36,7 +39,8 @@ cfg = RPPOConfig(
     learning_rate=3e-4,
     num_envs=32,
     num_eval_envs=16,
-    num_steps=256,
+    num_steps=env_params.max_steps_in_episode,
+    # num_steps=64,
     anneal_lr=True,
     gamma=0.999,
     gae_lambda=0.95,
@@ -54,10 +58,7 @@ cfg = RPPOConfig(
 actor_network = SequenceNetwork(
     feature_extractor=FeatureExtractor(
         observation_extractor=MLP(
-            features=(112,), kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ),
-        action_extractor=MLP(
-            features=(16,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+            features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
         ),
         action_extractor=MLP(
             features=(32,), kernel_init=nn.initializers.orthogonal(scale=1.414)
@@ -101,10 +102,7 @@ actor_optimizer = optax.chain(
 critic_network = SequenceNetwork(
     feature_extractor=FeatureExtractor(
         observation_extractor=MLP(
-            features=(112,), kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ),
-        action_extractor=MLP(
-            features=(16,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+            features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
         ),
         action_extractor=MLP(
             features=(32,), kernel_init=nn.initializers.orthogonal(scale=1.414)
@@ -158,8 +156,8 @@ agent = RPPO(
 logger = Logger(
     [
         DashboardLogger(title="RPPO bsuite Example", total_timesteps=total_timesteps),
-        WandbLogger(entity="noahfarr", project="benchmarks", mode="online", group=f"rppo_bsuite_{memory_length}_gpt2", num_seeds=num_seeds),
-     ]
+        # WandbLogger(entity="noahfarr", project="memory-rl", name="rppo_bsuite"),
+    ]
 )
 logger_state = logger.init(cfg)
 

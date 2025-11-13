@@ -5,3 +5,4 @@ from .xlstm import xLSTMCell
 from .gtrxl import GTrXL
 from .shm import SHMCell
 from .s5 import S5
+from .lru import LRU

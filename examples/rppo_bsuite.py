@@ -58,7 +58,7 @@ cfg = RPPOConfig(
 actor_network = SequenceNetwork(
     feature_extractor=FeatureExtractor(
         observation_extractor=MLP(
-            features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+            features=(192,), kernel_init=nn.initializers.orthogonal(scale=1.414)
         ),
         action_extractor=MLP(
             features=(32,), kernel_init=nn.initializers.orthogonal(scale=1.414)
@@ -87,8 +87,8 @@ actor_network = SequenceNetwork(
     #     memory_size=32,
     #     context_size=4,
     # ),
-    # torso=RNN(cell=xLSTMCell(features=256, pattern=("s"))),
-    torso=RNN(cell=nn.GRUCell(features=128)),
+    torso=RNN(cell=xLSTMCell(features=256, pattern=("m"))),
+    # torso=RNN(cell=nn.GRUCell(features=128)),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
@@ -102,7 +102,7 @@ actor_optimizer = optax.chain(
 critic_network = SequenceNetwork(
     feature_extractor=FeatureExtractor(
         observation_extractor=MLP(
-            features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+            features=(192,), kernel_init=nn.initializers.orthogonal(scale=1.414)
         ),
         action_extractor=MLP(
             features=(32,), kernel_init=nn.initializers.orthogonal(scale=1.414)
@@ -131,8 +131,8 @@ critic_network = SequenceNetwork(
     #     memory_size=32,
     #     context_size=4,
     # ),
-    # torso=RNN(cell=xLSTMCell(features=256, pattern=("s"))),
-    torso=RNN(cell=nn.GRUCell(features=128)),
+    torso=RNN(cell=xLSTMCell(features=256, pattern=("m"))),
+    # torso=RNN(cell=nn.GRUCell(features=128)),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(

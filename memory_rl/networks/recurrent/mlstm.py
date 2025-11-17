@@ -102,7 +102,7 @@ class mLSTMCell(nn.Module):
 class mLSTMLayer(nn.Module):
 
     features: int
-    up_proj_factor: float = 2.0
+    up_proj_factor: float = 2
     num_heads: int = 4
     conv_kernel_size: int = 4
     num_blocks: int = 1

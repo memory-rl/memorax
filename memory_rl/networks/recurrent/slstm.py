@@ -77,7 +77,7 @@ class sLSTMCell(nn.Module):
         )
         f = (
             f
-            + recurrent_block_diagonal_dense(name="f")(h)
+            + recurrent_gate(name="f")(h)
             + self.param(
                 "f_bias",
                 powerlaw_init(self.num_heads, head_dim=self.features // self.num_heads),

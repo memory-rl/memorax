@@ -22,7 +22,9 @@ from memory_rl.networks.recurrent.utils import (
     BlockDiagonalDense,
     CausalConv1d,
     MultiHeadLayerNorm,
+    kaiming_uniform,
     linspace_init,
+    remove_time_axis,
     wang_init,
     small_init,
     add_time_axis,
@@ -67,6 +69,7 @@ class mLSTMCell(nn.Module):
             kernel_init=initializers.zeros_init(),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
+            name="gate"
         )
         i_tilde = gate(name="wi", bias_init=initializers.normal(stddev=0.1))(qkv)
         i_tilde = i_tilde.swapaxes(-1, -2)[..., None]
@@ -99,10 +102,11 @@ class mLSTMCell(nn.Module):
 class mLSTMLayer(nn.Module):
 
     features: int
+    up_proj_factor: float = 2.0
     num_heads: int = 4
-    up_proj_factor: int = 2
     conv_kernel_size: int = 4
     num_blocks: int = 1
+    block_size: int = 4
 
     kernel_init: Initializer = default_kernel_init
     bias_init: Initializer = initializers.zeros_init()
@@ -114,41 +118,42 @@ class mLSTMLayer(nn.Module):
     @compact
     def __call__(self, carry, inputs):
         cell_state, conv_state = carry
-        up_features = self.features * self.up_proj_factor
-        assert up_features % self.num_heads == 0
+        *_, in_features = inputs.shape
+        up_features: int = in_features * self.up_proj_factor
 
         x = add_time_axis(inputs)
 
-        up = Dense(
+        up_proj = Dense(
             features=2 * up_features,
             use_bias=False,
-            kernel_init=small_init(self.features),
+            kernel_init=small_init(in_features),
             bias_init=self.bias_init,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="up_proj",
         )(x)
-        up_gate, up_core = jnp.split(up, 2, axis=-1)
+        x, z = jnp.split(up_proj, 2, axis=-1)
 
         conv_state, conv_x = CausalConv1d(
             features=up_features,
             kernel_size=self.conv_kernel_size,
             param_dtype=self.param_dtype,
-        )(up_core, conv_state)
+        )(x, conv_state)
         conv_x_act = jax.nn.silu(conv_x)
 
-        linear_block_diagonal_dense = partial(
+        proj = partial(
             BlockDiagonalDense,
             features=up_features,
             num_heads=self.num_heads,
             use_bias=False,
+            kernel_init=small_init(self.features),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
 
-        q = linear_block_diagonal_dense(name="q")(conv_x_act)
-        k = linear_block_diagonal_dense(name="k")(conv_x_act)
-        v = linear_block_diagonal_dense(name="v")(up_core)
+        q = proj(name="q_proj")(conv_x_act)
+        k = proj(name="k_proj")(conv_x_act)
+        v = proj(name="v_proj")(x)
 
         cell_state, h_tilde = mLSTMCell(
             features=up_features,
@@ -167,7 +172,7 @@ class mLSTMLayer(nn.Module):
             self.param_dtype,
         )
         h = h_tilde + (learnable_skip * conv_x_act)
-        h = h * jax.nn.silu(up_gate)
+        h = h * jax.nn.silu(z)
 
         y = Dense(
             features=self.features,
@@ -183,7 +188,9 @@ class mLSTMLayer(nn.Module):
             rate=self.dropout_rate, deterministic=not self.has_rng("dropout")
         )(y)
 
-        return (cell_state, conv_state), y.squeeze(1)
+        y = remove_time_axis(y)
+
+        return (cell_state, conv_state), y
 
     @staticmethod
     @nowrap

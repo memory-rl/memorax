@@ -55,7 +55,7 @@ class sLSTMCell(nn.Module):
     ):
         c, n, m, h = carry
 
-        recurrent_block_diagonal_dense = partial(
+        recurrent_gate = partial(
             BlockDiagonalDense,
             self.features,
             num_heads=self.num_heads,
@@ -67,7 +67,7 @@ class sLSTMCell(nn.Module):
 
         i = (
             i
-            + recurrent_block_diagonal_dense(name="i")(h)
+            + recurrent_gate(name="i")(h)
             + self.param(
                 "i_bias",
                 nn.initializers.zeros_init(),
@@ -87,7 +87,7 @@ class sLSTMCell(nn.Module):
         )
         z = (
             z
-            + recurrent_block_diagonal_dense(name="z")(h)
+            + recurrent_gate(name="z")(h)
             + self.param(
                 "z_bias",
                 nn.initializers.zeros_init(),
@@ -97,7 +97,7 @@ class sLSTMCell(nn.Module):
         )
         o = (
             o
-            + recurrent_block_diagonal_dense(name="o")(h)
+            + recurrent_gate(name="o")(h)
             + self.param(
                 "o_bias",
                 nn.initializers.zeros_init(),
@@ -160,7 +160,7 @@ class sLSTMLayer(nn.Module):
         else:
             conv_x_act = inputs
 
-        linear_block_diagonal_dense = partial(
+        gate = partial(
             BlockDiagonalDense,
             self.features,
             num_heads=self.num_heads,
@@ -169,10 +169,10 @@ class sLSTMLayer(nn.Module):
             param_dtype=self.param_dtype,
         )
 
-        i = linear_block_diagonal_dense(name="i")(conv_x_act)
-        f = linear_block_diagonal_dense(name="f")(conv_x_act)
-        z = linear_block_diagonal_dense(name="z")(inputs)
-        o = linear_block_diagonal_dense(name="o")(inputs)
+        i = gate(name="i")(conv_x_act)
+        f = gate(name="f")(conv_x_act)
+        z = gate(name="z")(inputs)
+        o = gate(name="o")(inputs)
 
         cell_state, y = sLSTMCell(
             features=self.features,

@@ -61,3 +61,8 @@ class Transition:
     def losses(self):
         assert self.info is not None
         return {k: v.mean() for k, v in self.info.items() if k.startswith("losses")}
+
+    @property
+    def infos(self):
+        assert self.info is not None
+        return {k: v.mean() for k, v in self.info.items() if not k.startswith("losses")}

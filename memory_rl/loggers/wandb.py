@@ -35,7 +35,7 @@ class WandbLogger(BaseLogger[WandbLoggerState]):
                 name=self.name,
                 group=self.group,
                 mode=self.mode,
-                config=cfg,
+                config={**cfg, "seed": cfg["seed"] + seed},
                 reinit="create_new",
             )
             for seed in range(self.num_seeds)

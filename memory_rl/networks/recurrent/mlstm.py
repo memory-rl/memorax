@@ -38,7 +38,7 @@ Output = Any
 
 class mLSTMCell(nn.Module):
 
-    features: int
+    hidden_dim: int
     num_heads: int
 
     kernel_init: Initializer
@@ -51,7 +51,7 @@ class mLSTMCell(nn.Module):
     def __call__(self, q, k, v, carry):
         (c, n, m) = carry
         B, S, _ = q.shape
-        head_dim = self.features // self.num_heads
+        head_dim = self.hidden_dim // self.num_heads
 
         qkv = jnp.concatenate([q, k, v], axis=-1)
 
@@ -69,7 +69,7 @@ class mLSTMCell(nn.Module):
             kernel_init=initializers.zeros_init(),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="gate"
+            name="gate",
         )
         i_tilde = gate(name="wi", bias_init=initializers.normal(stddev=0.1))(qkv)
         i_tilde = i_tilde.swapaxes(-1, -2)[..., None]
@@ -102,7 +102,9 @@ class mLSTMCell(nn.Module):
 class mLSTMLayer(nn.Module):
 
     features: int
+    hidden_dim: int
     up_proj_factor: float = 2
+    block_size: int = 4
     num_heads: int = 4
     conv_kernel_size: int = 4
     num_blocks: int = 1
@@ -118,15 +120,15 @@ class mLSTMLayer(nn.Module):
     @compact
     def __call__(self, carry, inputs):
         cell_state, conv_state = carry
-        *_, in_features = inputs.shape
-        up_features: int = in_features * self.up_proj_factor
+
+        hidden_dim: int = self.hidden_dim * self.up_proj_factor
 
         x = add_time_axis(inputs)
 
         up_proj = Dense(
-            features=2 * up_features,
+            features=2 * hidden_dim,
             use_bias=False,
-            kernel_init=small_init(in_features),
+            kernel_init=small_init(self.hidden_dim),
             bias_init=self.bias_init,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
@@ -135,7 +137,7 @@ class mLSTMLayer(nn.Module):
         x, z = jnp.split(up_proj, 2, axis=-1)
 
         conv_state, conv_x = CausalConv1d(
-            features=up_features,
+            features=hidden_dim,
             kernel_size=self.conv_kernel_size,
             param_dtype=self.param_dtype,
         )(x, conv_state)
@@ -143,8 +145,8 @@ class mLSTMLayer(nn.Module):
 
         proj = partial(
             BlockDiagonalDense,
-            features=up_features,
-            num_heads=self.num_heads,
+            features=hidden_dim,
+            num_heads=hidden_dim // self.block_size,
             use_bias=False,
             kernel_init=small_init(self.features),
             dtype=self.dtype,
@@ -156,7 +158,7 @@ class mLSTMLayer(nn.Module):
         v = proj(name="v_proj")(x)
 
         cell_state, h_tilde = mLSTMCell(
-            features=up_features,
+            hidden_dim=hidden_dim,
             num_heads=self.num_heads,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
@@ -168,7 +170,7 @@ class mLSTMLayer(nn.Module):
         learnable_skip = self.param(
             "learnable_skip",
             initializers.ones_init(),
-            (up_features,),
+            (hidden_dim,),
             self.param_dtype,
         )
         h = h_tilde + (learnable_skip * conv_x_act)
@@ -177,7 +179,7 @@ class mLSTMLayer(nn.Module):
         y = Dense(
             features=self.features,
             use_bias=False,
-            kernel_init=wang_init(self.features, self.num_blocks),
+            kernel_init=wang_init(self.hidden_dim, self.num_blocks),
             bias_init=self.bias_init,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
@@ -198,7 +200,7 @@ class mLSTMLayer(nn.Module):
         rng: PRNGKey,
         input_shape: tuple[int, ...],
         *,
-        features,
+        hidden_dim,
         carry_init=initializers.zeros_init(),
         up_proj_factor=2,
         num_heads=4,
@@ -207,8 +209,8 @@ class mLSTMLayer(nn.Module):
     ) -> tuple:
         """To be called by xLSTMCell"""
         *batch_dims, _ = input_shape
-        up_features = features * up_proj_factor
-        head_dim = up_features // num_heads
+        hidden_dim = hidden_dim * up_proj_factor
+        head_dim = hidden_dim // num_heads
         key_c, key_n, key_m, key_conv = random.split(rng, 4)
         C = carry_init(
             key_c, ((*batch_dims, num_heads, head_dim, head_dim)), param_dtype
@@ -217,6 +219,6 @@ class mLSTMLayer(nn.Module):
         m = carry_init(key_m, ((*batch_dims, num_heads, 1, 1)), param_dtype)
         cell_state = (C, n, m)
 
-        conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, up_features))
+        conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, hidden_dim))
 
         return cell_state, conv_state

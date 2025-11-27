@@ -19,7 +19,6 @@ Output = Any
 
 
 class xLSTMBlock(nn.Module):
-    features: int
     layer: nn.Module
     ffn: Optional[nn.Module] = None
     kernel_init: Any = None
@@ -45,6 +44,7 @@ class xLSTMBlock(nn.Module):
 
 class xLSTMCell(RNNCellBase):
     features: int
+    hidden_dim: int
     pattern: tuple[str, ...]  # sequence of "s" / "m"
 
     kernel_init: Any = None
@@ -57,9 +57,9 @@ class xLSTMCell(RNNCellBase):
         for i, kind in enumerate(self.pattern):
             if kind == "s":
                 block = xLSTMBlock(
-                    features=self.features,
                     layer=sLSTMLayer(
                         features=self.features,
+                        hidden_dim=self.hidden_dim,
                         name=f"sLSTMCell_{i}",
                     ),
                     kernel_init=self.kernel_init,
@@ -67,9 +67,9 @@ class xLSTMCell(RNNCellBase):
                 )
             elif kind == "m":
                 block = xLSTMBlock(
-                    features=self.features,
                     layer=mLSTMLayer(
                         features=self.features,
+                        hidden_dim=self.hidden_dim,
                         name=f"mLSTMCell_{i}",
                     ),
                     kernel_init=self.kernel_init,
@@ -92,7 +92,7 @@ class xLSTMCell(RNNCellBase):
                     sLSTMLayer._initialize_carry(
                         key,
                         input_shape,
-                        features=self.features,
+                        hidden_dim=self.hidden_dim,
                     )
                 )
             elif kind == "m":
@@ -100,7 +100,7 @@ class xLSTMCell(RNNCellBase):
                     mLSTMLayer._initialize_carry(
                         key,
                         input_shape,
-                        features=self.features,
+                        hidden_dim=self.hidden_dim,
                     )
                 )
             else:

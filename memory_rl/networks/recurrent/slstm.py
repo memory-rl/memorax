@@ -37,7 +37,7 @@ Output = Any
 
 
 class sLSTMCell(nn.Module):
-    features: int
+    hidden_dim: int
     num_heads: int
     eps: float
     dropout_rate: float
@@ -57,7 +57,7 @@ class sLSTMCell(nn.Module):
 
         recurrent_gate = partial(
             BlockDiagonalDense,
-            self.features,
+            self.hidden_dim,
             num_heads=self.num_heads,
             use_bias=False,
             kernel_init=nn.initializers.zeros_init(),
@@ -71,7 +71,7 @@ class sLSTMCell(nn.Module):
             + self.param(
                 "i_bias",
                 nn.initializers.zeros_init(),
-                (self.features,),
+                (self.hidden_dim,),
                 self.param_dtype,
             )
         )
@@ -80,8 +80,10 @@ class sLSTMCell(nn.Module):
             + recurrent_gate(name="f")(h)
             + self.param(
                 "f_bias",
-                powerlaw_init(self.num_heads, head_dim=self.features // self.num_heads),
-                (self.features,),
+                powerlaw_init(
+                    self.num_heads, head_dim=self.hidden_dim // self.num_heads
+                ),
+                (self.hidden_dim,),
                 self.param_dtype,
             )
         )
@@ -91,7 +93,7 @@ class sLSTMCell(nn.Module):
             + self.param(
                 "z_bias",
                 nn.initializers.zeros_init(),
-                (self.features,),
+                (self.hidden_dim,),
                 self.param_dtype,
             )
         )
@@ -101,7 +103,7 @@ class sLSTMCell(nn.Module):
             + self.param(
                 "o_bias",
                 nn.initializers.zeros_init(),
-                (self.features,),
+                (self.hidden_dim,),
                 self.param_dtype,
             )
         )
@@ -123,6 +125,7 @@ class sLSTMCell(nn.Module):
 
 class sLSTMLayer(nn.Module):
     features: int
+    hidden_dim: int
     num_heads: int = 4
     use_causal_conv: bool = True
     conv_kernel_size: int = 4
@@ -142,16 +145,16 @@ class sLSTMLayer(nn.Module):
         cell_state, conv_state = carry
 
         B, *_ = inputs.shape
-        head_dim = self.features // self.num_heads
-        if self.features % self.num_heads != 0:
+        head_dim = self.hidden_dim // self.num_heads
+        if self.hidden_dim % self.num_heads != 0:
             raise ValueError(
-                f"features ({self.features}) must be divisible by num_heads ({self.num_heads})."
+                f"features ({self.hidden_dim}) must be divisible by num_heads ({self.num_heads})."
             )
 
         if self.use_causal_conv:
             x = add_time_axis(inputs)
             conv_state, conv_x = CausalConv1d(
-                features=self.features,
+                features=self.hidden_dim,
                 kernel_size=self.conv_kernel_size,
                 param_dtype=self.param_dtype,
             )(x, conv_state)
@@ -162,7 +165,7 @@ class sLSTMLayer(nn.Module):
 
         gate = partial(
             BlockDiagonalDense,
-            self.features,
+            self.hidden_dim,
             num_heads=self.num_heads,
             use_bias=False,
             dtype=self.dtype,
@@ -175,7 +178,7 @@ class sLSTMLayer(nn.Module):
         o = gate(name="o")(inputs)
 
         cell_state, y = sLSTMCell(
-            features=self.features,
+            hidden_dim=self.hidden_dim,
             num_heads=self.num_heads,
             eps=self.eps,
             dropout_rate=self.dropout_rate,
@@ -202,7 +205,7 @@ class sLSTMLayer(nn.Module):
         rng: PRNGKey,
         input_shape: tuple[int, ...],
         *,
-        features,
+        hidden_dim,
         carry_init=initializers.zeros_init(),
         param_dtype=jnp.float32,
         conv_kernel_size=4,
@@ -212,7 +215,7 @@ class sLSTMLayer(nn.Module):
         key_c, key_n, key_h, key_m, key_conv = random.split(rng, 5)
         mem_shape = (
             *batch_dims,
-            features,
+            hidden_dim,
         )
         c = carry_init(key_c, mem_shape, param_dtype)
         n = carry_init(key_n, mem_shape, param_dtype)
@@ -220,6 +223,6 @@ class sLSTMLayer(nn.Module):
         h = carry_init(key_h, mem_shape, param_dtype)
         cell_state = (c, n, m, h)
 
-        conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, features))
+        conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, hidden_dim))
 
         return cell_state, conv_state

@@ -82,13 +82,15 @@ def uniform(minval, maxval):
 
 def powerlaw_init(num_heads, head_dim):
     """Initializes a weight matrix with a power law distribution."""
+
     def init(key, shape, dtype):
         x = jnp.arange(head_dim) / jnp.maximum(1.0, head_dim - 1)
-        v = -(-5.0 + 12.0 * (x ** 0.3))
+        v = -(-5.0 + 12.0 * (x**0.3))
         b = jnp.tile(v, reps=(num_heads,))
         return b.astype(dtype)
 
     return init
+
 
 def linspace_init(start, stop):
 
@@ -170,14 +172,17 @@ class MultiHeadLayerNorm(nn.Module):
             nn.LayerNorm,
             variable_axes={"params": 0},
             split_rngs={"params": True},
-            in_axes=1, out_axes=1,
+            in_axes=1,
+            out_axes=1,
         )(
             epsilon=self.eps,
             use_scale=False,
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-        )(x)
+        )(
+            x
+        )
 
         if self.use_scale:
             gamma = self.param(

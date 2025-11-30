@@ -178,7 +178,7 @@ class RPQN:
 
         hidden_state, transitions, target = minibatch
 
-        key, memory_key = jax.random.split(key)
+        key, memory_key, dropout_key = jax.random.split(key, 3)
 
         def loss_fn(params):
             _, q_value = self.q_network.apply(
@@ -186,7 +186,7 @@ class RPQN:
                 observation=transitions.obs,
                 mask=transitions.prev_done,
                 initial_carry=hidden_state,
-                rngs={"memory": memory_key},
+                rngs={"memory": memory_key, "dropout": dropout_key},
             )
             action = jnp.expand_dims(transitions.action, axis=-1)
             q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
@@ -218,14 +218,14 @@ class RPQN:
             length=self.cfg.num_steps,
         )
 
-        key, memory_key = jax.random.split(key)
+        key, memory_key, dropout_key = jax.random.split(key, 3)
 
         _, final_q_values = self.q_network.apply(
             state.params,
             observation=jnp.expand_dims(state.obs, 1),
             mask=jnp.expand_dims(state.done, 1),
             initial_carry=state.hidden_state,
-            rngs={"memory": memory_key},
+            rngs={"memory": memory_key, "dropout": dropout_key},
         )
         final_q_value = jnp.max(final_q_values, axis=-1).squeeze(-1) * (
             1.0 - state.done

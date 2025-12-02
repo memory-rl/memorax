@@ -28,6 +28,7 @@ class WandbLogger(BaseLogger[WandbLoggerState]):
     num_seeds: int = 1
 
     def init(self, cfg: dict) -> WandbLoggerState:
+        print("GROUP: ", self.group)
         runs = {
             seed: wandb.init(
                 entity=self.entity,

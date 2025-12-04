@@ -7,6 +7,7 @@ from memory_rl.environments import (
     navix,
     popgym_arcade,
     popjym,
+    memory_rl,
 )
 
 register = {
@@ -18,6 +19,7 @@ register = {
     "navix": navix.make,
     "popgym_arcade": popgym_arcade.make,
     "popjym": popjym.make,
+    "memory-rl": memory_rl.make,
 }
 
 

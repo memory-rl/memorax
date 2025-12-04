@@ -14,6 +14,7 @@ EnvParams: TypeAlias = gymnax.EnvParams
 EnvState: TypeAlias = gymnax.EnvState
 
 Carry: TypeAlias = Any
+PyTree: TypeAlias = Any
 
 
 class Logger(Protocol):

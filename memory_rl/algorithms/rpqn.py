@@ -23,7 +23,6 @@ class RPQNConfig:
     td_lambda: float
     num_minibatches: int
     update_epochs: int
-    td_lambda: float
     max_grad_norm: float
     learning_starts: int
     start_e: float

@@ -289,6 +289,8 @@ class GPT2(nn.Module):
             new_carry.append(kv_cache)
         new_carry = tuple(new_carry)
 
+        self.sow("intermediates", "representation", x)
+
         x = nn.LayerNorm(
             epsilon=1e-5,
             dtype=self.dtype,

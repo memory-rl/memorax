@@ -12,4 +12,5 @@ from memory_rl.networks.recurrent import (
     SHMCell,
     S5,
     LRU,
+    MinGRU,
 )

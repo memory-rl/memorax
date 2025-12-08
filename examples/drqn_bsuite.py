@@ -3,11 +3,11 @@ import time
 import jax
 import flax.linen as nn
 import optax
-from memory_rl.algorithms.drqn import DRQN, DRQNConfig
-from memory_rl.buffers import make_episode_buffer
-from memory_rl.environments import environment
-from memory_rl.loggers import Logger, DashboardLogger
-from memory_rl.networks import (
+from memorax.algorithms.drqn import DRQN, DRQNConfig
+from memorax.buffers import make_episode_buffer
+from memorax.environments import environment
+from memorax.loggers import Logger, DashboardLogger
+from memorax.networks import (
     MLP,
     SequenceNetwork,
     RNN,

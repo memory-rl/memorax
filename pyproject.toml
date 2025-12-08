@@ -3,10 +3,10 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["memory_rl", "tests"]
+packages = ["memorax", "tests"]
 
 [project]
-name = "memory-rl"
+name = "memorax"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"

@@ -3,10 +3,10 @@ import time
 import jax
 import flax.linen as nn
 import optax
-from memory_rl.algorithms.rppo import RPPO, RPPOConfig
-from memory_rl.environments import environment
-from memory_rl.loggers import Logger, DashboardLogger, WandbLogger
-from memory_rl.networks import (
+from memorax.algorithms.rppo import RPPO, RPPOConfig
+from memorax.environments import environment
+from memorax.loggers import Logger, DashboardLogger, WandbLogger
+from memorax.networks import (
     MLP,
     SequenceNetwork,
     heads,
@@ -156,7 +156,7 @@ agent = RPPO(
 logger = Logger(
     [
         DashboardLogger(title="RPPO bsuite Example", total_timesteps=total_timesteps),
-        # WandbLogger(entity="noahfarr", project="memory-rl", name="rppo_bsuite"),
+        # WandbLogger(entity="noahfarr", project="memorax", name="rppo_bsuite"),
     ]
 )
 logger_state = logger.init(cfg)

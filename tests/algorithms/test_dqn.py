@@ -4,10 +4,10 @@ import flashbax as fbx
 import optax
 import pytest
 
-from memory_rl.algorithms.dqn import DQN, DQNConfig
-from memory_rl.networks import Network, heads
-from memory_rl.networks.feature_extractors import SeparateFeatureExtractor
-from memory_rl.networks.mlp import MLP
+from memorax.algorithms.dqn import DQN, DQNConfig
+from memorax.networks import Network, heads
+from memorax.networks.feature_extractors import SeparateFeatureExtractor
+from memorax.networks.mlp import MLP
 
 
 @pytest.fixture

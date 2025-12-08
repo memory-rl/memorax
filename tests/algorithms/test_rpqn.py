@@ -4,10 +4,10 @@ import jax
 import optax
 import pytest
 
-from memory_rl.algorithms.rpqn import RPQN, RPQNConfig
-from memory_rl.networks import RecurrentNetwork, heads
-from memory_rl.networks.feature_extractors import SeparateFeatureExtractor
-from memory_rl.networks.mlp import MLP
+from memorax.algorithms.rpqn import RPQN, RPQNConfig
+from memorax.networks import RecurrentNetwork, heads
+from memorax.networks.feature_extractors import SeparateFeatureExtractor
+from memorax.networks.mlp import MLP
 
 
 @pytest.fixture

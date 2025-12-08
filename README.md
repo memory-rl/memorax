@@ -15,8 +15,8 @@ A unified reinforcement learning framework featuring memory-augmented algorithms
 1. **Clone the repository**:
 
 ```bash
-git clone https://github.com/memory-rl/memory-rl.git
-cd memory-rl
+git clone https://github.com/memorax/memorax.git
+cd memorax
 ```
 
 2. **Install Python dependencies**:
@@ -47,9 +47,9 @@ uv run examples/dqn_gymnax.py
 
 ## Project structure
 ```
-memory-rl/
+memorax/
 ├─ examples/          # Small runnable scripts (e.g., DQN CartPole)
-├─ memory_rl/
+├─ memorax/
    ├─ algorithms/     # DQN, PPO, SAC, PQN, ...
    ├─ networks/       # MLP, CNN, RNN, heads, ...
    ├─ environments/   # Gymnax / PopGym / Brax / ...
@@ -70,6 +70,6 @@ If you use Memory-RL for your work, please cite:
   title   = {Memory-RL: A Unified Framework for Memory-Augmented Reinforcement Learning},
   author  = {Noah Farr},
   year    = {2025},
-  url     = {https://github.com/memory-rl/memory-rl}
+  url     = {https://github.com/memorax/memorax}
 }
 ```

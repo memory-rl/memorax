@@ -4,12 +4,12 @@ import jax
 import optax
 import pytest
 
-from memory_rl.algorithms.rsacd import RSACD, RSACDConfig
-from memory_rl.buffers import make_episode_buffer
-from memory_rl.networks import RecurrentNetwork
-from memory_rl.networks import heads
-from memory_rl.networks.feature_extractors import SeparateFeatureExtractor
-from memory_rl.networks.mlp import MLP
+from memorax.algorithms.rsacd import RSACD, RSACDConfig
+from memorax.buffers import make_episode_buffer
+from memorax.networks import RecurrentNetwork
+from memorax.networks import heads
+from memorax.networks.feature_extractors import SeparateFeatureExtractor
+from memorax.networks.mlp import MLP
 
 
 @pytest.fixture

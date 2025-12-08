@@ -5,9 +5,9 @@ import optax
 import flashbax as fbx
 import pytest
 
-from memory_rl.algorithms.sac import SAC, SACConfig
-from memory_rl.networks import heads, SeparateFeatureExtractor, Network
-from memory_rl.networks.mlp import MLP
+from memorax.algorithms.sac import SAC, SACConfig
+from memorax.networks import heads, SeparateFeatureExtractor, Network
+from memorax.networks.mlp import MLP
 
 
 @pytest.fixture

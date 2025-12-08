@@ -4,10 +4,10 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 import optax
-from memory_rl.algorithms.rppo import RPPO, RPPOConfig
-from memory_rl.environments import environment
-from memory_rl.loggers import Logger, DashboardLogger
-from memory_rl.networks import (
+from memorax.algorithms.rppo import RPPO, RPPOConfig
+from memorax.environments import environment
+from memorax.loggers import Logger, DashboardLogger
+from memorax.networks import (
     MLP,
     SequenceNetwork,
     heads,

@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Core source lives in `memory_rl/`, grouped by responsibility: `algorithms/` packages training loops for DQN, PPO, SAC, and memory-augmented variants; `networks/` houses recurrent cells and policy/value heads; `buffers/` and `utils/` provide rollout storage and shared helpers; `environments/` and `loggers/` wrap task definitions and logging sinks. The `popjaxrl/` tree mirrors experimental PopGym baselines with its own `algorithms/`, `envs/`, and `run_popgym.py`. Keep new tests under `tests/`, and direct generated checkpoints or Hydra logs to `outputs/`; long-form analysis lives in `plots/`.
+Core source lives in `memorax/`, grouped by responsibility: `algorithms/` packages training loops for DQN, PPO, SAC, and memory-augmented variants; `networks/` houses recurrent cells and policy/value heads; `buffers/` and `utils/` provide rollout storage and shared helpers; `environments/` and `loggers/` wrap task definitions and logging sinks. The `popjaxrl/` tree mirrors experimental PopGym baselines with its own `algorithms/`, `envs/`, and `run_popgym.py`. Keep new tests under `tests/`, and direct generated checkpoints or Hydra logs to `outputs/`; long-form analysis lives in `plots/`.
 
 ## Build, Test, and Development Commands
 - `uv sync` installs the core CPU stack specified in `pyproject.toml`; add `--extra cuda` to fetch GPU builds.

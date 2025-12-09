@@ -32,7 +32,7 @@ class GatedFeedForward(nn.Module):
         x = nn.Dense(self.down_proj_dim, name="down_proj", kernel_init=wang_init(dim=in_features, num_blocks=1), use_bias=False)(
             nn.gelu(gate) * x
         )
-        x = nn.Dropout(rate=self.dropout_rate)(x)
+        x = nn.Dropout(rate=self.dropout_rate, deterministic=self.has_rng("dropout"))(x)
         return x
 
 
@@ -64,7 +64,7 @@ class xLSTMBlock(nn.Module):
 
 class xLSTMCell(RNNCellBase):
     features: int
-    hidden_dim: int
+    hidden_dim: tuple[int, ...]
     pattern: tuple[str, ...]  # sequence of "s" / "m"
 
     kernel_init: Any = None
@@ -79,12 +79,12 @@ class xLSTMCell(RNNCellBase):
                 block = xLSTMBlock(
                     layer=sLSTMLayer(
                         features=self.features,
-                        hidden_dim=self.hidden_dim,
+                        hidden_dim=self.hidden_dim[i],
                         name=f"sLSTMCell_{i}",
                     ),
                     ffn=GatedFeedForward(
-                        up_proj_dim=4/3 * self.hidden_dim,
-                        down_proj_dim=self.hidden_dim,
+                        up_proj_dim=int(4/3 * self.hidden_dim[i]),
+                        down_proj_dim=self.hidden_dim[i],
                     ),
                     kernel_init=self.kernel_init,
                     bias_init=self.bias_init,
@@ -93,7 +93,7 @@ class xLSTMCell(RNNCellBase):
                 block = xLSTMBlock(
                     layer=mLSTMLayer(
                         features=self.features,
-                        hidden_dim=self.hidden_dim,
+                        hidden_dim=self.hidden_dim[i],
                         name=f"mLSTMCell_{i}",
                     ),
                     kernel_init=self.kernel_init,
@@ -110,13 +110,13 @@ class xLSTMCell(RNNCellBase):
     def initialize_carry(self, rng, input_shape):
         keys = random.split(rng, len(self.pattern))
         carry = []
-        for key, kind in zip(keys, self.pattern):
+        for i, (key, kind) in enumerate(zip(keys, self.pattern)):
             if kind == "s":
                 carry.append(
                     sLSTMLayer._initialize_carry(
                         key,
                         input_shape,
-                        hidden_dim=self.hidden_dim,
+                        hidden_dim=self.hidden_dim[i],
                     )
                 )
             elif kind == "m":
@@ -124,7 +124,7 @@ class xLSTMCell(RNNCellBase):
                     mLSTMLayer._initialize_carry(
                         key,
                         input_shape,
-                        hidden_dim=self.hidden_dim,
+                        hidden_dim=self.hidden_dim[i],
                     )
                 )
             else:

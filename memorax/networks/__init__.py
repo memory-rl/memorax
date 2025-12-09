@@ -22,4 +22,5 @@ from memorax.networks.sequence_models import (
     Mamba,
     KalmanNet,
     LinearTransformer,
+    RecurrentWrapper,
 )

@@ -20,8 +20,6 @@ Initializer = Callable[[PRNGKey, Shape, Dtype], Array]
 
 class MinGRU(SequenceModel):
     features: int
-    gate_fn: Callable[..., Any] = nn.sigmoid
-    activation_fn: Callable[..., Any] = nn.tanh
     kernel_init: Initializer = initializers.lecun_normal()
     bias_init: Initializer = initializers.zeros_init()
     dtype: Optional[Dtype] = None
@@ -32,45 +30,66 @@ class MinGRU(SequenceModel):
         self, inputs: Array, mask: Array, initial_carry: Optional[Array] = None, **kwargs
     ) -> Array:
 
-        dense_i = partial(
+        _, sequence_length, _ = inputs.shape
+        mask = mask[..., None]
+
+        dense = partial(
             nn.Dense,
             features=self.features,
-            use_bias=True,
+            use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
         )
 
-        z = self.gate_fn(dense_i(name="iz")(inputs))
+        z = dense(name="z")(inputs)
+        h_tilde = dense(name="h")(inputs)
 
-        n = self.activation_fn(dense_i(name="in")(inputs))
+        if sequence_length == 1:
+            z = nn.sigmoid(z)
+            h_tilde = jnp.where(h_tilde >= 0, h_tilde + 0.5, nn.sigmoid(h_tilde))
 
-        a = z * (1 - mask[..., None])
-        b = (1.0 - z) * n
+            if initial_carry is not None:
+                initial_carry = jnp.where(mask, 0.0, initial_carry)
+                carry = y = initial_carry + z * (h_tilde - initial_carry)
+            else:
+                carry = y = z * h_tilde
 
-        def scan_fn(prev_values, values):
-            a_prev, b_prev = prev_values
-            a, b = values
+            return carry, y
 
-            a_new = a * a_prev
-            b_new = a * b_prev + b
-            return a_new, b_new
+
+        log_z = -nn.softplus(-z)
+        log_h_tilde = jnp.where(h_tilde >= 0, jnp.log(nn.relu(h_tilde) + 0.5), -nn.softplus(-h_tilde))
+
+        x = log_z + log_h_tilde
+        decay = jnp.where(mask, -jnp.inf, -nn.softplus(z))
 
         if initial_carry is not None:
-            a, b = lax.associative_scan(jax.vmap(scan_fn), (a, b), axis=1)
+            x = jnp.concatenate([jnp.log(initial_carry), x], axis=1)
+            decay = jnp.pad(decay, ((0, 0), (1, 0), (0, 0)), constant_values=0.0)
 
-            carry = a * initial_carry[:, None, :] + b
-        else:
-            _, carry = lax.associative_scan(jax.vmap(scan_fn), (a, b), axis=1)
+        def binary_operation(lhs, rhs):
+            x_i, decay_i = lhs
+            x_j, decay_j = rhs
+            return jnp.logaddexp(decay_j + x_i, x_j), decay_i + decay_j
 
-        return carry, carry[:, -1, :]
+        log_h, _ = jax.lax.associative_scan(binary_operation, (x, decay), axis=1)
+        h = jnp.exp(log_h)
+
+        if initial_carry is not None:
+            h = h[:, 1:, :]
+
+        carry = h[:, -1:, :]
+        y = h[:, -sequence_length:, :]
+
+        return carry, y
 
     def initialize_carry(
         self, rng: Optional[PRNGKey], input_shape: Tuple[int, ...]
     ) -> Array:
-        batch_dims = input_shape[:-1]
-        mem_shape = batch_dims + (self.features,)
+        batch_size, *_ = input_shape
+        mem_shape = (batch_size, 1, self.features,)
 
         return jnp.zeros(mem_shape, dtype=self.dtype or self.param_dtype)
 

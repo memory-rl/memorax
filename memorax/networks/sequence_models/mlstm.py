@@ -21,14 +21,11 @@ from flax.typing import (
 from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import (
     BlockDiagonalDense,
-    CausalConv1d,
     MultiHeadLayerNorm,
-    kaiming_uniform,
+    ParallelCausalConv1d,
     linspace_init,
-    remove_time_axis,
     wang_init,
     small_init,
-    add_time_axis,
 )
 
 A = TypeVar("A")
@@ -49,20 +46,14 @@ class mLSTMCell(nn.Module):
     carry_init: Initializer
 
     @compact
-    def __call__(self, q, k, v, carry):
-        (c, n, m) = carry
+    def __call__(self, q, k, v, mask, state):
         B, S, _ = q.shape
-        head_dim = self.hidden_dim // self.num_heads
+        NH = self.num_heads
+        DH = self.hidden_dim // NH
+
+        prev_c, prev_n, prev_m = state
 
         qkv = jnp.concatenate([q, k, v], axis=-1)
-
-        def to_heads(x):
-            x = x.reshape(B, self.num_heads, head_dim, -1)
-            return x
-
-        q = to_heads(q)
-        k = to_heads(k) / jnp.sqrt(jnp.array(head_dim, dtype=self.param_dtype))
-        v = to_heads(v)
 
         gate = partial(
             Dense,
@@ -70,35 +61,69 @@ class mLSTMCell(nn.Module):
             kernel_init=initializers.zeros_init(),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="gate",
         )
-        i_tilde = gate(name="wi", bias_init=initializers.normal(stddev=0.1))(qkv)
-        i_tilde = i_tilde.swapaxes(-1, -2)[..., None]
-        f_tilde = gate(name="wf", bias_init=linspace_init(start=3.0, stop=6.0))(qkv)
-        f_tilde = f_tilde.swapaxes(-1, -2)[..., None]
 
-        log_f = -jax.nn.softplus(-f_tilde)
+        i_gate = gate(name="wi", bias_init=initializers.normal(stddev=0.1))(qkv)
+        i_gate = i_gate.reshape(B, NH, S)
+        f_gate = gate(name="wf", bias_init=linspace_init(start=3.0, stop=6.0))(qkv)
+        f_gate = f_gate.reshape(B, NH, S)
 
-        m_new = jnp.maximum(log_f + m, i_tilde)
-        i_prime = jnp.exp(i_tilde - m_new)
-        f_prime = jnp.exp(log_f + m - m_new)
+        def to_heads(x):
+            x = x.reshape(B, NH, S, DH)
+            return x
 
-        c_new = f_prime * c + i_prime * (k @ v.swapaxes(-1, -2))
-        n_new = f_prime * n + i_prime * k
+        q = to_heads(q) / jnp.sqrt(DH)
+        k = to_heads(k)
+        v = to_heads(v)
 
-        nominator = q.swapaxes(-1, -2) @ c_new
-        denominator = jnp.maximum(jnp.abs(q.swapaxes(-1, -2) @ n_new), jnp.exp(-m_new))
-        h_tilde = nominator / (denominator + 1e-6)
+        log_f_gate = -jax.nn.softplus(-f_gate)
+        log_f_gate_cumsum = jnp.cumsum(log_f_gate, axis=-1)
 
-        h_norm = MultiHeadLayerNorm(
-            use_scale=True,
-            use_bias=False,
-        )(h_tilde)
+        log_f_gate_matrix = jnp.expand_dims(log_f_gate_cumsum, axis=-1) - jnp.swapaxes(jnp.expand_dims(log_f_gate_cumsum, axis=-1), -1, -2)
 
-        h_norm = h_norm.swapaxes(1, 2).reshape(B, S, -1)
+        causal_mask = nn.make_causal_mask(jnp.ones((B, S)))
+        episode_indices = jnp.cumsum(mask, axis=-1)
+        attention_mask = nn.make_attention_mask(episode_indices, episode_indices, pairwise_fn=jnp.equal)
+        mask = nn.combine_masks(attention_mask, causal_mask)
+        log_f_gate_matrix = jnp.where(mask, -jnp.inf, log_f_gate_matrix, )
 
-        return (c_new, n_new, m_new), h_norm
+        log_d_matrix = log_f_gate_matrix + jnp.expand_dims(i_gate, axis=-1)
+        max_d = jnp.max(log_d_matrix, axis=-1, keepdims=True)
 
+        state_decay_curve = jnp.expand_dims(log_f_gate_cumsum, axis=-1) + prev_m
+        stabilization = jnp.maximum(max_d, state_decay_curve)
+        decay = jnp.exp(state_decay_curve - stabilization)
+
+        inter_c = (q * decay) @ prev_c
+        inter_n = (q * decay) @ prev_n
+
+        d_matrix = jnp.exp(log_d_matrix - stabilization)
+
+        qk_matrix = q @ jnp.swapaxes(k, -1, -2)
+        e_matrix = qk_matrix * d_matrix
+
+        normalizer = jnp.maximum(
+            jnp.abs(jnp.sum(e_matrix, axis=-1, keepdims=True)) + inter_n,
+            jnp.exp(-stabilization)
+        )
+        intra = (e_matrix / (normalizer + 1e-6)) @ v
+        inter = inter_c / (normalizer + 1e-6)
+        output = (intra + inter).reshape(B, NH, S, DH)
+
+        final_decay = log_f_gate_cumsum[..., -1, None]
+
+        log_gates = i_gate - log_f_gate_cumsum
+        prev_m = prev_m.reshape(B, NH, 1)
+        m = jnp.maximum(final_decay + prev_m, jnp.max(
+            log_gates + final_decay, axis=-2, keepdims=True
+        ))
+
+        prev_decay = jnp.exp(prev_m + final_decay - m)
+        kv_decay = jnp.exp(log_gates + final_decay - m)
+        c = prev_c * jnp.expand_dims(prev_decay, axis=-1) + jnp.swapaxes(k * jnp.expand_dims(kv_decay, -1), -1, -2) @ v
+        n = prev_n * prev_decay + jnp.sum(k * kv_decay[..., None, None], axis=-1)
+
+        return (c, n, m), output
 
 class mLSTMLayer(nn.Module):
 
@@ -119,12 +144,11 @@ class mLSTMLayer(nn.Module):
     carry_init: Initializer = initializers.zeros_init()
 
     @compact
-    def __call__(self, carry, inputs):
-        cell_state, conv_state = carry
+    def __call__(self, inputs, mask, carry):
+        _, S, *_ = inputs.shape
+        conv_state, cell_state = carry
 
         hidden_dim: int = self.hidden_dim * self.up_proj_factor
-
-        x = add_time_axis(inputs)
 
         up_proj = Dense(
             features=2 * hidden_dim,
@@ -134,17 +158,18 @@ class mLSTMLayer(nn.Module):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="up_proj",
-        )(x)
+        )(inputs)
         x, z = jnp.split(up_proj, 2, axis=-1)
 
-        conv_state, conv_x = CausalConv1d(
+        x = jnp.concatenate([conv_state, x], axis=1)
+        conv_x = ParallelCausalConv1d(
             features=hidden_dim,
-            kernel_size=self.conv_kernel_size,
-            param_dtype=self.param_dtype,
-        )(x, conv_state)
-        conv_x_act = jax.nn.silu(conv_x)
+        )(x)
+        conv_x_act = jax.nn.silu(conv_x)[:, -S:, :]
+        conv_state = x[:, -self.conv_kernel_size:, :]
+        x = x[:, -S:, :]
 
-        proj = partial(
+        projection = partial(
             BlockDiagonalDense,
             features=hidden_dim,
             num_heads=hidden_dim // self.block_size,
@@ -154,9 +179,9 @@ class mLSTMLayer(nn.Module):
             param_dtype=self.param_dtype,
         )
 
-        q = proj(name="q_proj")(conv_x_act)
-        k = proj(name="k_proj")(conv_x_act)
-        v = proj(name="v_proj")(x)
+        q = projection(name="q")(conv_x_act)
+        k = projection(name="k")(conv_x_act)
+        v = projection(name="v")(x)
 
         cell_state, h_tilde = mLSTMCell(
             hidden_dim=hidden_dim,
@@ -166,7 +191,7 @@ class mLSTMLayer(nn.Module):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             carry_init=self.carry_init,
-        )(q, k, v, cell_state)
+        )(q, k, v, mask, cell_state)
 
         learnable_skip = self.param(
             "learnable_skip",
@@ -191,9 +216,7 @@ class mLSTMLayer(nn.Module):
             rate=self.dropout_rate, deterministic=not self.has_rng("dropout")
         )(y)
 
-        y = remove_time_axis(y)
-
-        return (cell_state, conv_state), y
+        return (conv_state, cell_state), y[:, -S:, :]
 
     @staticmethod
     @nowrap
@@ -213,6 +236,9 @@ class mLSTMLayer(nn.Module):
         hidden_dim = hidden_dim * up_proj_factor
         head_dim = hidden_dim // num_heads
         key_c, key_n, key_m, key_conv = random.split(rng, 4)
+
+        conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, hidden_dim))
+
         C = carry_init(
             key_c, ((*batch_dims, num_heads, head_dim, head_dim)), param_dtype
         )
@@ -220,6 +246,4 @@ class mLSTMLayer(nn.Module):
         m = carry_init(key_m, ((*batch_dims, num_heads, 1, 1)), param_dtype)
         cell_state = (C, n, m)
 
-        conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, hidden_dim))
-
-        return cell_state, conv_state
+        return conv_state, cell_state

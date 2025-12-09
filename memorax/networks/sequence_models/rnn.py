@@ -1,4 +1,4 @@
-from typing import Mapping
+from typing import Mapping, Optional
 
 import flax.linen as nn
 from flax.linen.recurrent import Carry
@@ -36,6 +36,9 @@ class RNN(SequenceModel):
         **kwargs,
     ):
         time_axis, input_shape = get_time_axis_and_input_shape(inputs)
+
+        if initial_carry is None:
+            initial_carry = self.cell.initialize_carry(jax.random.key(0), input_shape)
 
         carry: Carry = initial_carry
 

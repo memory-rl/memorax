@@ -46,10 +46,10 @@ class xLSTMBlock(nn.Module):
     bias_init: Any = None
 
     @compact
-    def __call__(self, carry, inputs):
+    def __call__(self, inputs, mask, carry):
         skip = inputs
         x = nn.LayerNorm(use_bias=False, name="pre_ln")(inputs)
-        carry, x = self.layer(carry, x)
+        carry, x = self.layer(x, mask, carry)
         x = x + skip
 
         if self.ffn is not None:
@@ -72,12 +72,12 @@ class xLSTMCell(RNNCellBase):
     bias_init: Any = None
 
     @compact
-    def __call__(self, carry, inputs):
+    def __call__(self, inputs, mask, initial_carry):
         x = inputs
-        cells = []
+        new_carry = []
         for i, kind in enumerate(self.pattern):
             if kind == "s":
-                block = xLSTMBlock(
+                carry_i, x = xLSTMBlock(
                     layer=sLSTMLayer(
                         features=self.features,
                         hidden_dim=self.hidden_dim[i],
@@ -89,9 +89,9 @@ class xLSTMCell(RNNCellBase):
                     ),
                     kernel_init=self.kernel_init,
                     bias_init=self.bias_init,
-                )
+                )(x, mask, initial_carry[i])
             elif kind == "m":
-                block = xLSTMBlock(
+                carry_i, x = xLSTMBlock(
                     layer=mLSTMLayer(
                         features=self.features,
                         hidden_dim=self.hidden_dim[i],
@@ -99,13 +99,12 @@ class xLSTMCell(RNNCellBase):
                     ),
                     kernel_init=self.kernel_init,
                     bias_init=self.bias_init,
-                )
+                )(x, mask, initial_carry[i])
             else:
                 raise ValueError(f"Unknown kind {kind!r}")
-            cell, x = block(carry[i], x)
-            cells.append(cell)
+            new_carry.append(carry_i)
         x = nn.LayerNorm(use_bias=False, name="post_ln")(x)
-        return tuple(cells), x
+        return tuple(new_carry), x
 
     @nowrap
     def initialize_carry(self, rng, input_shape):

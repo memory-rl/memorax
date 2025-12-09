@@ -132,7 +132,10 @@ class DRQN:
 
         buffer_state = state.buffer_state
         if write_to_buffer:
-            transition = jax.tree.map(lambda x: jnp.expand_dims(x, 1), transition)
+            if self.cfg.sequence_length is not None:
+                transition = jax.tree.map(lambda x: jnp.expand_dims(x, 1), transition)
+            # jax.debug.print("Shape of obs: {}", transition.obs.shape)
+            # print("Shape of obs: {}", transition.obs.shape)
             buffer_state = self.buffer.add(state.buffer_state, transition)
 
         state = state.replace(

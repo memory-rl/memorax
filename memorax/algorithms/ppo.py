@@ -1,10 +1,9 @@
-from typing import Any, Callable
-
 from functools import partial
-
+from typing import Any, Callable
+from flax import struct
+from flax import linen as nn
 import jax
 import jax.numpy as jnp
-from flax import struct
 import optax
 from flax import core
 
@@ -15,8 +14,7 @@ from memorax.utils.typing import (
     EnvState,
     Key,
 )
-from memorax.networks import Network
-from memorax.utils import generalized_advantage_estimatation, Transition
+from memorax.utils import generalized_advantage_estimatation, Transition, Timestep
 
 
 @struct.dataclass(frozen=True)
@@ -38,6 +36,7 @@ class PPOConfig:
     vf_coef: float
     max_grad_norm: float
     learning_starts: int
+    shuffle_time_axis: bool
 
     @property
     def batch_size(self):
@@ -47,12 +46,14 @@ class PPOConfig:
 @struct.dataclass(frozen=True)
 class PPOState:
     step: int
-    obs: Array
+    timestep: Timestep
     env_state: EnvState
     actor_params: core.FrozenDict[str, Any]
     actor_optimizer_state: optax.OptState
+    actor_carry: Array
     critic_params: core.FrozenDict[str, Any]
     critic_optimizer_state: optax.OptState
+    critic_carry: Array
 
 
 @struct.dataclass(frozen=True)
@@ -60,67 +61,140 @@ class PPO:
     cfg: PPOConfig
     env: Environment
     env_params: EnvParams
-    actor: Network
-    critic: Network
+    actor: nn.Module
+    critic: nn.Module
     actor_optimizer: optax.GradientTransformation
     critic_optimizer: optax.GradientTransformation
 
     def _deterministic_action(
         self, key: Key, state: PPOState
-    ) -> tuple[Key, Array, Array, Array]:
-        probs = self.actor.apply(state.actor_params, state.obs)
+    ) -> tuple[Key, PPOState, Array, Array]:
+        actor_carry, probs = self.actor.apply(
+            state.actor_params,
+            observation=jnp.expand_dims(state.timestep.obs, 1),
+            mask=jnp.expand_dims(state.timestep.done, 1),
+            action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
+            initial_carry=state.actor_carry,
+        )
         action = jnp.argmax(probs.logits, axis=-1)
         log_prob = probs.log_prob(action)
-        value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
-        return key, action, log_prob, value
+
+        critic_carry, value = self.critic.apply(
+            state.critic_params,
+            observation=jnp.expand_dims(state.timestep.obs, 1),
+            mask=jnp.expand_dims(state.timestep.done, 1),
+            action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
+            initial_carry=state.critic_carry,
+        )
+
+        action = action.squeeze(1)
+        log_prob = log_prob.squeeze(1)
+        value = value.squeeze((1, -1))
+
+        state = state.replace(
+            actor_carry=actor_carry,
+            critic_carry=critic_carry,
+        )
+        return key, state, action, log_prob, value
 
     def _stochastic_action(
         self, key: Key, state: PPOState
-    ) -> tuple[Key, Array, Array, Array]:
-        key, action_key = jax.random.split(key)
-        probs = self.actor.apply(state.actor_params, state.obs)
+    ) -> tuple[Key, PPOState, Array, Array]:
+        (
+            key,
+            action_key,
+            actor_memory_key,
+            critic_memory_key,
+        ) = jax.random.split(key, 4)
+        actor_carry, probs = self.actor.apply(
+            state.actor_params,
+            observation=jnp.expand_dims(state.timestep.obs, 1),
+            mask=jnp.expand_dims(state.timestep.done, 1),
+            action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
+            initial_carry=state.actor_carry,
+            rngs={"memory": actor_memory_key},
+        )
         action = probs.sample(seed=action_key)
         log_prob = probs.log_prob(action)
-        value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
-        return key, action, log_prob, value
+
+        critic_carry, value = self.critic.apply(
+            state.critic_params,
+            observation=jnp.expand_dims(state.timestep.obs, 1),
+            mask=jnp.expand_dims(state.timestep.done, 1),
+            action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
+            initial_carry=state.critic_carry,
+            rngs={"memory": critic_memory_key},
+        )
+
+        action = action.squeeze(1)
+        log_prob = log_prob.squeeze(1)
+        value = value.squeeze((1, -1))
+
+        state = state.replace(
+            actor_carry=actor_carry,
+            critic_carry=critic_carry,
+        )
+        return key, state, action, log_prob, value
 
     def _step(self, carry: tuple, _, *, policy: Callable):
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
-        key, action, log_prob, value = policy(action_key, state)
+        key, state, action, log_prob, value = policy(action_key, state)
 
-        num_envs = state.obs.shape[0]
+        num_envs = state.timestep.obs.shape[0]
         step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
 
         transition = Transition(
-            obs=state.obs,  # type: ignore
+            obs=state.timestep.obs,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             done=done,  # type: ignore
             info=info,  # type: ignore
             log_prob=log_prob,  # type: ignore
             value=value,  # type: ignore
+            prev_action=jnp.where(state.timestep.done, 0, state.timestep.action),  # type: ignore
+            prev_reward=jnp.where(state.timestep.done, 0, state.timestep.reward),  # type: ignore
+            prev_done=state.timestep.done,
         )
 
         state = state.replace(
             step=state.step + self.cfg.num_envs,
-            obs=next_obs,
+            timestep=Timestep(obs=next_obs, action=action, reward=reward, done=done),
             env_state=env_state,
         )
         return (key, state), transition
 
-    def _update_actor(self, state: PPOState, transitions, advantages):
+    def _update_actor(
+        self, key, state: PPOState, initial_actor_carry, transitions, advantages
+    ):
+        key, memory_key, dropout_key = jax.random.split(key, 3)
 
         def actor_loss_fn(params):
-            probs = self.actor.apply(params, transitions.obs)
-            log_prob = probs.log_prob(transitions.action)
+            _, probs = self.actor.apply(
+                params,
+                observation=transitions.obs,
+                mask=transitions.prev_done,
+                action=jnp.expand_dims(transitions.prev_action, -1),
+                reward=jnp.expand_dims(transitions.prev_reward, -1),
+                initial_carry=initial_actor_carry,
+                rngs={"memory": memory_key, "dropout": dropout_key},
+            )
+            log_probs = probs.log_prob(transitions.action)
             entropy = probs.entropy().mean()
+            ratio = jnp.exp(log_probs - transitions.log_prob)
+            approx_kl = jnp.mean(transitions.log_prob - log_probs)
+            clipfrac = jnp.mean(
+                (jnp.abs(ratio - 1.0) > self.cfg.clip_coef).astype(jnp.float32)
+            )
 
-            ratio = jnp.exp(log_prob - transitions.log_prob)
             actor_loss = -jnp.minimum(
                 ratio * advantages,
                 jnp.clip(
@@ -130,9 +204,13 @@ class PPO:
                 )
                 * advantages,
             ).mean()
-            return actor_loss - self.cfg.ent_coef * entropy, entropy.mean()
+            return actor_loss - self.cfg.ent_coef * entropy, (
+                entropy.mean(),  # type: ignore
+                approx_kl.mean(),  # type: ignore
+                clipfrac.mean(),  # type: ignore
+            )
 
-        (actor_loss, entropy), actor_grads = jax.value_and_grad(
+        (actor_loss, aux), actor_grads = jax.value_and_grad(
             actor_loss_fn, has_aux=True
         )(state.actor_params)
         actor_updates, actor_optimizer_state = self.actor_optimizer.update(
@@ -144,27 +222,39 @@ class PPO:
             actor_params=actor_params,
             actor_optimizer_state=actor_optimizer_state,
         )
+        return key, state, actor_loss.mean(), aux
 
-        return state, actor_loss.mean(), entropy
+    def _update_critic(
+        self, key, state: PPOState, initial_critic_carry, transitions, returns
+    ):
 
-    def _update_critic(self, state: PPOState, transitions, returns):
+        key, memory_key, dropout_key = jax.random.split(key, 3)
 
         def critic_loss_fn(params):
-            value = self.critic.apply(params, transitions.obs).squeeze(-1)
+            _, values = self.critic.apply(
+                params,
+                observation=transitions.obs,
+                mask=transitions.prev_done,
+                action=jnp.expand_dims(transitions.prev_action, -1),
+                reward=jnp.expand_dims(transitions.prev_reward, -1),
+                initial_carry=initial_critic_carry,
+                rngs={"memory": memory_key, "dropout": dropout_key},
+            )
+            values = values.squeeze(-1)
 
             if self.cfg.clip_vloss:
-                critic_loss = jnp.square(value - returns)
+                critic_loss = jnp.square(values - returns)
                 clipped_value = transitions.value + jnp.clip(
-                    (value - transitions.value),
+                    (values - transitions.value),
                     -self.cfg.clip_coef,
                     self.cfg.clip_coef,
                 )
                 clipped_critic_loss = jnp.square(clipped_value - returns)
                 critic_loss = 0.5 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
             else:
-                critic_loss = 0.5 * jnp.square(value - returns).mean()
+                critic_loss = 0.5 * jnp.square(values - returns).mean()
 
-            return self.cfg.vf_coef * critic_loss
+            return critic_loss
 
         critic_loss, critic_grads = jax.value_and_grad(critic_loss_fn)(
             state.critic_params
@@ -177,53 +267,106 @@ class PPO:
         state = state.replace(
             critic_params=critic_params, critic_optimizer_state=critic_optimizer_state
         )
-        return state, critic_loss.mean()
+        return key, state, critic_loss.mean()
 
-    def _update_minibatch(self, state, minibatch: tuple):
-        transitions, advantages, returns = minibatch
+    def _update_minibatch(self, carry, minibatch: tuple):
+        key, state = carry
+        (
+            initial_actor_carry,
+            initial_critic_carry,
+            transitions,
+            advantages,
+            returns,
+        ) = minibatch
 
-        state, critic_loss = self._update_critic(state, transitions, returns)
-        state, actor_loss, entropy = self._update_actor(state, transitions, advantages)
+        key, state, critic_loss = self._update_critic(
+            key, state, initial_critic_carry, transitions, returns
+        )
+        key, state, actor_loss, aux = self._update_actor(
+            key, state, initial_actor_carry, transitions, advantages
+        )
 
-        return state, (actor_loss.mean(), critic_loss.mean(), entropy)
+        return (key, state), (actor_loss, critic_loss, aux)
 
     def _update_epoch(self, carry: tuple, _):
-        key, state, batch = carry
+
+        (
+            key,
+            state,
+            initial_actor_h_epoch,
+            initial_critic_h_epoch,
+            transitions,
+            advantages,
+            returns,
+        ) = carry
 
         key, permutation_key = jax.random.split(key)
 
-        permutation = jax.random.permutation(permutation_key, self.cfg.batch_size)
-        flattened_batch = jax.tree.map(lambda x: x.reshape(-1, *x.shape[2:]), batch)
-        shuffled_batch = jax.tree.map(
-            lambda x: jnp.take(x, permutation, axis=0), flattened_batch
-        )
-        minibatches = jax.tree.map(
-            lambda x: jnp.reshape(
-                x, [self.cfg.num_minibatches, -1] + list(x.shape[1:])
-            ),
-            shuffled_batch,
+        batch = (
+            initial_actor_h_epoch,
+            initial_critic_h_epoch,
+            transitions,
+            advantages,
+            returns,
         )
 
-        state, (actor_loss, critic_loss, entropy) = jax.lax.scan(
+
+        def shuffle(batch, shuffle_time_axis):
+
+            if shuffle_time_axis:
+                batch = (
+                    initial_actor_h_epoch,
+                    initial_critic_h_epoch,
+                    *jax.tree.map(lambda x: x.reshape(-1, 1, *x.shape[2:]), (transitions, advantages, returns)),
+                )
+
+            permutation = jax.random.permutation(permutation_key, self.cfg.num_envs)
+
+            minibatches = jax.tree.map(
+                lambda x: jnp.take(x, permutation, axis=0).reshape(self.cfg.num_minibatches, -1, *x.shape[1:]),
+                tuple(batch)
+            )
+            return minibatches
+
+        minibatches = shuffle(batch, self.cfg.shuffle_time_axis)
+
+        (key, state), (actor_loss, critic_loss, aux) = jax.lax.scan(
             self._update_minibatch,
-            state,
+            (key, state),
             minibatches,
         )
 
         return (
             key,
             state,
-            batch,
-        ), (actor_loss, critic_loss, entropy)
+            initial_actor_h_epoch,
+            initial_critic_h_epoch,
+            transitions,
+            advantages,
+            returns,
+        ), (actor_loss, critic_loss, aux)
 
     def _update_step(self, carry: tuple, _):
 
+        key, state = carry
+        initial_actor_h_rollout = state.actor_carry
+        initial_critic_h_rollout = state.critic_carry
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),
-            carry,
+            (key, state),
             length=self.cfg.num_steps,
         )
-        final_value = self.critic.apply(state.critic_params, state.obs).squeeze(-1)
+
+        _, final_value = self.critic.apply(
+            state.critic_params,
+            observation=jnp.expand_dims(state.timestep.obs, 1),
+            mask=jnp.expand_dims(state.timestep.done, 1),
+            action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
+            initial_carry=state.critic_carry,
+        )
+
+        final_value = final_value.squeeze((1, -1))
 
         advantages, returns = generalized_advantage_estimatation(
             self.cfg.gamma,
@@ -232,64 +375,121 @@ class PPO:
             transitions,
         )
 
+        transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
+
+        advantages = jnp.swapaxes(advantages, 0, 1)
+        returns = jnp.swapaxes(returns, 0, 1)
+
         if self.cfg.normalize_advantage:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        batch = (transitions, advantages, returns)
-
-        (key, state, batch), (actor_loss, critic_loss, entropy) = jax.lax.scan(
+        (key, state, *_), (actor_loss, critic_loss, aux) = jax.lax.scan(
             self._update_epoch,
-            (key, state, batch),
+            (
+                key,
+                state,
+                initial_actor_h_rollout,
+                initial_critic_h_rollout,
+                transitions,
+                advantages,
+                returns,
+            ),
             length=self.cfg.update_epochs,
         )
-        transitions, *_ = batch
 
-        transitions.info["losses/actor_loss"] = actor_loss
-        transitions.info["losses/critic_loss"] = critic_loss
-        transitions.info["losses/entropy"] = entropy
+        entropy, approx_kl, clipfrac = aux
+        info = {
+            **transitions.info,
+            "losses/actor_loss": actor_loss,
+            "losses/critic_loss": critic_loss,
+            "losses/entropy": entropy,
+            "losses/approx_kl": approx_kl,
+            "losses/clipfrac": clipfrac,
+        }
 
-        return (key, state), transitions.replace(obs=None, next_obs=None)
+        return (
+            key,
+            state,
+        ), transitions.replace(obs=None, next_obs=None, info=info)
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
-        key, env_key, actor_key, critic_key = jax.random.split(key, 4)
+        (
+            key,
+            env_key,
+            actor_key,
+            actor_memory_key,
+            actor_dropout_key,
+            critic_key,
+            critic_memory_key,
+            critic_dropout_key,
+        ) = jax.random.split(key, 8)
 
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
+        action = jnp.zeros(self.cfg.num_envs, dtype=jnp.int32)
+        reward = jnp.zeros(self.cfg.num_envs, dtype=jnp.float32)
+        done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
+        actor_carry = self.actor.initialize_carry(obs.shape)
+        critic_carry = self.critic.initialize_carry(obs.shape)
 
-        actor_params = self.actor.init(actor_key, obs)
+        actor_params = self.actor.init(
+            {
+                "params": actor_key,
+                "memory": actor_memory_key,
+                "dropout": actor_dropout_key,
+            },
+            observation=jnp.expand_dims(obs, 1),
+            mask=jnp.expand_dims(done, 1),
+            action=jnp.expand_dims(action, (1, 2)),
+            reward=jnp.expand_dims(reward, (1, 2)),
+            initial_carry=actor_carry,
+        )
+        critic_params = self.critic.init(
+            {
+                "params": critic_key,
+                "memory": critic_memory_key,
+                "dropout": critic_dropout_key,
+            },
+            observation=jnp.expand_dims(obs, 1),
+            mask=jnp.expand_dims(done, 1),
+            action=jnp.expand_dims(action, (1, 2)),
+            reward=jnp.expand_dims(reward, (1, 2)),
+            initial_carry=critic_carry,
+        )
+
         actor_optimizer_state = self.actor_optimizer.init(actor_params)
-
-        critic_params = self.critic.init(critic_key, obs)
         critic_optimizer_state = self.critic_optimizer.init(critic_params)
 
         return (
             key,
             PPOState(
                 step=0,  # type: ignore
-                obs=obs,  # type: ignore
+                timestep=Timestep(obs=obs, action=action, reward=reward, done=done),
+                actor_carry=actor_carry,  # type: ignore
+                critic_carry=critic_carry,  # type: ignore
                 env_state=env_state,  # type: ignore
                 actor_params=actor_params,  # type: ignore
-                actor_optimizer_state=actor_optimizer_state,  # type: ignore
                 critic_params=critic_params,  # type: ignore
+                actor_optimizer_state=actor_optimizer_state,  # type: ignore
                 critic_optimizer_state=critic_optimizer_state,  # type: ignore
             ),
         )
 
-    @partial(jax.jit, static_argnames=["self"])
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key, state, num_steps):
         """No warmup needed for PPO"""
         return key, state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
+    @partial(jax.jit, static_argnums=(0, 3))
     def train(self, key, state, num_steps):
 
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
-            length=num_steps // self.cfg.num_envs // self.cfg.num_steps,
+            length=num_steps // (self.cfg.num_envs * self.cfg.num_steps),
         )
 
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, -1, 1), transitions)
@@ -301,13 +501,23 @@ class PPO:
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key, state, num_steps):
+
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
-        state = state.replace(obs=obs, env_state=env_state)
-
+        action = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.int32)
+        reward = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.float32)
+        done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
+        initial_actor_carry = self.actor.initialize_carry(obs.shape)
+        initial_critic_carry = self.critic.initialize_carry(obs.shape)
+        state = state.replace(
+            timestep=Timestep(obs=obs, action=action, reward=reward, done=done),
+            actor_carry=initial_actor_carry,
+            critic_carry=initial_critic_carry,
+            env_state=env_state,
+        )
         (key, *_), transitions = jax.lax.scan(
             partial(self._step, policy=self._deterministic_action),
             (key, state),

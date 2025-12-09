@@ -73,9 +73,9 @@ def xavier_uniform():
     return nn.initializers.variance_scaling(1.0, "fan_avg", "uniform")
 
 
-def uniform(minval, maxval):
+def uniform_init(min_val, max_val):
     def init(key, shape, dtype):
-        return jax.random.uniform(key, shape, minval=minval, maxval=maxval, dtype=dtype)
+        return jax.random.uniform(key, shape, minval=min_val, maxval=max_val, dtype=dtype)
 
     return init
 
@@ -225,6 +225,29 @@ class CausalConv1d(nn.Module):
             y = y + bias
         return conv_state, y
 
+class ParallelCausalConv1d(nn.Module):
+    features: int
+    kernel_size: int = 4
+    use_bias: bool = True
+    param_dtype: jnp.dtype = jnp.float32
+    dtype: jnp.dtype = jnp.float32
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray):
+        *_, feature_group_count = x.shape
+        padding = self.kernel_size - 1
+        x = nn.Conv(
+            features=self.features,
+            kernel_size=self.kernel_size,
+            kernel_init=kaiming_uniform(),
+            bias_init=uniform_init(min_val=-1.0 / jnp.sqrt(self.kernel_size), max_val=1.0 / jnp.sqrt(self.kernel_size)),
+            feature_group_count=feature_group_count,
+            padding=[(padding, 0)],
+            use_bias=self.use_bias,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )(x)
+        return x
 
 def make_hippo(n: int) -> jnp.ndarray:
     p = jnp.sqrt(1.0 + 2.0 * jnp.arange(n))

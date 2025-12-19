@@ -16,13 +16,10 @@ class Network(nn.Module):
     def __call__(
         self,
         observation: Array,
-        action: Optional[Array] = None,
-        reward: Optional[Array] = None,
-        done: Optional[Array] = None,
         **kwargs,
     ):
         x = self.feature_extractor(
-            observation, action=action, reward=reward, done=done, **kwargs
+            observation, **kwargs
         )
         x = self.torso(x, **kwargs)
         return self.head(x, **kwargs)
@@ -38,14 +35,11 @@ class SequenceNetwork(nn.Module):
         self,
         observation: Array,
         mask: Array,
-        action: Optional[Array] = None,
-        reward: Optional[Array] = None,
-        initial_carry: Carry | None = None,
         **kwargs,
     ):
-        x = self.feature_extractor(observation, action=action, reward=reward, **kwargs)
+        x = self.feature_extractor(observation, **kwargs)
 
-        carry, x = self.torso(x, mask=mask, initial_carry=initial_carry, **kwargs)
+        carry, x = self.torso(x, mask=mask, **kwargs)
         return carry, self.head(x, **kwargs)
 
     @nn.nowrap

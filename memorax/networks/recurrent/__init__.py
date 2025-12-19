@@ -13,3 +13,4 @@ from .delta_product import DeltaProduct
 from .td_delta_net import TDDeltaNet
 from .td_gated_delta_net import TDGatedDeltaNet
 from .mamba import Mamba
+from .kalman_net import KalmanNet

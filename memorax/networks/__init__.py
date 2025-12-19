@@ -1,6 +1,7 @@
 import memorax.networks.heads as heads
 from memorax.networks.cnn import CNN
 from memorax.networks.mlp import MLP
+from memorax.networks.embedding import Embedding
 from memorax.networks.feature_extractor import FeatureExtractor
 from memorax.networks.networks import Network, SequenceNetwork
 from memorax.networks.recurrent import (
@@ -19,4 +20,5 @@ from memorax.networks.recurrent import (
     TDGatedDeltaNet,
     DeltaProduct,
     Mamba,
+    KalmanNet,
 )

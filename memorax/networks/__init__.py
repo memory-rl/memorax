@@ -13,4 +13,10 @@ from memorax.networks.recurrent import (
     S5,
     LRU,
     MinGRU,
+    DeltaNet,
+    TDDeltaNet,
+    GatedDeltaNet,
+    TDGatedDeltaNet,
+    DeltaProduct,
+    Mamba,
 )

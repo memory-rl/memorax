@@ -15,20 +15,26 @@ from memorax.networks import (
     GPT2,
     GTrXL,
     LRU,
+    DeltaNet,
+    TDDeltaNet,
+    GatedDeltaNet,
+    TDGatedDeltaNet,
+    DeltaProduct,
     xLSTMCell,
+    Mamba,
 )
 
 total_timesteps = 1_000_000
-num_train_steps = 50_000
-num_eval_steps = 10_000
+num_train_steps = 10_000
+num_eval_steps = 5_000
 
 seed = 0
-num_seeds = 5
+num_seeds = 1
 
 # env, env_params = environment.make("gymnax::CartPole-v1")
 env, env_params = environment.make("gymnax::MemoryChain-bsuite")
 
-memory_length = 127
+memory_length = 32
 env_params = env_params.replace(
     memory_length=memory_length, max_steps_in_episode=memory_length + 1
 )
@@ -87,7 +93,15 @@ actor_network = SequenceNetwork(
     #     memory_size=32,
     #     context_size=4,
     # ),
-    torso=RNN(cell=xLSTMCell(features=256, pattern=("m"))),
+    # torso=RNN(cell=xLSTMCell(features=256, pattern=("m"))),
+    # torso=LRU(features=256, hidden_dim=256, num_layers=4),
+    torso=Mamba(features=256, num_layers=4),
+    # torso=TDDeltaNet(
+    #     num_layers=4,
+    #     head_dim=32,
+    #     num_heads=4,
+    #     embedding_dim=128,
+    # ),
     # torso=RNN(cell=nn.GRUCell(features=128)),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
@@ -131,7 +145,15 @@ critic_network = SequenceNetwork(
     #     memory_size=32,
     #     context_size=4,
     # ),
-    torso=RNN(cell=xLSTMCell(features=256, pattern=("m"))),
+    # torso=RNN(cell=xLSTMCell(features=256, pattern=("m"))),
+    # torso=LRU(features=256, hidden_dim=256, num_layers=4),
+    torso=Mamba(features=256, num_layers=4),
+    # torso=GatedDeltaNet(
+    #     num_layers=4,
+    #     head_dim=32,
+    #     num_heads=4,
+    #     embedding_dim=128,
+    # ),
     # torso=RNN(cell=nn.GRUCell(features=128)),
     head=heads.VNetwork(),
 )
@@ -168,10 +190,12 @@ train = jax.vmap(agent.train, in_axes=(0, 0, None))
 keys, state = init(keys)
 
 keys, transitions = evaluate(keys, state, num_eval_steps)
-evaluation_statistics = jax.vmap(
-    Logger.get_episode_statistics, in_axes=(0, None)
-)(transitions, "evaluation")
-logger_state = logger.log(logger_state, evaluation_statistics, step=state.step[0].item())
+evaluation_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
+    transitions, "evaluation"
+)
+logger_state = logger.log(
+    logger_state, evaluation_statistics, step=state.step[0].item()
+)
 logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
@@ -183,16 +207,20 @@ for i in range(0, total_timesteps, num_train_steps):
 
     SPS = int(num_train_steps / (end - start))
 
-    training_statistics = jax.vmap(
-        Logger.get_episode_statistics, in_axes=(0, None)
-    )(transitions, "training")
-    losses = jax.vmap(lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses))(transitions)
+    training_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
+        transitions, "training"
+    )
+    losses = jax.vmap(
+        lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
+    )(transitions)
     data = {"SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)
-    evaluation_statistics = jax.vmap(
-        Logger.get_episode_statistics, in_axes=(0, None)
-    )(transitions, "evaluation")
-    logger_state = logger.log(logger_state, evaluation_statistics, step=state.step[0].item())
+    evaluation_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
+        transitions, "evaluation"
+    )
+    logger_state = logger.log(
+        logger_state, evaluation_statistics, step=state.step[0].item()
+    )
     logger.emit(logger_state)

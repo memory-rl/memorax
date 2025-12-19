@@ -7,3 +7,9 @@ from .shm import SHMCell
 from .s5 import S5
 from .lru import LRU
 from .min_gru import MinGRU
+from .delta_net import DeltaNet
+from .gated_delta_net import GatedDeltaNet
+from .delta_product import DeltaProduct
+from .td_delta_net import TDDeltaNet
+from .td_gated_delta_net import TDGatedDeltaNet
+from .mamba import Mamba

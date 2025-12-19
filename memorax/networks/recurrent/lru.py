@@ -82,7 +82,6 @@ class LRULayer(nn.Module):
         self.D = self.param("D", matrix_init, (self.features,))
 
     def __call__(self, inputs, mask, carry):
-        """Forward pass of a LRU: h_t+1 = lambda * h_t + B x_t+1, y_t = Re[C h_t + D x_t]"""
         diag_lambda = jnp.exp(-jnp.exp(self.nu_log) + 1j * jnp.exp(self.theta_log))
         B_norm = (self.B_real + 1j * self.B_imag) * jnp.expand_dims(
             jnp.exp(self.gamma_log), axis=-1
@@ -97,13 +96,17 @@ class LRULayer(nn.Module):
         Bu_elements = jnp.concatenate([carry, Bu_elements])
         mask = jnp.concatenate([jnp.zeros(1), mask])
         mask = add_time_axis(mask)
-        _, carry, _ = jax.lax.associative_scan(
+        _, hidden_states, _ = jax.lax.associative_scan(
             _binary_operator_reset, (Lambda_elements, Bu_elements, mask)
         )
-        carry = carry[1:]
-        outputs = jax.vmap(lambda h, x: (C @ h).real + self.D * x)(carry, inputs)
 
-        return carry, outputs
+        next_carry = hidden_states[-1:]
+        hidden_states = hidden_states[1:]
+        outputs = jax.vmap(lambda h, x: (C @ h).real + self.D * x)(
+            hidden_states, inputs
+        )
+
+        return next_carry, outputs
 
 
 class LRUBlock(nn.Module):

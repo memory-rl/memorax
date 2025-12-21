@@ -1,4 +1,3 @@
-
 from functools import partial
 from typing import Any, Callable, Tuple, Optional
 
@@ -47,13 +46,13 @@ class KalmanNetLayer(nn.Module):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
-        q = projection(features=hidden_dim, name="query")(x).reshape(
+        q_s = projection(features=hidden_dim, name="query")(x).reshape(
             batch_size, sequence_length, self.num_heads, self.head_dim
         )
-        k = projection(features=hidden_dim, name="key")(x).reshape(
+        k_s = projection(features=hidden_dim, name="key")(x).reshape(
             batch_size, sequence_length, self.num_heads, self.head_dim
         )
-        v = projection(features=hidden_dim, name="value")(x).reshape(
+        v_s = projection(features=hidden_dim, name="value")(x).reshape(
             batch_size, sequence_length, self.num_heads, self.head_dim
         )
         beta = projection(features=self.num_heads, name="beta")(x).reshape(
@@ -65,48 +64,54 @@ class KalmanNetLayer(nn.Module):
             features=hidden_dim,
         )(action)
 
-        alpha = projection(features=self.num_heads, name="alpha")(action_embedding).reshape(
-            batch_size, sequence_length, self.num_heads
-        )
-        b_u = projection(features=hidden_dim, name="b_u")(action_embedding).reshape(
+        alpha = projection(features=self.num_heads, name="alpha")(
+            action_embedding
+        ).reshape(batch_size, sequence_length, self.num_heads)
+        k_u = projection(features=hidden_dim, name="b_u")(action_embedding).reshape(
             batch_size, sequence_length, self.num_heads, self.head_dim
         )
-        b_v = projection(features=hidden_dim, name="b_v")(action_embedding).reshape(
+        v_u = projection(features=hidden_dim, name="b_v")(action_embedding).reshape(
             batch_size, sequence_length, self.num_heads, self.head_dim
         )
 
-        q = nn.silu(q)
-        k = nn.silu(k)
+        q_s = nn.silu(q_s)
+        k_s = nn.silu(k_s)
+        k_u = nn.silu(k_u)
 
-        q = q / (jnp.linalg.norm(q, axis=-1, keepdims=True) + 1e-6)
-        k = k / (jnp.linalg.norm(k, axis=-1, keepdims=True) + 1e-6)
+        q_s = q_s / (jnp.linalg.norm(q_s, axis=-1, keepdims=True) + 1e-6)
+        k_s = k_s / (jnp.linalg.norm(k_s, axis=-1, keepdims=True) + 1e-6)
+        k_u = k_u / (jnp.linalg.norm(k_u, axis=-1, keepdims=True) + 1e-6)
 
         beta = nn.sigmoid(beta)
         A = nn.sigmoid(alpha)
 
         delta = jnp.eye(self.head_dim, dtype=self.dtype) - (
             beta[..., None, None]
-            * jnp.matmul(k[..., None], k[..., None].swapaxes(-1, -2))
+            * jnp.matmul(k_s[..., None], k_s[..., None].swapaxes(-1, -2))
         )
         decay_matrix = A[..., None, None] * delta * (1.0 - broadcast_mask(mask, delta))
 
-        drift_matrix = jnp.matmul(b_u[..., None], b_v[..., None].swapaxes(-1, -2))
-        write_matrix = beta[..., None, None] * jnp.matmul(v[..., None], k[..., None].swapaxes(-1, -2))
+        drift_matrix = jnp.matmul(k_u[..., None], v_u[..., None].swapaxes(-1, -2))
+        write_matrix = beta[..., None, None] * jnp.matmul(
+            v_s[..., None], k_s[..., None].swapaxes(-1, -2)
+        )
 
-        update_matrix = jnp.matmul(
-            drift_matrix, delta
-        ) + write_matrix
+        update_matrix = jnp.matmul(drift_matrix, delta) + write_matrix
 
         def binary_operator(lhs, rhs):
             a_i, b_i = lhs
             a_j, b_j = rhs
             return (jnp.matmul(a_i, a_j), jnp.matmul(b_i, a_j) + b_j)
 
-        cummulative_decay, hidden_states = lax.associative_scan(jax.vmap(binary_operator), (decay_matrix, update_matrix), axis=1)
-        hidden_states = jnp.matmul(add_time_axis(carry), cummulative_decay) + hidden_states
+        cummulative_decay, hidden_states = lax.associative_scan(
+            jax.vmap(binary_operator), (decay_matrix, update_matrix), axis=1
+        )
+        hidden_states = (
+            jnp.matmul(add_time_axis(carry), cummulative_decay) + hidden_states
+        )
 
         x = (
-            jnp.matmul(hidden_states, q[..., None])
+            jnp.matmul(hidden_states, q_s[..., None])
             .squeeze(-1)
             .reshape(batch_size, sequence_length, hidden_dim)
         )
@@ -160,7 +165,9 @@ class KalmanNetBlock(nn.Module):
     dtype: Optional[Dtype] = None
 
     @compact
-    def __call__(self, inputs: Array, action: Array, mask: Array, carry: Array) -> Tuple[Array, Array]:
+    def __call__(
+        self, inputs: Array, action: Array, mask: Array, carry: Array
+    ) -> Tuple[Array, Array]:
 
         *_, in_features = inputs.shape
 

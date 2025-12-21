@@ -52,14 +52,11 @@ class GatedDeltaNetLayer(nn.Module):
         v = projection(features=hidden_dim, name="value")(inputs).reshape(
             batch_size, sequence_length, self.num_heads, self.head_dim
         )
-        alpha = projection(features=self.num_heads, name="alpha")(inputs).reshape(
-            batch_size, sequence_length, self.num_heads
-        )
         beta = projection(features=self.num_heads, name="beta")(inputs).reshape(
             batch_size, sequence_length, self.num_heads
         )
-        gate = projection(features=hidden_dim, name="gate")(inputs).reshape(
-            batch_size, sequence_length, hidden_dim
+        alpha = projection(features=self.num_heads, name="alpha")(inputs).reshape(
+            batch_size, sequence_length, self.num_heads
         )
 
         q = nn.silu(q)
@@ -68,9 +65,8 @@ class GatedDeltaNetLayer(nn.Module):
         q = q / (jnp.linalg.norm(q, axis=-1, keepdims=True) + 1e-6)
         k = k / (jnp.linalg.norm(k, axis=-1, keepdims=True) + 1e-6)
 
-        alpha = nn.sigmoid(alpha)
         beta = nn.sigmoid(beta)
-        gate = nn.silu(gate)
+        alpha = nn.sigmoid(alpha)
 
         B = beta[..., None, None] * jnp.matmul(
             v[..., None], k[..., None].swapaxes(-1, -2)
@@ -81,7 +77,7 @@ class GatedDeltaNetLayer(nn.Module):
             * jnp.matmul(k[..., None], k[..., None].swapaxes(-1, -2))
         )
 
-        A = alpha[..., None, None] * A * (1.0 - broadcast_mask(mask, A))
+        A = alpha * A * (1.0 - broadcast_mask(mask, A))
 
         def binary_operator(lhs, rhs):
             a_i, b_i = lhs
@@ -96,7 +92,6 @@ class GatedDeltaNetLayer(nn.Module):
             .squeeze(-1)
             .reshape(batch_size, sequence_length, hidden_dim)
         )
-        x = gate * x
 
         x = nn.RMSNorm(dtype=self.dtype)(x)
 
@@ -209,6 +204,7 @@ class GatedDeltaNet(nn.Module):
         x: Array,
         mask: Array,
         initial_carry: Optional[Tuple[Array, ...]] = None,
+        **kwargs,
     ) -> Tuple[Tuple[Array, ...], Array]:
 
         new_carry = []

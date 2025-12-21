@@ -21,4 +21,5 @@ from memorax.networks.recurrent import (
     DeltaProduct,
     Mamba,
     KalmanNet,
+    LinearTransformer,
 )

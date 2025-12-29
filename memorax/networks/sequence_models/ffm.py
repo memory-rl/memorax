@@ -8,8 +8,9 @@ from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.normalization import LayerNorm
 from flax.typing import Array, PRNGKey, Dtype, Initializer
 
+from memorax.networks.sequence_models.sequence_model import SequenceModel
 
-class FFM(nn.Module):
+class FFM(SequenceModel):
     """Fast & Forgetful Memory (FFM)."""
 
     features: int
@@ -118,7 +119,7 @@ class FFM(nn.Module):
 
     @compact
     def __call__(
-        self, inputs: Array, mask: Array, initial_carry: Array
+        self, inputs: Array, mask: Array, initial_carry: Array, **kwargs
     ) -> tuple[Array, Array]:
         dense = partial(
             Dense,

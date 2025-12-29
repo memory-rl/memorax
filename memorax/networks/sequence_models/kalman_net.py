@@ -1,14 +1,12 @@
 from functools import partial
-from typing import Any, Callable, Tuple, Optional
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-from jax import lax
 from flax import linen as nn
 from flax.linen import initializers
 from flax.linen.module import compact
-
-from memorax.networks.recurrent.utils import add_time_axis, broadcast_mask
+from jax import lax
 
 PRNGKey = Any
 Shape = Tuple[int, ...]
@@ -16,10 +14,22 @@ Dtype = Any
 Array = Any
 Initializer = Callable[[PRNGKey, Shape, Dtype], Array]
 
+from memorax.networks.sequence_models.sequence_model import SequenceModel
 
-class TDDeltaNetLayer(nn.Module):
+def add_time_axis(x: jax.Array):
+    return x[:, None, ...]
+
+
+def broadcast_mask(mask: jax.Array, carry: jax.Array) -> jax.Array:
+    while mask.ndim != carry.ndim:
+        mask = mask[..., None] if mask.ndim < carry.ndim else mask[..., 0]
+    return mask
+
+
+class KalmanNetLayer(nn.Module):
     head_dim: int
     num_heads: int
+    num_actions: int
     kernel_init: Initializer
     bias_init: Initializer
     param_dtype: Dtype
@@ -28,12 +38,13 @@ class TDDeltaNetLayer(nn.Module):
     @compact
     def __call__(
         self,
-        inputs: Array,
-        td_error: Array,
+        x: Array,
+        action: Array,
         mask: Array,
         carry: Array,
     ) -> Tuple[Array, Array]:
-        batch_size, sequence_length, in_features = inputs.shape
+
+        batch_size, sequence_length, in_features = x.shape
         hidden_dim = self.num_heads * self.head_dim
 
         projection = partial(
@@ -44,51 +55,83 @@ class TDDeltaNetLayer(nn.Module):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
-        q = projection(features=hidden_dim, name="query")(inputs).reshape(
+        q_s = projection(features=hidden_dim)(x).reshape(
             batch_size, sequence_length, self.num_heads, self.head_dim
         )
-        k = projection(features=hidden_dim, name="key")(inputs).reshape(
+        k_s = projection(features=hidden_dim)(x).reshape(
             batch_size, sequence_length, self.num_heads, self.head_dim
         )
-        v = projection(features=hidden_dim, name="value")(inputs).reshape(
+        v_s = projection(features=hidden_dim)(x).reshape(
             batch_size, sequence_length, self.num_heads, self.head_dim
         )
-        beta = projection(features=self.num_heads, name="beta")(inputs).reshape(
+        beta = projection(features=self.num_heads)(x).reshape(
             batch_size, sequence_length, self.num_heads
         )
-        td_error = projection(features=self.num_heads, name="td_error")(
-            td_error
-        ).reshape(batch_size, sequence_length, self.num_heads)
 
-        q = nn.silu(q)
-        k = nn.silu(k)
+        # u = nn.Embed(
+        #     num_embeddings=self.num_actions,
+        #     features=hidden_dim,
+        # )(action)
+        # u = x
+        #
+        # alpha = projection(
+        #     features=self.num_heads, bias_init=initializers.constant(4.0), name="alpha"
+        # )(u).reshape(batch_size, sequence_length, self.num_heads)
+        # gamma = projection(features=self.num_heads)(u).reshape(
+        #     batch_size, sequence_length, self.num_heads
+        # )
+        # k_u = projection(features=hidden_dim, name="b_u")(u).reshape(
+        #     batch_size, sequence_length, self.num_heads, self.head_dim
+        # )
+        # v_u = projection(features=hidden_dim, name="b_v")(u).reshape(
+        #     batch_size, sequence_length, self.num_heads, self.head_dim
+        # )
 
-        q = q / (jnp.linalg.norm(q, axis=-1, keepdims=True) + 1e-6)
-        k = k / (jnp.linalg.norm(k, axis=-1, keepdims=True) + 1e-6)
+        q_s = nn.silu(q_s)
+        k_s = nn.silu(k_s)
+        k_u = nn.silu(k_u)
 
-        beta = nn.sigmoid(beta + td_error)
+        def l2(x, axis=-1, keepdims=True, eps=1e-6):
+            sum = jnp.sum(x * x, axis=axis, keepdims=keepdims)
+            return jnp.sqrt(sum + eps)
 
-        B = beta[..., None, None] * jnp.matmul(
-            v[..., None], k[..., None].swapaxes(-1, -2)
-        )
+        q_s = q_s / l2(q_s, axis=-1, keepdims=True)
+        k_s = k_s / l2(k_s, axis=-1, keepdims=True)
+        k_u = k_u / l2(k_u, axis=-1, keepdims=True)
 
-        A = jnp.eye(self.head_dim, dtype=self.dtype) - (
+        beta = nn.sigmoid(beta)
+        A = nn.sigmoid(alpha)
+        B = nn.sigmoid(gamma)
+
+        delta = jnp.eye(self.head_dim, dtype=self.dtype) - (
             beta[..., None, None]
-            * jnp.matmul(k[..., None], k[..., None].swapaxes(-1, -2))
+            * jnp.matmul(k_s[..., None], k_s[..., None].swapaxes(-1, -2))
+        )
+        decay_matrix = A[..., None, None] * delta * (1.0 - broadcast_mask(mask, delta))
+
+        drift_matrix = B[..., None, None] * jnp.matmul(
+            v_u[..., None], k_u[..., None].swapaxes(-1, -2)
+        )
+        write_matrix = beta[..., None, None] * jnp.matmul(
+            v_s[..., None], k_s[..., None].swapaxes(-1, -2)
         )
 
-        A = A * (1.0 - broadcast_mask(mask, A))
+        update_matrix = jnp.matmul(drift_matrix, delta) + write_matrix
 
         def binary_operator(lhs, rhs):
             a_i, b_i = lhs
             a_j, b_j = rhs
             return (jnp.matmul(a_i, a_j), jnp.matmul(b_i, a_j) + b_j)
 
-        A, B = lax.associative_scan(jax.vmap(binary_operator), (A, B), axis=1)
-        carry = jnp.matmul(add_time_axis(carry), A) + B
+        cummulative_decay, hidden_states = lax.associative_scan(
+            jax.vmap(binary_operator), (decay_matrix, update_matrix), axis=1
+        )
+        hidden_states = (
+            jnp.matmul(add_time_axis(carry), cummulative_decay) + hidden_states
+        )
 
         x = (
-            jnp.matmul(carry, q[..., None])
+            jnp.matmul(hidden_states, q_s[..., None])
             .squeeze(-1)
             .reshape(batch_size, sequence_length, hidden_dim)
         )
@@ -99,7 +142,15 @@ class TDDeltaNetLayer(nn.Module):
             features=in_features, kernel_init=self.kernel_init, bias_init=self.bias_init
         )(x)
 
-        carry = carry[:, -1]
+        carry = hidden_states[:, -1]
+
+        drift_norm = jnp.linalg.norm(drift_matrix, axis=(-2, -1))
+        write_norm = jnp.linalg.norm(write_matrix, axis=(-2, -1))
+
+        self.sow("intermediates", "drift_norm", drift_norm)
+        self.sow("intermediates", "write_norm", write_norm)
+        self.sow("intermediates", "gamma", B)
+        self.sow("intermediates", "beta", beta)
 
         return carry, y
 
@@ -131,9 +182,10 @@ class SwiGLU(nn.Module):
         return dense(features=in_features, name="out")(x)
 
 
-class TDDeltaNetBlock(nn.Module):
+class KalmanNetBlock(nn.Module):
     head_dim: int
     num_heads: int
+    num_actions: int
     ratio: int = 4
     kernel_init: Initializer = initializers.lecun_normal()
     bias_init: Initializer = initializers.zeros_init()
@@ -142,7 +194,7 @@ class TDDeltaNetBlock(nn.Module):
 
     @compact
     def __call__(
-        self, inputs: Array, td_error: Array, mask: Array, carry: Array
+        self, inputs: Array, action: Array, mask: Array, carry: Array
     ) -> Tuple[Array, Array]:
 
         *_, in_features = inputs.shape
@@ -151,14 +203,15 @@ class TDDeltaNetBlock(nn.Module):
 
         x = nn.RMSNorm(dtype=self.dtype)(inputs)
 
-        carry, x = TDDeltaNetLayer(
+        carry, x = KalmanNetLayer(
             head_dim=self.head_dim,
             num_heads=self.num_heads,
+            num_actions=self.num_actions,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
             param_dtype=self.param_dtype,
             dtype=self.dtype,
-        )(x, td_error, mask, carry)
+        )(x, action, mask, carry)
 
         x = skip = x + skip
 
@@ -189,11 +242,12 @@ class TDDeltaNetBlock(nn.Module):
         return 1
 
 
-class TDDeltaNet(nn.Module):
+class KalmanNet(SequenceModel):
     num_layers: int
     head_dim: int
     num_heads: int
     embedding_dim: int
+    num_actions: int
     ratio: int = 4
     kernel_init: Initializer = initializers.lecun_normal()
     bias_init: Initializer = initializers.zeros_init()
@@ -203,43 +257,45 @@ class TDDeltaNet(nn.Module):
     @compact
     def __call__(
         self,
-        x: Array,
-        td_error: Array,
+        inputs: Array,
+        action: Array,
         mask: Array,
         initial_carry: Optional[Tuple[Array, ...]] = None,
+        **kwargs,
     ) -> Tuple[Tuple[Array, ...], Array]:
 
         new_carry = []
 
         if initial_carry is None:
-            initial_carry = self.initialize_carry(None, x.shape)
+            initial_carry = self.initialize_carry(None, inputs.shape)
 
         for i, carry_i in enumerate(initial_carry):
-            carry_i, x = TDDeltaNetBlock(
+            carry_i, inputs = KalmanNetBlock(
                 head_dim=self.head_dim,
                 num_heads=self.num_heads,
+                num_actions=self.num_actions,
                 ratio=self.ratio,
                 kernel_init=self.kernel_init,
                 bias_init=self.bias_init,
                 param_dtype=self.param_dtype,
                 dtype=self.dtype,
                 name=f"block_{i}",
-            )(x, td_error, mask, carry_i)
+            )(inputs, action, mask, carry_i)
 
             new_carry.append(carry_i)
 
-        x = nn.RMSNorm(dtype=self.dtype)(x)
+        inputs = nn.RMSNorm(dtype=self.dtype)(inputs)
 
-        x = nn.Dense(
+        inputs = nn.Dense(
             self.embedding_dim,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="head",
-        )(x)
+        )(inputs)
 
-        return tuple(new_carry), x
+        return tuple(new_carry), inputs
 
     def initialize_carry(
         self, rng: Optional[PRNGKey], input_shape: Tuple[int, ...]

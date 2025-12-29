@@ -21,7 +21,8 @@ from flax.typing import (
 )
 from flax.linen.recurrent import RNNCellBase
 
-from memorax.networks.recurrent.utils import xavier_uniform
+from memorax.networks.sequence_models.sequence_model import SequenceModel
+from memorax.networks.sequence_models.utils import xavier_uniform
 
 A = TypeVar("A")
 Carry = Any

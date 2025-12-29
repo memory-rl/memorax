@@ -8,7 +8,8 @@ from flax import linen as nn
 from flax.linen import initializers
 from flax.linen.module import compact
 
-from memorax.networks.recurrent.utils import add_time_axis, broadcast_mask
+from memorax.networks.sequence_models.sequence_model import SequenceModel
+from memorax.networks.sequence_models.utils import add_time_axis, broadcast_mask
 
 PRNGKey = Any
 Shape = Tuple[int, ...]
@@ -17,7 +18,7 @@ Array = Any
 Initializer = Callable[[PRNGKey, Shape, Dtype], Array]
 
 
-class TDGatedDeltaNetLayer(nn.Module):
+class DeltaNetLayer(nn.Module):
     head_dim: int
     num_heads: int
     kernel_init: Initializer
@@ -29,7 +30,6 @@ class TDGatedDeltaNetLayer(nn.Module):
     def __call__(
         self,
         inputs: Array,
-        td_error: Array,
         mask: Array,
         carry: Array,
     ) -> Tuple[Array, Array]:
@@ -53,17 +53,8 @@ class TDGatedDeltaNetLayer(nn.Module):
         v = projection(features=hidden_dim, name="value")(inputs).reshape(
             batch_size, sequence_length, self.num_heads, self.head_dim
         )
-        alpha = projection(features=self.num_heads, name="alpha")(inputs).reshape(
-            batch_size, sequence_length, self.num_heads
-        )
         beta = projection(features=self.num_heads, name="beta")(inputs).reshape(
             batch_size, sequence_length, self.num_heads
-        )
-        td_error = projection(features=self.num_heads, name="td")(td_error).reshape(
-            batch_size, sequence_length, self.num_heads
-        )
-        gate = projection(features=hidden_dim, name="gate")(inputs).reshape(
-            batch_size, sequence_length, hidden_dim
         )
 
         q = nn.silu(q)
@@ -72,9 +63,7 @@ class TDGatedDeltaNetLayer(nn.Module):
         q = q / (jnp.linalg.norm(q, axis=-1, keepdims=True) + 1e-6)
         k = k / (jnp.linalg.norm(k, axis=-1, keepdims=True) + 1e-6)
 
-        alpha = nn.sigmoid(alpha)
-        beta = nn.sigmoid(beta + td_error)
-        gate = nn.silu(gate)
+        beta = nn.sigmoid(beta)
 
         B = beta[..., None, None] * jnp.matmul(
             v[..., None], k[..., None].swapaxes(-1, -2)
@@ -85,7 +74,7 @@ class TDGatedDeltaNetLayer(nn.Module):
             * jnp.matmul(k[..., None], k[..., None].swapaxes(-1, -2))
         )
 
-        A = alpha[..., None, None] * A * (1.0 - broadcast_mask(mask, A))
+        A = A * (1.0 - broadcast_mask(mask, A))
 
         def binary_operator(lhs, rhs):
             a_i, b_i = lhs
@@ -100,7 +89,6 @@ class TDGatedDeltaNetLayer(nn.Module):
             .squeeze(-1)
             .reshape(batch_size, sequence_length, hidden_dim)
         )
-        x = gate * x
 
         x = nn.RMSNorm(dtype=self.dtype)(x)
 
@@ -140,7 +128,7 @@ class SwiGLU(nn.Module):
         return dense(features=in_features, name="out")(x)
 
 
-class TDGatedDeltaNetBlock(nn.Module):
+class DeltaNetBlock(nn.Module):
     head_dim: int
     num_heads: int
     ratio: int = 4
@@ -150,9 +138,7 @@ class TDGatedDeltaNetBlock(nn.Module):
     dtype: Optional[Dtype] = None
 
     @compact
-    def __call__(
-        self, inputs: Array, td_error: Array, mask: Array, carry: Array
-    ) -> Tuple[Array, Array]:
+    def __call__(self, inputs: Array, mask: Array, carry: Array) -> Tuple[Array, Array]:
 
         *_, in_features = inputs.shape
 
@@ -160,14 +146,14 @@ class TDGatedDeltaNetBlock(nn.Module):
 
         x = nn.RMSNorm(dtype=self.dtype)(inputs)
 
-        carry, x = TDGatedDeltaNetLayer(
+        carry, x = DeltaNetLayer(
             head_dim=self.head_dim,
             num_heads=self.num_heads,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
             param_dtype=self.param_dtype,
             dtype=self.dtype,
-        )(x, td_error, mask, carry)
+        )(x, mask, carry)
 
         x = skip = x + skip
 
@@ -198,7 +184,7 @@ class TDGatedDeltaNetBlock(nn.Module):
         return 1
 
 
-class TDGatedDeltaNet(nn.Module):
+class DeltaNet(SequenceModel):
     num_layers: int
     head_dim: int
     num_heads: int
@@ -213,9 +199,9 @@ class TDGatedDeltaNet(nn.Module):
     def __call__(
         self,
         x: Array,
-        td_error: Array,
         mask: Array,
         initial_carry: Optional[Tuple[Array, ...]] = None,
+        **kwargs,
     ) -> Tuple[Tuple[Array, ...], Array]:
 
         new_carry = []
@@ -224,7 +210,7 @@ class TDGatedDeltaNet(nn.Module):
             initial_carry = self.initialize_carry(None, x.shape)
 
         for i, carry_i in enumerate(initial_carry):
-            carry_i, x = TDGatedDeltaNetBlock(
+            carry_i, x = DeltaNetBlock(
                 head_dim=self.head_dim,
                 num_heads=self.num_heads,
                 ratio=self.ratio,
@@ -233,7 +219,7 @@ class TDGatedDeltaNet(nn.Module):
                 param_dtype=self.param_dtype,
                 dtype=self.dtype,
                 name=f"block_{i}",
-            )(x, td_error, mask, carry_i)
+            )(x, mask, carry_i)
 
             new_carry.append(carry_i)
 

@@ -18,7 +18,8 @@ from flax.typing import (
     Initializer,
 )
 
-from memorax.networks.recurrent.utils import (
+from memorax.networks.sequence_models.sequence_model import SequenceModel
+from memorax.networks.sequence_models.utils import (
     BlockDiagonalDense,
     CausalConv1d,
     MultiHeadLayerNorm,

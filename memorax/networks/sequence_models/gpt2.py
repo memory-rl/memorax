@@ -8,7 +8,8 @@ from flax import linen as nn
 from flax import struct
 from flax.linen.recurrent import Carry
 
-from memorax.networks.recurrent.utils import (
+from memorax.networks.sequence_models.sequence_model import SequenceModel
+from memorax.networks.sequence_models.utils import (
     get_attention_implementation,
 )
 from memorax.utils.typing import Array
@@ -203,7 +204,7 @@ class GPT2Block(nn.Module):
         return x, kv_cache
 
 
-class GPT2(nn.Module):
+class GPT2(SequenceModel):
 
     features: int
     num_embeddings: int

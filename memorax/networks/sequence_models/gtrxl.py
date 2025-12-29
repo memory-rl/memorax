@@ -19,6 +19,7 @@ from flax.typing import (
     Initializer,
 )
 
+from memorax.networks.sequence_models.sequence_model import SequenceModel
 
 A = TypeVar("A")
 Carry = Any
@@ -319,7 +320,7 @@ class GTrXLBlock(nn.Module):
         return x, kv_cache
 
 
-class GTrXL(nn.Module):
+class GTrXL(SequenceModel):
     features: int
     num_layers: int = 12
     num_heads: int = 12
@@ -371,6 +372,7 @@ class GTrXL(nn.Module):
         inputs: jax.Array,
         mask: jax.Array,
         initial_carry: tuple,
+        **kwargs,
     ):
 
         new_carry = []

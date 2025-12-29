@@ -8,6 +8,8 @@ from flax.linen import initializers
 from flax.linen.module import compact
 from typing import Any, Callable, Tuple, Optional
 
+from memorax.networks.sequence_models.sequence_model import SequenceModel
+
 # Type aliases
 PRNGKey = Any
 Shape = Tuple[int, ...]
@@ -16,7 +18,7 @@ Array = Any
 Initializer = Callable[[PRNGKey, Shape, Dtype], Array]
 
 
-class MinGRU(nn.Module):
+class MinGRU(SequenceModel):
     features: int
     gate_fn: Callable[..., Any] = nn.sigmoid
     activation_fn: Callable[..., Any] = nn.tanh
@@ -27,7 +29,7 @@ class MinGRU(nn.Module):
 
     @compact
     def __call__(
-        self, inputs: Array, mask: Array, initial_carry: Optional[Array] = None
+        self, inputs: Array, mask: Array, initial_carry: Optional[Array] = None, **kwargs
     ) -> Array:
 
         dense_i = partial(

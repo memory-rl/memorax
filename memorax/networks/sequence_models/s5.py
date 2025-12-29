@@ -5,6 +5,7 @@ import jax.numpy as jnp
 from flax import linen as nn
 from jax.nn.initializers import lecun_normal, normal
 
+from memorax.networks.sequence_models.sequence_model import SequenceModel
 from .utils import (
     discretize_bilinear,
     discretize_zoh,
@@ -199,7 +200,7 @@ class S5Block(nn.Module):
         return carry, x
 
 
-class S5(nn.Module):
+class S5(SequenceModel):
     features: int
     state_size: int
     num_layers: int
@@ -233,6 +234,7 @@ class S5(nn.Module):
         inputs: jax.Array,
         mask: jax.Array,
         initial_carry: Carry,
+        **kwargs,
     ):
         new_carry = []
 

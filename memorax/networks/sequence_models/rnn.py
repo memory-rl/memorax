@@ -9,13 +9,14 @@ from flax.linen.linear import default_kernel_init
 from flax.typing import InOutScanAxis, Initializer
 import jax
 
-from memorax.networks.recurrent.utils import (
+from memorax.networks.sequence_models.sequence_model import SequenceModel
+from memorax.networks.sequence_models.utils import (
     get_time_axis_and_input_shape,
     mask_carry,
 )
 
 
-class RNN(nn.Module):
+class RNN(SequenceModel):
 
     cell: nn.RNNCellBase
     unroll: int = 1
@@ -26,17 +27,17 @@ class RNN(nn.Module):
     kernel_init: Initializer = default_kernel_init
     bias_init: Initializer = initializers.zeros_init()
 
+    @nn.compact
     def __call__(
         self,
         inputs: jax.Array,
         mask: jax.Array,
         initial_carry: Carry,
+        **kwargs,
     ):
         time_axis, input_shape = get_time_axis_and_input_shape(inputs)
 
         carry: Carry = initial_carry
-
-        # initial_carry = self.cell.initialize_carry(jax.random.key(0), input_shape)
 
         def scan_fn(cell, carry, x, mask):
             carry = mask_carry(

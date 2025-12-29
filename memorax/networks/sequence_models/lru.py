@@ -3,8 +3,9 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from memorax.networks.recurrent.utils import add_time_axis
+from memorax.networks.sequence_models.utils import add_time_axis
 
+from memorax.networks.sequence_models.sequence_model import SequenceModel
 
 @jax.vmap
 def _binary_operator_reset(q_i, q_j):
@@ -141,7 +142,7 @@ class LRUBlock(nn.Module):
         return carry, x
 
 
-class LRU(nn.Module):
+class LRU(SequenceModel):
     """Encoder containing several SequenceLayer"""
 
     features: int
@@ -152,7 +153,7 @@ class LRU(nn.Module):
     prenorm: bool = False
 
     @nn.compact
-    def __call__(self, inputs, mask, initial_carry):
+    def __call__(self, inputs, mask, initial_carry, **kwargs):
         x = inputs
         new_carry = []
         for carry_i in initial_carry:

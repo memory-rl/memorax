@@ -8,7 +8,8 @@ from flax import linen as nn
 from flax.linen import initializers
 from flax.linen.module import compact
 
-from memorax.networks.recurrent.utils import add_time_axis, broadcast_mask
+from memorax.networks.sequence_models.sequence_model import SequenceModel
+from memorax.networks.sequence_models.utils import add_time_axis, broadcast_mask
 
 PRNGKey = Any
 Shape = Tuple[int, ...]
@@ -17,7 +18,7 @@ Array = Any
 Initializer = Callable[[PRNGKey, Shape, Dtype], Array]
 
 
-class DeltaNetLayer(nn.Module):
+class GatedDeltaNetLayer(nn.Module):
     head_dim: int
     num_heads: int
     kernel_init: Initializer
@@ -55,6 +56,9 @@ class DeltaNetLayer(nn.Module):
         beta = projection(features=self.num_heads, name="beta")(inputs).reshape(
             batch_size, sequence_length, self.num_heads
         )
+        alpha = projection(features=self.num_heads, name="alpha")(inputs).reshape(
+            batch_size, sequence_length, self.num_heads
+        )
 
         q = nn.silu(q)
         k = nn.silu(k)
@@ -63,6 +67,7 @@ class DeltaNetLayer(nn.Module):
         k = k / (jnp.linalg.norm(k, axis=-1, keepdims=True) + 1e-6)
 
         beta = nn.sigmoid(beta)
+        alpha = nn.sigmoid(alpha)
 
         B = beta[..., None, None] * jnp.matmul(
             v[..., None], k[..., None].swapaxes(-1, -2)
@@ -73,7 +78,7 @@ class DeltaNetLayer(nn.Module):
             * jnp.matmul(k[..., None], k[..., None].swapaxes(-1, -2))
         )
 
-        A = A * (1.0 - broadcast_mask(mask, A))
+        A = alpha * A * (1.0 - broadcast_mask(mask, A))
 
         def binary_operator(lhs, rhs):
             a_i, b_i = lhs
@@ -127,7 +132,7 @@ class SwiGLU(nn.Module):
         return dense(features=in_features, name="out")(x)
 
 
-class DeltaNetBlock(nn.Module):
+class GatedDeltaNetBlock(nn.Module):
     head_dim: int
     num_heads: int
     ratio: int = 4
@@ -145,7 +150,7 @@ class DeltaNetBlock(nn.Module):
 
         x = nn.RMSNorm(dtype=self.dtype)(inputs)
 
-        carry, x = DeltaNetLayer(
+        carry, x = GatedDeltaNetLayer(
             head_dim=self.head_dim,
             num_heads=self.num_heads,
             kernel_init=self.kernel_init,
@@ -183,7 +188,7 @@ class DeltaNetBlock(nn.Module):
         return 1
 
 
-class DeltaNet(nn.Module):
+class GatedDeltaNet(SequenceModel):
     num_layers: int
     head_dim: int
     num_heads: int
@@ -209,7 +214,7 @@ class DeltaNet(nn.Module):
             initial_carry = self.initialize_carry(None, x.shape)
 
         for i, carry_i in enumerate(initial_carry):
-            carry_i, x = DeltaNetBlock(
+            carry_i, x = GatedDeltaNetBlock(
                 head_dim=self.head_dim,
                 num_heads=self.num_heads,
                 ratio=self.ratio,

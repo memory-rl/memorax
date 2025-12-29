@@ -4,7 +4,7 @@ from memorax.networks.mlp import MLP
 from memorax.networks.embedding import Embedding
 from memorax.networks.feature_extractor import FeatureExtractor
 from memorax.networks.networks import Network, SequenceNetwork
-from memorax.networks.recurrent import (
+from memorax.networks.sequence_models import (
     FFM,
     GPT2,
     RNN,

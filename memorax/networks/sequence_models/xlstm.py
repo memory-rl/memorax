@@ -10,6 +10,7 @@ import flax.linen as nn
 from flax.linen.module import compact, nowrap
 from flax.linen.recurrent import RNNCellBase
 
+from memorax.networks.sequence_models.sequence_model import SequenceModel
 from .slstm import sLSTMLayer
 from .mlstm import mLSTMLayer
 from .utils import small_init, wang_init

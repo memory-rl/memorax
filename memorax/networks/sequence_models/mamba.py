@@ -3,7 +3,8 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from memorax.networks.recurrent.utils import add_time_axis
+from memorax.networks.sequence_models.sequence_model import SequenceModel
+from memorax.networks.sequence_models.utils import add_time_axis
 
 
 @jax.vmap
@@ -190,7 +191,7 @@ class MambaBlock(nn.Module):
         return carry, output
 
 
-class Mamba(nn.Module):
+class Mamba(SequenceModel):
     features: int
     num_layers: int
     expansion_factor: int = 2
@@ -201,7 +202,7 @@ class Mamba(nn.Module):
     prenorm: bool = False
 
     @nn.compact
-    def __call__(self, inputs, mask, initial_carry):
+    def __call__(self, inputs, mask, initial_carry, **kwargs):
         x = inputs
         new_carries = []
 

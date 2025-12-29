@@ -8,7 +8,8 @@ from flax import linen as nn
 from flax.linen import initializers
 from flax.linen.module import compact
 
-from memorax.networks.recurrent.utils import add_time_axis, broadcast_mask
+from memorax.networks.sequence_models.sequence_model import SequenceModel
+from memorax.networks.sequence_models.utils import add_time_axis, broadcast_mask
 
 PRNGKey = Any
 Shape = Tuple[int, ...]
@@ -17,19 +18,19 @@ Array = Any
 Initializer = Callable[[PRNGKey, Shape, Dtype], Array]
 
 
-class DeltaProductLayer(nn.Module):
+class TDDeltaNetLayer(nn.Module):
     head_dim: int
     num_heads: int
-    rank: int = 2
-    kernel_init: Initializer = initializers.lecun_normal()
-    bias_init: Initializer = initializers.zeros_init()
-    param_dtype: Dtype = jnp.float32
-    dtype: Optional[Dtype] = None
+    kernel_init: Initializer
+    bias_init: Initializer
+    param_dtype: Dtype
+    dtype: Optional[Dtype]
 
     @compact
     def __call__(
         self,
         inputs: Array,
+        td_error: Array,
         mask: Array,
         carry: Array,
     ) -> Tuple[Array, Array]:
@@ -44,21 +45,21 @@ class DeltaProductLayer(nn.Module):
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
-
         q = projection(features=hidden_dim, name="query")(inputs).reshape(
             batch_size, sequence_length, self.num_heads, self.head_dim
         )
-        k = projection(features=self.num_heads * self.rank * self.head_dim, name="key")(
-            inputs
-        ).reshape(batch_size, sequence_length, self.num_heads, self.rank, self.head_dim)
-        v = projection(
-            features=self.num_heads * self.rank * self.head_dim, name="value"
-        )(inputs).reshape(
-            batch_size, sequence_length, self.num_heads, self.rank, self.head_dim
+        k = projection(features=hidden_dim, name="key")(inputs).reshape(
+            batch_size, sequence_length, self.num_heads, self.head_dim
         )
-        beta = projection(features=self.num_heads * self.rank, name="beta")(
-            inputs
-        ).reshape(batch_size, sequence_length, self.num_heads, self.rank)
+        v = projection(features=hidden_dim, name="value")(inputs).reshape(
+            batch_size, sequence_length, self.num_heads, self.head_dim
+        )
+        beta = projection(features=self.num_heads, name="beta")(inputs).reshape(
+            batch_size, sequence_length, self.num_heads
+        )
+        td_error = projection(features=self.num_heads, name="td_error")(
+            td_error
+        ).reshape(batch_size, sequence_length, self.num_heads)
 
         q = nn.silu(q)
         k = nn.silu(k)
@@ -66,36 +67,15 @@ class DeltaProductLayer(nn.Module):
         q = q / (jnp.linalg.norm(q, axis=-1, keepdims=True) + 1e-6)
         k = k / (jnp.linalg.norm(k, axis=-1, keepdims=True) + 1e-6)
 
-        beta = nn.sigmoid(beta)
+        beta = nn.sigmoid(beta + td_error)
 
-        def scan_fn(carry, x):
-            A, B = carry
-            k, v, beta = x
-
-            k = k[..., None]
-            v = v[..., None]
-            beta = beta[..., None, None]
-
-            A = A - jnp.matmul(jnp.matmul(A, k), beta * k.swapaxes(-1, -2))
-            B = B + jnp.matmul(v - jnp.matmul(B, k), beta * k.swapaxes(-1, -2))
-
-            return (A, B), None
-
-        I = jnp.eye(self.head_dim, dtype=self.dtype)
-        A = jnp.broadcast_to(
-            I,
-            (batch_size, sequence_length, self.num_heads, self.head_dim, self.head_dim),
+        B = beta[..., None, None] * jnp.matmul(
+            v[..., None], k[..., None].swapaxes(-1, -2)
         )
-        B = jnp.zeros_like(A)
 
-        (A, B), _ = lax.scan(
-            scan_fn,
-            (A, B),
-            (
-                k.transpose(3, 0, 1, 2, 4),
-                v.transpose(3, 0, 1, 2, 4),
-                beta.transpose(3, 0, 1, 2),
-            ),
+        A = jnp.eye(self.head_dim, dtype=self.dtype) - (
+            beta[..., None, None]
+            * jnp.matmul(k[..., None], k[..., None].swapaxes(-1, -2))
         )
 
         A = A * (1.0 - broadcast_mask(mask, A))
@@ -152,10 +132,9 @@ class SwiGLU(nn.Module):
         return dense(features=in_features, name="out")(x)
 
 
-class DeltaProductBlock(nn.Module):
+class TDDeltaNetBlock(nn.Module):
     head_dim: int
     num_heads: int
-    rank: int = 2
     ratio: int = 4
     kernel_init: Initializer = initializers.lecun_normal()
     bias_init: Initializer = initializers.zeros_init()
@@ -163,7 +142,9 @@ class DeltaProductBlock(nn.Module):
     dtype: Optional[Dtype] = None
 
     @compact
-    def __call__(self, inputs: Array, mask: Array, carry: Array) -> Tuple[Array, Array]:
+    def __call__(
+        self, inputs: Array, td_error: Array, mask: Array, carry: Array
+    ) -> Tuple[Array, Array]:
 
         *_, in_features = inputs.shape
 
@@ -171,15 +152,14 @@ class DeltaProductBlock(nn.Module):
 
         x = nn.RMSNorm(dtype=self.dtype)(inputs)
 
-        carry, x = DeltaProductLayer(
+        carry, x = TDDeltaNetLayer(
             head_dim=self.head_dim,
             num_heads=self.num_heads,
-            rank=self.rank,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
             param_dtype=self.param_dtype,
             dtype=self.dtype,
-        )(x, mask, carry)
+        )(x, td_error, mask, carry)
 
         x = skip = x + skip
 
@@ -210,12 +190,11 @@ class DeltaProductBlock(nn.Module):
         return 1
 
 
-class DeltaProduct(nn.Module):
+class TDDeltaNet(SequenceModel):
     num_layers: int
     head_dim: int
     num_heads: int
     embedding_dim: int
-    rank: int = 2
     ratio: int = 4
     kernel_init: Initializer = initializers.lecun_normal()
     bias_init: Initializer = initializers.zeros_init()
@@ -226,8 +205,10 @@ class DeltaProduct(nn.Module):
     def __call__(
         self,
         x: Array,
+        td_error: Array,
         mask: Array,
         initial_carry: Optional[Tuple[Array, ...]] = None,
+        **kwargs,
     ) -> Tuple[Tuple[Array, ...], Array]:
 
         new_carry = []
@@ -236,17 +217,16 @@ class DeltaProduct(nn.Module):
             initial_carry = self.initialize_carry(None, x.shape)
 
         for i, carry_i in enumerate(initial_carry):
-            carry_i, x = DeltaProductBlock(
+            carry_i, x = TDDeltaNetBlock(
                 head_dim=self.head_dim,
                 num_heads=self.num_heads,
-                rank=self.rank,
                 ratio=self.ratio,
                 kernel_init=self.kernel_init,
                 bias_init=self.bias_init,
                 param_dtype=self.param_dtype,
                 dtype=self.dtype,
                 name=f"block_{i}",
-            )(x, mask, carry_i)
+            )(x, td_error, mask, carry_i)
 
             new_carry.append(carry_i)
 

@@ -32,7 +32,7 @@ class RNN(SequenceModel):
         self,
         inputs: jax.Array,
         mask: jax.Array,
-        initial_carry: Carry,
+        initial_carry: Optional[Carry] = None,
         **kwargs,
     ):
         time_axis, input_shape = get_time_axis_and_input_shape(inputs)

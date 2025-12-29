@@ -22,9 +22,9 @@ class ContinuousQNetwork(nn.Module):
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, *, action: jnp.ndarray, **kwargs) -> jnp.ndarray:
         q_values = nn.Dense(1, kernel_init=self.kernel_init, bias_init=self.bias_init)(
-            x
+            jnp.concatenate([x, action], axis=-1)
         )
         return jnp.squeeze(q_values, -1)
 

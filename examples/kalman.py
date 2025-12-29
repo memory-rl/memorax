@@ -8,33 +8,23 @@ from memorax.environments import environment
 from memorax.loggers import Logger, DashboardLogger, WandbLogger
 from memorax.networks import (
     MLP,
+    Embedding,
     Network,
     heads,
     FeatureExtractor,
-    RNN,
-    GPT2,
-    GTrXL,
-    LRU,
+    KalmanNet,
     DeltaNet,
-    TDDeltaNet,
-    GatedDeltaNet,
-    TDGatedDeltaNet,
-    DeltaProduct,
-    xLSTMCell,
-    Mamba,
 )
 
 total_timesteps = 1_000_000
-num_train_steps = 10_000
-num_eval_steps = 5_000
+num_train_steps = 200_000
+num_eval_steps = 10_000
 
 seed = 0
 num_seeds = 1
-
-# env, env_params = environment.make("gymnax::CartPole-v1")
 env, env_params = environment.make("gymnax::MemoryChain-bsuite")
 
-memory_length = 32
+memory_length = 128
 env_params = env_params.replace(
     memory_length=memory_length, max_steps_in_episode=memory_length + 1
 )
@@ -46,10 +36,9 @@ cfg = RPPOConfig(
     num_envs=32,
     num_eval_envs=16,
     num_steps=env_params.max_steps_in_episode,
-    # num_steps=64,
-    anneal_lr=True,
-    gamma=0.999,
-    gae_lambda=0.95,
+    anneal_lr=False,
+    gamma=0.99,
+    gae_lambda=0.9,
     num_minibatches=8,
     update_epochs=4,
     normalize_advantage=True,
@@ -66,43 +55,20 @@ actor_network = Network(
         observation_extractor=MLP(
             features=(192,), kernel_init=nn.initializers.orthogonal(scale=1.414)
         ),
-        action_extractor=MLP(
-            features=(32,), kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ),
-        reward_extractor=MLP(
-            features=(32,), kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ),
     ),
-    # torso=GPT2(
-    #     features=256,
-    #     num_embeddings=env_params.max_steps_in_episode,
+    torso=KalmanNet(
+        num_layers=4,
+        head_dim=64,
+        num_heads=4,
+        embedding_dim=128,
+        num_actions=env.action_space(env_params).n,
+    ),
+    # torso=DeltaNet(
     #     num_layers=4,
-    #     num_heads=4,
-    #     context_length=256,
-    # ),
-    # torso=GTrXL(
-    #     features=256,
-    #     num_layers=4,
-    #     num_heads=4,
-    #     context_length=64,
-    #     memory_length=192,
-    # ),
-    # torso=S5(features=128, state_size=256, num_layers=4),
-    # torso=FFM(
-    #     features=128,
-    #     memory_size=32,
-    #     context_size=4,
-    # ),
-    # torso=RNN(cell=xLSTMCell(features=256, pattern=("m"))),
-    # torso=LRU(features=256, hidden_dim=256, num_layers=4),
-    torso=Mamba(features=256, num_layers=4),
-    # torso=TDDeltaNet(
-    #     num_layers=4,
-    #     head_dim=32,
+    #     head_dim=64,
     #     num_heads=4,
     #     embedding_dim=128,
     # ),
-    # torso=RNN(cell=nn.GRUCell(features=128)),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
     ),
@@ -110,7 +76,6 @@ actor_network = Network(
 actor_optimizer = optax.chain(
     optax.clip_by_global_norm(cfg.max_grad_norm),
     optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
-    # optax.contrib.muon(learning_rate=cfg.learning_rate),
 )
 
 critic_network = Network(
@@ -118,43 +83,20 @@ critic_network = Network(
         observation_extractor=MLP(
             features=(192,), kernel_init=nn.initializers.orthogonal(scale=1.414)
         ),
-        action_extractor=MLP(
-            features=(32,), kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ),
-        reward_extractor=MLP(
-            features=(32,), kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ),
     ),
-    # torso=GPT2(
-    #     features=256,
-    #     num_embeddings=env_params.max_steps_in_episode,
+    # torso=KalmanNet(
     #     num_layers=4,
-    #     num_heads=4,
-    #     context_length=256,
-    # ),
-    # torso=GTrXL(
-    #     features=256,
-    #     num_layers=4,
-    #     num_heads=4,
-    #     context_length=64,
-    #     memory_length=192,
-    # ),
-    # torso=S5(features=128, state_size=256, num_layers=4),
-    # torso=FFM(
-    #     features=128,
-    #     memory_size=32,
-    #     context_size=4,
-    # ),
-    # torso=RNN(cell=xLSTMCell(features=256, pattern=("m"))),
-    # torso=LRU(features=256, hidden_dim=256, num_layers=4),
-    torso=Mamba(features=256, num_layers=4),
-    # torso=GatedDeltaNet(
-    #     num_layers=4,
-    #     head_dim=32,
+    #     head_dim=64,
     #     num_heads=4,
     #     embedding_dim=128,
+    #     num_actions=env.action_space(env_params).n,
     # ),
-    # torso=RNN(cell=nn.GRUCell(features=128)),
+    torso=DeltaNet(
+        num_layers=4,
+        head_dim=64,
+        num_heads=4,
+        embedding_dim=128,
+    ),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(
@@ -178,7 +120,6 @@ agent = RPPO(
 logger = Logger(
     [
         DashboardLogger(title="RPPO bsuite Example", total_timesteps=total_timesteps),
-        # WandbLogger(entity="noahfarr", project="memorax", name="rppo_bsuite"),
     ]
 )
 logger_state = logger.init(cfg)

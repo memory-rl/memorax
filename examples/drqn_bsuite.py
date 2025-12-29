@@ -9,7 +9,7 @@ from memorax.environments import environment
 from memorax.loggers import Logger, DashboardLogger
 from memorax.networks import (
     MLP,
-    SequenceNetwork,
+    Network,
     RNN,
     heads,
     FeatureExtractor,
@@ -42,7 +42,7 @@ cfg = DRQNConfig(
     mask=False,
 )
 
-q_network = SequenceNetwork(
+q_network = Network(
     feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(128,))),
     torso=RNN(cell=nn.GRUCell(features=128), unroll=16),
     head=heads.DiscreteQNetwork(

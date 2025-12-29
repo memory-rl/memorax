@@ -5,7 +5,7 @@ from memorax.algorithms.rppo import RPPO, RPPOConfig
 from memorax.environments import environment
 from memorax.networks import (
     MLP,
-    SequenceNetwork,
+    Network,
     heads,
     FeatureExtractor,
     GTrXL,
@@ -45,7 +45,7 @@ cfg = RPPOConfig(
     learning_starts=0,
 )
 
-actor_network = SequenceNetwork(
+actor_network = Network(
     feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(128,))),
     # torso=GPT2(features=128, num_layers=1, num_heads=1, context_length=6),
     torso=GTrXL(
@@ -63,7 +63,7 @@ actor_optimizer = optax.chain(
     optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
 )
 
-critic_network = SequenceNetwork(
+critic_network = Network(
     feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(128,))),
     # torso=GPT2(features=128, num_layers=1, num_heads=1, context_length=6),
     # torso=GTrXL(

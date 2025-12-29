@@ -9,7 +9,7 @@ from memorax.environments import environment
 from memorax.loggers import Logger, DashboardLogger
 from memorax.networks import (
     MLP,
-    SequenceNetwork,
+    Network,
     heads,
     FeatureExtractor,
     RNN,
@@ -47,7 +47,7 @@ cfg = RPPOConfig(
     learning_starts=0,
 )
 
-actor_network = SequenceNetwork(
+actor_network = Network(
     feature_extractor=FeatureExtractor(
         observation_extractor=MLP(features=(192,)),
         action_extractor=MLP(features=(64,)),
@@ -85,7 +85,7 @@ actor_optimizer = optax.chain(
     optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
 )
 
-critic_network = SequenceNetwork(
+critic_network = Network(
     feature_extractor=FeatureExtractor(
         observation_extractor=MLP(features=(192,)),
         action_extractor=MLP(features=(64,)),

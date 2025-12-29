@@ -1,11 +1,6 @@
 from .dqn import DQN, DQNConfig, DQNState
-from .drqn import DRQN, DRQNConfig, DRQNState
 from .ppo import PPO, PPOConfig, PPOState
 from .ppo_continuous import PPOContinuous, PPOContinuousConfig, PPOContinuousState
-from .rppo_continuous import RPPOContinuous, RPPOContinuousConfig, RPPOContinuousState
 from .sac import SAC, SACConfig, SACState
-from .rsac import RSAC, RSACConfig, RSACState
 from .sacd import SACD, SACDConfig, SACDState
-from .rsacd import RSACD, RSACDConfig, RSACDState
 from .pqn import PQN, PQNConfig, PQNState
-from .rpqn import RPQN, RPQNConfig, RPQNState

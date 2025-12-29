@@ -37,11 +37,7 @@ class DQNConfig:
     double: bool
     learning_starts: int
     train_frequency: int
-    sequence_length: Optional[int]
-    burn_in_length: int
     mask: bool
-    per_beta: Optional[float] = None
-    per_epsilon: float = 1e-6
 
 
 @struct.dataclass(frozen=True)
@@ -148,16 +144,6 @@ class DQN:
 
         batch = self.buffer.sample(state.buffer_state, key)
 
-        # # Burn-in
-        # burn_in_length = self.cfg.mode.burn_in_length or 0
-        # burn_in_length = min(burn_in_length, batch.experience.obs.shape[1])
-        # initial_carry=jax.tree.map(
-        #     lambda x: jnp.take(x, 0, axis=1), batch.experience.hidden_state
-        # )
-        # next_initial_carry=jax.tree.map(
-        #     lambda x: jnp.take(x, 0, axis=1), batch.experience.next_hidden_state
-        # )
-
         key, memory_key, next_memory_key = jax.random.split(key, 3)
 
         def make_dqn_target():
@@ -197,13 +183,6 @@ class DQN:
             terminal = (episode_idx == 1) & batch.experience.prev_done
             mask *= (episode_idx == 0) | terminal
 
-        if self.cfg.per_beta is not None:
-            probs = jnp.maximum(batch.priorities, 1e-12)
-            w = (1.0 / probs) ** self.cfg.per_beta
-            w = w / jnp.max(w)
-        else:
-            w = 1.0
-
         def loss_fn(params):
             hidden_state, q_value = self.q_network.apply(
                 params,
@@ -214,7 +193,7 @@ class DQN:
             action = jnp.expand_dims(batch.experience.action, axis=-1)
             q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
             td_error = q_value - td_target
-            loss = (w * jnp.square(td_error)).mean(where=mask.astype(jnp.bool_))
+            loss = (jnp.square(td_error)).mean(where=mask.astype(jnp.bool_))
             return loss, (q_value, td_error, hidden_state)
 
         (loss, (q_value, td_error, hidden_state)), grads = jax.value_and_grad(
@@ -233,11 +212,6 @@ class DQN:
         )
 
         buffer_state = state.buffer_state
-        if self.cfg.per_beta is not None:
-            priorities = jnp.abs(td_error) + self.cfg.per_epsilon
-            buffer_state = self.buffer.set_priorities(
-                state.buffer_state, batch.indices, priorities
-            )
 
         state = state.replace(
             params=params,

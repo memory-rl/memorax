@@ -9,7 +9,7 @@ mask_dims = {
         "P": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
         "V": [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
     },
-    "half_cheetah": {
+    "halfcheetah": {
         "F": list(range(17)),
         "P": [0, 1, 2, 3, 8, 9, 10, 11, 12],
         "V": [4, 5, 6, 7, 13, 14, 15, 16],
@@ -43,7 +43,7 @@ class BraxGymnaxWrapper(GymnaxWrapper):
 
     def step(self, key, state, action, params):
         next_state = self._env.step(state, action)
-        return next_state.obs, next_state, next_state.reward, next_state.done, {}
+        return next_state.obs, next_state, next_state.reward, next_state.done.astype(jnp.bool), {}
 
     def observation_space(self, params):
         return spaces.Box(

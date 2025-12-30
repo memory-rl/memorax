@@ -80,24 +80,13 @@ class PPO:
         action = jnp.argmax(probs.logits, axis=-1)
         log_prob = probs.log_prob(action)
 
-        critic_carry, value = self.critic.apply(
-            state.critic_params,
-            observation=jnp.expand_dims(state.timestep.obs, 1),
-            mask=jnp.expand_dims(state.timestep.done, 1),
-            action=jnp.expand_dims(state.timestep.action, (1, 2)),
-            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
-            initial_carry=state.critic_carry,
-        )
-
         action = action.squeeze(1)
         log_prob = log_prob.squeeze(1)
-        value = value.squeeze((1, -1))
 
         state = state.replace(
             actor_carry=actor_carry,
-            critic_carry=critic_carry,
         )
-        return key, state, action, log_prob, value
+        return key, state, action, log_prob, None
 
     def _stochastic_action(
         self, key: Key, state: PPOState

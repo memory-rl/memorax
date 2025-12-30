@@ -1,14 +1,13 @@
 from functools import partial
-from typing import Any, Callable, Tuple, Optional
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-from jax import lax
 from flax import linen as nn
 from flax.linen import initializers
 from flax.linen.module import compact
+from jax import lax
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import add_time_axis, broadcast_mask
 
 PRNGKey = Any
@@ -184,7 +183,7 @@ class DeltaNetBlock(nn.Module):
         return 1
 
 
-class DeltaNet(SequenceModel):
+class DeltaNet(nn.Module):
     num_layers: int
     head_dim: int
     num_heads: int
@@ -198,7 +197,7 @@ class DeltaNet(SequenceModel):
     @compact
     def __call__(
         self,
-        x: Array,
+        inputs: Array,
         mask: Array,
         initial_carry: Optional[Tuple[Array, ...]] = None,
         **kwargs,
@@ -207,10 +206,10 @@ class DeltaNet(SequenceModel):
         new_carry = []
 
         if initial_carry is None:
-            initial_carry = self.initialize_carry(None, x.shape)
+            initial_carry = self.initialize_carry(None, inputs.shape)
 
         for i, carry_i in enumerate(initial_carry):
-            carry_i, x = DeltaNetBlock(
+            carry_i, inputs = DeltaNetBlock(
                 head_dim=self.head_dim,
                 num_heads=self.num_heads,
                 ratio=self.ratio,
@@ -219,22 +218,22 @@ class DeltaNet(SequenceModel):
                 param_dtype=self.param_dtype,
                 dtype=self.dtype,
                 name=f"block_{i}",
-            )(x, mask, carry_i)
+            )(inputs, mask, carry_i)
 
             new_carry.append(carry_i)
 
-        x = nn.RMSNorm(dtype=self.dtype)(x)
+        inputs = nn.RMSNorm(dtype=self.dtype)(inputs)
 
-        x = nn.Dense(
+        inputs = nn.Dense(
             self.embedding_dim,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             name="head",
-        )(x)
+        )(inputs)
 
-        return tuple(new_carry), x
+        return tuple(new_carry), inputs
 
     def initialize_carry(
         self, rng: Optional[PRNGKey], input_shape: Tuple[int, ...]

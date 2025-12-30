@@ -5,6 +5,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["memorax", "tests"]
 
+[tool.setuptools.packages.find]
+include = ["memorax"]
+
 [project]
 name = "memorax"
 version = "0.1.0"

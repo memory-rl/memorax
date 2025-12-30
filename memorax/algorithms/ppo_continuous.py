@@ -73,31 +73,20 @@ class PPOContinuous:
             state.actor_params,
             observation=jnp.expand_dims(state.timestep.obs, 1),
             mask=jnp.expand_dims(state.timestep.done, 1),
-            action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            action=jnp.expand_dims(state.timestep.action, (1)),
             reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
             initial_carry=state.actor_carry,
         )
         action = probs.mode()
         log_prob = probs.log_prob(action)
 
-        critic_carry, value = self.critic.apply(
-            state.critic_params,
-            observation=jnp.expand_dims(state.timestep.obs, 1),
-            mask=jnp.expand_dims(state.timestep.done, 1),
-            action=jnp.expand_dims(state.timestep.action, (1, 2)),
-            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
-            initial_carry=state.critic_carry,
-        )
-
         action = action.squeeze(1)
         log_prob = log_prob.squeeze(1)
-        value = value.squeeze((1, -1))
 
         state = state.replace(
             actor_carry=actor_carry,
-            critic_carry=critic_carry,
         )
-        return key, state, action, log_prob, value
+        return key, state, action, log_prob, None
 
     def _stochastic_action(
         self, key: Key, state: PPOContinuousState
@@ -112,7 +101,7 @@ class PPOContinuous:
             state.actor_params,
             observation=jnp.expand_dims(state.timestep.obs, 1),
             mask=jnp.expand_dims(state.timestep.done, 1),
-            action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            action=jnp.expand_dims(state.timestep.action, (1)),
             reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
             initial_carry=state.actor_carry,
             rngs={"memory": actor_memory_key},
@@ -123,7 +112,7 @@ class PPOContinuous:
             state.critic_params,
             observation=jnp.expand_dims(state.timestep.obs, 1),
             mask=jnp.expand_dims(state.timestep.done, 1),
-            action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            action=jnp.expand_dims(state.timestep.action, (1)),
             reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
             initial_carry=state.critic_carry,
             rngs={"memory": critic_memory_key},
@@ -181,7 +170,7 @@ class PPOContinuous:
                 params,
                 observation=transitions.obs,
                 mask=transitions.prev_done,
-                action=jnp.expand_dims(transitions.prev_action, -1),
+                action=transitions.prev_action,
                 reward=jnp.expand_dims(transitions.prev_reward, -1),
                 initial_carry=initial_actor_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
@@ -234,7 +223,7 @@ class PPOContinuous:
                 params,
                 observation=transitions.obs,
                 mask=transitions.prev_done,
-                action=jnp.expand_dims(transitions.prev_action, -1),
+                action=transitions.prev_action,
                 reward=jnp.expand_dims(transitions.prev_reward, -1),
                 initial_carry=initial_critic_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
@@ -360,7 +349,7 @@ class PPOContinuous:
             state.critic_params,
             observation=jnp.expand_dims(state.timestep.obs, 1),
             mask=jnp.expand_dims(state.timestep.done, 1),
-            action=jnp.expand_dims(state.timestep.action, (1, 2)),
+            action=jnp.expand_dims(state.timestep.action, (1)),
             reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
             initial_carry=state.critic_carry,
         )
@@ -430,7 +419,7 @@ class PPOContinuous:
         )
         action = jnp.zeros((self.cfg.num_envs, self.env.action_space(self.env_params).shape[0]), dtype=jnp.float32)
         reward = jnp.zeros(self.cfg.num_envs, dtype=jnp.float32)
-        done = jnp.ones(self.cfg.num_envs, dtype=jnp.float32)
+        done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
         actor_carry = self.actor.initialize_carry(obs.shape)
         critic_carry = self.critic.initialize_carry(obs.shape)
 
@@ -442,7 +431,7 @@ class PPOContinuous:
             },
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
-            action=jnp.expand_dims(action, (1, 2)),
+            action=jnp.expand_dims(action, (1)),
             reward=jnp.expand_dims(reward, (1, 2)),
             initial_carry=actor_carry,
         )
@@ -454,7 +443,7 @@ class PPOContinuous:
             },
             observation=jnp.expand_dims(obs, 1),
             mask=jnp.expand_dims(done, 1),
-            action=jnp.expand_dims(action, (1, 2)),
+            action=jnp.expand_dims(action, (1)),
             reward=jnp.expand_dims(reward, (1, 2)),
             initial_carry=critic_carry,
         )
@@ -508,7 +497,7 @@ class PPOContinuous:
         )
         action = jnp.zeros((self.cfg.num_eval_envs, self.env.action_space(self.env_params).shape[0]), dtype=jnp.float32)
         reward = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.float32)
-        done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.float32)
+        done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
         initial_actor_carry = self.actor.initialize_carry(obs.shape)
         initial_critic_carry = self.critic.initialize_carry(obs.shape)
         state = state.replace(

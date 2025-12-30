@@ -16,7 +16,6 @@ class Network(nn.Module):
         mask: Array,
         **kwargs,
     ):
-        print("Kwargs: ", kwargs)
         x = self.feature_extractor(observation, **kwargs)
 
         carry, x = self.torso(x, mask=mask, **kwargs)

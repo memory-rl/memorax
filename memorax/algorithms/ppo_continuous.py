@@ -496,6 +496,7 @@ class PPOContinuous:
             reset_key, self.env_params
         )
         action = jnp.zeros((self.cfg.num_eval_envs, self.env.action_space(self.env_params).shape[0]), dtype=jnp.float32)
+
         reward = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.float32)
         done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
         initial_actor_carry = self.actor.initialize_carry(obs.shape)

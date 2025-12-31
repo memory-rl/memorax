@@ -150,3 +150,13 @@ class ClipActionWrapper(GymnaxWrapper):
     def step(self, key, state, action, params=None):
         action = jnp.clip(action, self.low, self.high)
         return self._env.step(key, state, action, params)
+
+
+class ScaleRewardWrapper(GymnaxWrapper):
+    def __init__(self, env, scale=1.0):
+        super().__init__(env)
+        self.scale = scale
+
+    def step(self, key, state, action, params=None):
+        obs, env_state, reward, done, info = self._env.step(key, state, action, params)
+        return obs, env_state, self.scale * reward, done, info

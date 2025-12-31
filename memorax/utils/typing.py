@@ -12,6 +12,8 @@ BufferState: TypeAlias = fbx.trajectory_buffer.TrajectoryBufferState
 Environment: TypeAlias = gymnax.environments.environment.Environment
 EnvParams: TypeAlias = gymnax.EnvParams
 EnvState: TypeAlias = gymnax.EnvState
+Discrete: TypeAlias = gymnax.environments.spaces.Discrete
+Box: TypeAlias = gymnax.environments.spaces.Box
 
 Carry: TypeAlias = Any
 PyTree: TypeAlias = Any

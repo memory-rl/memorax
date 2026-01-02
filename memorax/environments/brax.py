@@ -60,11 +60,9 @@ class BraxGymnaxWrapper(GymnaxWrapper):
         )
 
 
-def make(env_id, **kwargs):
+def make(env_id, mode, **kwargs):
     from brax import envs
     from brax.envs.wrappers.training import AutoResetWrapper, EpisodeWrapper
-
-    env_id, mask_mode = env_id.split("-")
 
     env = envs.get_environment(env_name=env_id, **kwargs)
     env = EpisodeWrapper(env, episode_length=1000, action_repeat=1)
@@ -72,7 +70,7 @@ def make(env_id, **kwargs):
     env = BraxGymnaxWrapper(
         env,
     )
-    env = MaskObservationWrapper(env, mask_dims=mask_dims[env_id][mask_mode])
+    env = MaskObservationWrapper(env, mask_dims=mask_dims[env_id][mode])
 
     env_params = env.default_params
     return env, env_params

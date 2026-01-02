@@ -16,6 +16,7 @@ from memorax.utils.typing import (
     Discrete,
 )
 from memorax.utils import generalized_advantage_estimatation, Transition, Timestep
+from memorax.networks.sequence_models import SequenceModel
 
 
 @struct.dataclass(frozen=True)
@@ -33,7 +34,6 @@ class PPOConfig:
     clip_vloss: bool
     ent_coef: float
     vf_coef: float
-    shuffle_time_axis: bool
 
     @property
     def batch_size(self):
@@ -303,7 +303,8 @@ class PPO:
         )
 
 
-        def shuffle(batch, shuffle_time_axis):
+        def shuffle(batch):
+            shuffle_time_axis = isinstance(self.actor.torso, SequenceModel) or isinstance(self.critic.torso, SequenceModel)
 
             if shuffle_time_axis:
                 batch = (
@@ -320,7 +321,7 @@ class PPO:
             )
             return minibatches
 
-        minibatches = shuffle(batch, self.cfg.shuffle_time_axis)
+        minibatches = shuffle(batch)
 
         (key, state), (actor_loss, critic_loss, aux) = jax.lax.scan(
             self._update_minibatch,

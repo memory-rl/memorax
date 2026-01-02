@@ -5,6 +5,7 @@ from memorax.networks.embedding import Embedding
 from memorax.networks.feature_extractor import FeatureExtractor
 from memorax.networks.network import Network
 from memorax.networks.sequence_models import (
+    SequenceModel,
     FFM,
     GPT2,
     RNN,

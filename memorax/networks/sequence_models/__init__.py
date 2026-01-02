@@ -1,3 +1,4 @@
+from .sequence_model import SequenceModel
 from .ffm import FFM
 from .gpt2 import GPT2
 from .rnn import RNN

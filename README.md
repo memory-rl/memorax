@@ -74,6 +74,6 @@ If you use Memory-RL for your work, please cite:
   title   = {Memory-RL: A Unified Framework for Memory-Augmented Reinforcement Learning},
   author  = {Noah Farr},
   year    = {2025},
-  url     = {https://github.com/memorax/memorax}
+  url     = {https://github.com/memory-rl/memorax}
 }
 ```

@@ -2,6 +2,10 @@
 
 A unified reinforcement learning framework featuring memory-augmented algorithms and POMDP environment implementations. This repository provides modular components for building, configuring, and running a variety of RL algorithms on classic and memory-intensive environments.
 
+<div align="center">
+    <img src="https://github.com/memory-rl/memorax/blob/refactor/images/memorax_logo.png" height="170">
+</div>
+
 ## Features
 
 * **Memory-RL**: JAX implementations of [DQN](https://arxiv.org/abs/1312.5602), [PPO](https://arxiv.org/abs/1707.06347) (Discrete & Continuous), [SAC](https://arxiv.org/abs/1801.01290) (Discrete & Continuous), [PQN](https://arxiv.org/abs/2407.04811v2#S4), and their memory-augmented variants.

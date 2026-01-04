@@ -513,8 +513,8 @@ class PPO:
 
         return key, state, transitions
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key, state, num_steps):
+    @partial(jax.jit, static_argnames=["self", "num_steps", "deterministic"])
+    def evaluate(self, key, state, num_steps, deterministic=True):
 
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
@@ -536,8 +536,10 @@ class PPO:
             critic_carry=initial_critic_carry,
             env_state=env_state,
         )
+
+        policy = self._deterministic_action if deterministic else self._stochastic_action
         (key, *_), transitions = jax.lax.scan(
-            partial(self._step, policy=self._deterministic_action),
+            partial(self._step, policy=policy),
             (key, state),
             length=num_steps,
         )

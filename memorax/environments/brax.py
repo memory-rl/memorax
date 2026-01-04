@@ -60,11 +60,11 @@ class BraxGymnaxWrapper(GymnaxWrapper):
         )
 
 
-def make(env_id, mode, **kwargs):
+def make(env_id, mode, backend="mjx", **kwargs):
     from brax import envs
     from brax.envs.wrappers.training import AutoResetWrapper, EpisodeWrapper
 
-    env = envs.get_environment(env_name=env_id, **kwargs)
+    env = envs.get_environment(env_name=env_id, backend=backend, **kwargs)
     env = EpisodeWrapper(env, episode_length=1000, action_repeat=1)
     env = AutoResetWrapper(env)
     env = BraxGymnaxWrapper(

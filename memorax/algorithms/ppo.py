@@ -164,7 +164,6 @@ class PPO:
             prev_action=prev_action,  # type: ignore
             prev_reward=jnp.where(state.timestep.done, 0, state.timestep.reward),  # type: ignore
             prev_done=state.timestep.done,
-            env_state=env_state,
         )
 
         state = state.replace(

@@ -537,7 +537,7 @@ class PPO:
             env_state=env_state,
         )
         (key, *_), transitions = jax.lax.scan(
-            partial(self._step, policy=self._deterministic_action),
+            partial(self._step, policy=self._stochastic_action),
             (key, state),
             length=num_steps,
         )

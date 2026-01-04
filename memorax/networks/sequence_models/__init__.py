@@ -16,4 +16,4 @@ from .td_gated_delta_net import TDGatedDeltaNet
 from .mamba import Mamba
 from .kalman_net import KalmanNet
 from .linear_transformer import LinearTransformer
-from .wrapper import RecurrentWrapper
+from .wrapper import RecurrentWrapper, MetaMaskWrapper

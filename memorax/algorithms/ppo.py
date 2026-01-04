@@ -17,6 +17,7 @@ from memorax.utils.typing import (
 )
 from memorax.utils import generalized_advantage_estimatation, Transition, Timestep
 from memorax.networks.sequence_models import SequenceModel
+from memorax.networks.sequence_models.utils import add_time_axis, remove_time_axis, add_feature_axis, remove_feature_axis
 
 
 @struct.dataclass(frozen=True)
@@ -66,20 +67,22 @@ class PPO:
     def _deterministic_action(
         self, key: Key, state: PPOState
     ) -> tuple[Key, PPOState, Array, Array]:
+        timestep = jax.tree.map(add_time_axis, state.timestep)
         actor_carry, probs = self.actor.apply(
             state.actor_params,
-            observation=jnp.expand_dims(state.timestep.obs, 1),
-            mask=jnp.expand_dims(state.timestep.done, 1),
-            action=jnp.expand_dims(state.timestep.action, (1, 2) if self.env.action_space(self.env_params) == Discrete else (1,)),
-            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
             initial_carry=state.actor_carry,
         )
 
-        action = jnp.argmax(probs.logits, axis=-1) if self.env.action_space(self.env_params) == Discrete else probs.mode()
+        action = jnp.argmax(probs.logits, axis=-1) if isinstance(self.env.action_space(self.env_params), Discrete) else probs.mode()
         log_prob = probs.log_prob(action)
 
-        action = action.squeeze(1)
-        log_prob = log_prob.squeeze(1)
+        action = remove_time_axis(action)
+        log_prob = remove_time_axis(log_prob)
 
         state = state.replace(
             actor_carry=actor_carry,
@@ -95,12 +98,15 @@ class PPO:
             actor_memory_key,
             critic_memory_key,
         ) = jax.random.split(key, 4)
+
+        timestep = jax.tree.map(add_time_axis, state.timestep)
         actor_carry, probs = self.actor.apply(
             state.actor_params,
-            observation=jnp.expand_dims(state.timestep.obs, 1),
-            mask=jnp.expand_dims(state.timestep.done, 1),
-            action=jnp.expand_dims(state.timestep.action, (1, 2) if self.env.action_space(self.env_params) == Discrete else (1,)),
-            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
             initial_carry=state.actor_carry,
             rngs={"memory": actor_memory_key},
         )
@@ -108,17 +114,20 @@ class PPO:
 
         critic_carry, value = self.critic.apply(
             state.critic_params,
-            observation=jnp.expand_dims(state.timestep.obs, 1),
-            mask=jnp.expand_dims(state.timestep.done, 1),
-            action=jnp.expand_dims(state.timestep.action, (1, 2) if self.env.action_space(self.env_params) == Discrete else (1,)),
-            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
             initial_carry=state.critic_carry,
             rngs={"memory": critic_memory_key},
         )
 
-        action = action.squeeze(1)
-        log_prob = log_prob.squeeze(1)
-        value = value.squeeze((1, -1))
+        action = remove_time_axis(action)
+        log_prob = remove_time_axis(log_prob)
+
+        value = remove_time_axis(value)
+        value = remove_feature_axis(value)
 
         state = state.replace(
             actor_carry=actor_carry,
@@ -174,8 +183,9 @@ class PPO:
                 params,
                 observation=transitions.obs,
                 mask=transitions.prev_done,
-                action=transitions.prev_action.reshape(transitions.prev_action.shape[0], -1),
-                reward=jnp.expand_dims(transitions.prev_reward, -1),
+                action=transitions.prev_action,
+                reward=add_feature_axis(transitions.prev_reward),
+                done=transitions.prev_done,
                 initial_carry=initial_actor_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
@@ -223,16 +233,18 @@ class PPO:
         key, memory_key, dropout_key = jax.random.split(key, 3)
 
         def critic_loss_fn(params):
+
             _, values = self.critic.apply(
                 params,
                 observation=transitions.obs,
                 mask=transitions.prev_done,
-                action=transitions.prev_action.reshape(transitions.prev_action.shape[0], -1),
-                reward=jnp.expand_dims(transitions.prev_reward, -1),
+                action=transitions.prev_action,
+                reward=add_feature_axis(transitions.prev_reward),
+                done=transitions.prev_done,
                 initial_carry=initial_critic_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
-            values = values.squeeze(-1)
+            values = remove_feature_axis(values)
 
             if self.cfg.clip_vloss:
                 critic_loss = jnp.square(values - returns)
@@ -304,7 +316,7 @@ class PPO:
 
 
         def shuffle(batch):
-            shuffle_time_axis = isinstance(self.actor.torso, SequenceModel) or isinstance(self.critic.torso, SequenceModel)
+            shuffle_time_axis = not (isinstance(self.actor.torso, SequenceModel) or isinstance(self.critic.torso, SequenceModel))
 
             if shuffle_time_axis:
                 batch = (
@@ -350,21 +362,23 @@ class PPO:
             length=self.cfg.num_steps,
         )
 
-        _, final_value = self.critic.apply(
+        timestep = jax.tree.map(add_time_axis, state.timestep)
+        _, value = self.critic.apply(
             state.critic_params,
-            observation=jnp.expand_dims(state.timestep.obs, 1),
-            mask=jnp.expand_dims(state.timestep.done, 1),
-            action=jnp.expand_dims(state.timestep.action, (1, 2) if self.env.action_space(self.env_params) == Discrete else (1,)),
-            reward=jnp.expand_dims(state.timestep.reward, (1, 2)),
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
             initial_carry=state.critic_carry,
         )
-
-        final_value = final_value.squeeze((1, -1))
+        value = remove_time_axis(value)
+        value = remove_feature_axis(value)
 
         advantages, returns = generalized_advantage_estimatation(
             self.cfg.gamma,
             self.cfg.gae_lambda,
-            final_value,
+            value,
             transitions,
         )
 
@@ -426,8 +440,10 @@ class PPO:
             (self.cfg.num_envs, *self.env.action_space(self.env_params).shape), 
             dtype=self.env.action_space(self.env_params).dtype
         )
-        reward = jnp.zeros(self.cfg.num_envs, dtype=jnp.float32)
-        done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
+        reward = jnp.zeros((self.cfg.num_envs,), dtype=jnp.float32)
+        done = jnp.ones((self.cfg.num_envs,), dtype=jnp.bool)
+        timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
+        timestep = jax.tree.map(add_time_axis, timestep)
         actor_carry = self.actor.initialize_carry(obs.shape)
         critic_carry = self.critic.initialize_carry(obs.shape)
 
@@ -437,10 +453,11 @@ class PPO:
                 "memory": actor_memory_key,
                 "dropout": actor_dropout_key,
             },
-            observation=jnp.expand_dims(obs, 1),
-            mask=jnp.expand_dims(done, 1),
-            action=jnp.expand_dims(action, (1, 2) if self.env.action_space(self.env_params) == Discrete else (1,)),
-            reward=jnp.expand_dims(reward, (1, 2)),
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
             initial_carry=actor_carry,
         )
         critic_params = self.critic.init(
@@ -449,10 +466,11 @@ class PPO:
                 "memory": critic_memory_key,
                 "dropout": critic_dropout_key,
             },
-            observation=jnp.expand_dims(obs, 1),
-            mask=jnp.expand_dims(done, 1),
-            action=jnp.expand_dims(action, (1, 2) if self.env.action_space(self.env_params) == Discrete else (1,)),
-            reward=jnp.expand_dims(reward, (1, 2)),
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
             initial_carry=critic_carry,
         )
 
@@ -463,7 +481,7 @@ class PPO:
             key,
             PPOState(
                 step=0,  # type: ignore
-                timestep=Timestep(obs=obs, action=action, reward=reward, done=done),
+                timestep=jax.tree.map(remove_time_axis, timestep),
                 actor_carry=actor_carry,  # type: ignore
                 critic_carry=critic_carry,  # type: ignore
                 env_state=env_state,  # type: ignore
@@ -488,7 +506,7 @@ class PPO:
             length=num_steps // (self.cfg.num_envs * self.cfg.num_steps),
         )
 
-        transitions = jax.tree.map(lambda x: jnp.swapaxes(x, -1, 1), transitions)
+        transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
         transitions = jax.tree.map(
             lambda x: x.reshape((-1,) + x.shape[2:]), transitions
         )
@@ -509,10 +527,11 @@ class PPO:
         )
         reward = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.float32)
         done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
+        timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
         initial_actor_carry = self.actor.initialize_carry(obs.shape)
         initial_critic_carry = self.critic.initialize_carry(obs.shape)
         state = state.replace(
-            timestep=Timestep(obs=obs, action=action, reward=reward, done=done),
+            timestep=timestep,
             actor_carry=initial_actor_carry,
             critic_carry=initial_critic_carry,
             env_state=env_state,

@@ -40,6 +40,12 @@ def add_time_axis(x: jax.Array):
 def remove_time_axis(x: jax.Array):
     return x.squeeze(1)
 
+def add_feature_axis(x: jax.Array):
+    return x[..., None]
+
+def remove_feature_axis(x: jax.Array):
+    return x.squeeze(-1)
+
 
 def get_time_axis_and_input_shape(inputs: jax.Array, num_feature_axes=1):
     time_axis = inputs.ndim - (num_feature_axes + 1)

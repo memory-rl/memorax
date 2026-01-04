@@ -9,16 +9,16 @@ class FeatureExtractor(nn.Module):
     observation_extractor: nn.Module
     action_extractor: Optional[nn.Module] = None
     reward_extractor: Optional[nn.Module] = None
-    concatenate: bool = True
+    done_extractor: Optional[nn.Module] = None
 
     def extract(
         self,
-        features: tuple,
+        features: list,
         extractor: Optional[nn.Module],
         x: Optional[jnp.ndarray] = None,
     ):
         if extractor is not None and x is not None:
-            features += (extractor(x),)
+            features.append(extractor(x))
 
     @nn.compact
     def __call__(
@@ -26,13 +26,14 @@ class FeatureExtractor(nn.Module):
         observation: jnp.ndarray,
         action: Optional[jnp.ndarray] = None,
         reward: Optional[jnp.ndarray] = None,
+        done: Optional[jnp.ndarray] = None,
         **kwargs,
     ):
-        features = (self.observation_extractor(observation),)
+        features = [self.observation_extractor(observation)]
         self.extract(features, self.action_extractor, action)
         self.extract(features, self.reward_extractor, reward)
+        self.extract(features, self.done_extractor, done.astype(jnp.int32))
 
-        if self.concatenate:
-            features = jnp.concatenate(features, axis=-1)
+        features = jnp.concatenate(features, axis=-1)
 
         return features

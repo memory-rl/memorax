@@ -15,6 +15,5 @@ class Embedding(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
-        x = jnp.squeeze(x, axis=-1)
         x = nn.Embed(self.num_embeddings, self.features, embedding_init=self.embedding_init)(x)
         return x

@@ -7,6 +7,7 @@ from memorax.environments import (
     navix,
     popgym_arcade,
     popjym,
+    xminigrid,
 )
 
 register = {
@@ -18,6 +19,7 @@ register = {
     "navix": navix.make,
     "popgym_arcade": popgym_arcade.make,
     "popjym": popjym.make,
+    "xminigrid": xminigrid.make,
 }
 
 

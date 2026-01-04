@@ -17,7 +17,6 @@ class Network(nn.Module):
         **kwargs,
     ):
         x = self.feature_extractor(observation, **kwargs)
-
         carry, x = self.torso(x, mask=mask, **kwargs)
         return carry, self.head(x, **kwargs)
 

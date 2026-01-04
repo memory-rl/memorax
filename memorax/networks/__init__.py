@@ -24,4 +24,5 @@ from memorax.networks.sequence_models import (
     KalmanNet,
     LinearTransformer,
     RecurrentWrapper,
+    MetaMaskWrapper,
 )

@@ -21,7 +21,7 @@ StateT = TypeVar("StateT", bound=BaseLoggerState)
 class BaseLogger(Generic[StateT], ABC):
 
     @abstractmethod
-    def init(self, cfg) -> StateT: ...
+    def init(self, **kwargs) -> StateT: ...
 
     @abstractmethod
     def log(self, state: StateT, data: PyTree, step: PyTree) -> StateT: ...
@@ -44,9 +44,9 @@ class Logger(BaseLogger[LoggerState]):
 
     _is_leaf = staticmethod(lambda x: isinstance(x, (BaseLogger, BaseLoggerState)))
 
-    def init(self, cfg: dict) -> LoggerState:
+    def init(self, **kwargs) -> LoggerState:
         logger_states = jax.tree.map(
-            lambda logger: logger.init(cfg),
+            lambda logger: logger.init(**kwargs),
             self.loggers,
             is_leaf=self._is_leaf,
         )

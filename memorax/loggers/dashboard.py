@@ -40,7 +40,7 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
     refresh_per_second: int = 10
     env_id: Optional[str] = None
 
-    def init(self, cfg: dict) -> DashboardLoggerState:
+    def init(self, **kwargs) -> DashboardLoggerState:
         console = Console()
 
         progress = Progress(
@@ -52,13 +52,10 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
         )
         task = progress.add_task("Progress", total=self.total_timesteps)
 
-        # prime first frame
         dashboard = self.get_dashboard(
             stats={
                 "global_step": 0,
                 "SPS": 0,
-                "episodic_return": 0,
-                "episodic_length": 0,
                 "losses": {},
                 "metrics": {},
             },
@@ -133,13 +130,11 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
             border_style="white",
         )
 
-        # header
         header = Table(box=None, expand=True, show_header=False)
         header.add_column(justify="left")
         header.add_row(f"[bold white]{self.title} - {self.name}[/]")
         dashboard.add_row(header)
 
-        # summary (left)
         summary_table = Table(box=None, expand=True)
         summary_table.add_column(
             "Summary", justify="left", vertical="top", width=16, style="white"
@@ -156,7 +151,6 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
         )
         summary_table.add_row("SPS", f"{int(stats['SPS']):_}", style="white")
 
-        # losses (right)
         losses_table = Table(box=None, expand=True)
         losses_table.add_column("Losses", justify="left", width=16, style="white")
         losses_table.add_column("Value", justify="right", width=8, style="white")
@@ -167,7 +161,6 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
         monitor.add_row(summary_table, losses_table)
         dashboard.add_row(monitor)
 
-        # statistics (episodic return/length)
         statistics = Table(box=None, expand=True, pad_edge=False)
         left_stats = Table(box=None, expand=True)
         right_stats = Table(box=None, expand=True)
@@ -190,7 +183,6 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
         statistics.add_row(left_stats, right_stats)
         dashboard.add_row(statistics)
 
-        # spacer + progress
         dashboard.add_row("")
         progress.update(task, completed=int(stats["global_step"]))
         dashboard.add_row(progress)

@@ -1,3 +1,4 @@
+from typing import Literal
 from collections import defaultdict
 from dataclasses import field
 from .logger import BaseLogger, BaseLoggerState, PyTree
@@ -24,10 +25,11 @@ class WandbLogger(BaseLogger[WandbLoggerState]):
     project: Optional[str] = None
     name: Optional[str] = None
     group: Optional[str] = None
-    mode: str = "disabled"
+    mode: Literal["online", "disabled", "shared"] = "disabled"
     num_seeds: int = 1
 
-    def init(self, cfg: dict) -> WandbLoggerState:
+    def init(self, **kwargs) -> WandbLoggerState:
+        cfg = kwargs.get("cfg", {})
         runs = {
             seed: wandb.init(
                 entity=self.entity,

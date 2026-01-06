@@ -506,10 +506,9 @@ class PPO:
             length=num_steps // (self.cfg.num_envs * self.cfg.num_steps),
         )
 
-        transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
-        # transitions = jax.tree.map(
-        #     lambda x: x.reshape((-1,) + x.shape[2:]), transitions
-        # )
+        transitions = jax.tree.map(
+            lambda x: x.reshape((-1,) + x.shape[2:]).swapaxes(0, 1), transitions
+        )
 
         return key, state, transitions
 

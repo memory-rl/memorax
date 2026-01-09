@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 import optax
-from memorax.algorithms import PPOContinuous, PPOContinuousConfig
+from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import Logger, DashboardLogger, WandbLogger
 from memorax.networks import (
@@ -32,15 +32,13 @@ num_eval_steps = 5_000
 seed = 0
 num_seeds = 1
 
-env, env_params = environment.make("brax::ant-V")
+env, env_params = environment.make("gymnax::Pendulum-v1")
 
-cfg = PPOContinuousConfig(
+cfg = PPOConfig(
     name="PPO",
-    learning_rate=3e-4,
     num_envs=32,
     num_eval_envs=16,
     num_steps=64,
-    anneal_lr=True,
     gamma=0.999,
     gae_lambda=0.95,
     num_minibatches=8,
@@ -50,9 +48,6 @@ cfg = PPOContinuousConfig(
     clip_vloss=True,
     ent_coef=0.01,
     vf_coef=0.5,
-    max_grad_norm=1.0,
-    learning_starts=0,
-    shuffle_time_axis=True,
 )
 
 actor_network = Network(
@@ -67,8 +62,8 @@ actor_network = Network(
     )
 )
 actor_optimizer = optax.chain(
-    optax.clip_by_global_norm(cfg.max_grad_norm),
-    optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
+    optax.clip_by_global_norm(1.0),
+    optax.adam(learning_rate=3e-4, eps=1e-5),
 )
 
 critic_network = Network(
@@ -81,14 +76,14 @@ critic_network = Network(
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(
-    optax.clip_by_global_norm(cfg.max_grad_norm),
-    optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
+    optax.clip_by_global_norm(1.0),
+    optax.adam(learning_rate=3e-4, eps=1e-5),
 )
 
 key = jax.random.key(seed)
 keys = jax.random.split(key, num_seeds)
 
-agent = PPOContinuous(
+agent = PPO(
     cfg=cfg,
     env=env,
     env_params=env_params,
@@ -104,7 +99,7 @@ logger = Logger(
         # WandbLogger(entity="noahfarr", project="memorax", name="PPO_bsuite"),
     ]
 )
-logger_state = logger.init(cfg)
+logger_state = logger.init(cfg=cfg)
 
 init = jax.vmap(agent.init)
 evaluate = jax.vmap(agent.evaluate, in_axes=(0, 0, None))

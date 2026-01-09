@@ -24,9 +24,9 @@ class FeatureExtractor(nn.Module):
     def __call__(
         self,
         observation: jnp.ndarray,
-        action: Optional[jnp.ndarray] = None,
-        reward: Optional[jnp.ndarray] = None,
-        done: Optional[jnp.ndarray] = None,
+        action: jnp.ndarray,
+        reward: jnp.ndarray,
+        done: jnp.ndarray,
         **kwargs,
     ):
         features = [self.observation_extractor(observation)]

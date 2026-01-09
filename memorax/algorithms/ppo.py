@@ -142,7 +142,7 @@ class PPO:
         key, action_key, step_key = jax.random.split(key, 3)
         key, state, action, log_prob, value = policy(action_key, state)
 
-        num_envs = state.timestep.obs.shape[0]
+        num_envs, *_ = state.timestep.obs.shape
         step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
@@ -480,7 +480,7 @@ class PPO:
             key,
             PPOState(
                 step=0,  # type: ignore
-                timestep=jax.tree.map(remove_time_axis, timestep),
+                timestep=timestep.from_sequence(),
                 actor_carry=actor_carry,  # type: ignore
                 critic_carry=critic_carry,  # type: ignore
                 env_state=env_state,  # type: ignore

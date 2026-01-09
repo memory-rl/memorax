@@ -17,8 +17,8 @@ from memorax.networks import (
     RecurrentWrapper,
 )
 
-total_timesteps = 1_000_000
-num_train_steps = 10_000
+total_timesteps = 500_000
+num_train_steps = 50_000
 num_eval_steps = 10_000
 
 seed = 0

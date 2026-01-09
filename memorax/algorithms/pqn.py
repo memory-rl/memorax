@@ -10,12 +10,11 @@ from flax import core, struct
 
 from memorax.utils import Transition
 from memorax.utils.typing import Array, Environment, EnvParams, EnvState, Key
-
+from memorax.networks import RecurrentWrapper
 
 @struct.dataclass(frozen=True)
 class PQNConfig:
     name: str
-    learning_rate: float
     num_envs: int
     num_eval_envs: int
     num_steps: int
@@ -148,8 +147,8 @@ class PQN:
         key, permutation_key = jax.random.split(key)
         batch = (initial_hidden_state, transitions, lambda_targets)
 
-        def shuffle(batch, shuffle_time_axis):
-
+        def shuffle(batch):
+            shuffle_time_axis = isinstance(self.q_network, RecurrentWrapper)
             if shuffle_time_axis:
                 batch = (
                     initial_hidden_state,
@@ -164,7 +163,7 @@ class PQN:
             )
             return minibatches
 
-        minibatches = shuffle(batch, self.cfg.shuffle_time_axis)
+        minibatches = shuffle(batch)
 
         (key, state), (loss, q_value) = jax.lax.scan(
             self._update_minibatch, (key, state), xs=minibatches
@@ -307,7 +306,7 @@ class PQN:
         )
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, -1, 1), transitions)
         transitions = jax.tree.map(
-            lambda x: x.reshape((-1,) + x.shape[2:]), transitions
+            lambda x: x.swapaxes(1, 2).reshape((-1,) + x.shape[2:]), transitions
         )
 
         return key, state, transitions

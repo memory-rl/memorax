@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import optax
 from flax import core
 
+from memorax.networks.sequence_models.wrapper import RecurrentWrapper
 from memorax.utils.typing import (
     Array,
     Environment,
@@ -316,8 +317,7 @@ class PPO:
 
 
         def shuffle(batch):
-            shuffle_time_axis = not (isinstance(self.actor.torso, SequenceModel) or isinstance(self.critic.torso, SequenceModel))
-
+            shuffle_time_axis = isinstance(self.actor.torso, RecurrentWrapper) and isinstance(self.critic.torso, RecurrentWrapper)
             if shuffle_time_axis:
                 batch = (
                     initial_actor_h_epoch,
@@ -506,7 +506,7 @@ class PPO:
         )
 
         transitions = jax.tree.map(
-            lambda x: x.reshape((-1,) + x.shape[2:]).swapaxes(0, 1), transitions
+            lambda x: x.swapaxes(1, 2).reshape((-1,) + x.shape[2:]), transitions
         )
 
         return key, state, transitions

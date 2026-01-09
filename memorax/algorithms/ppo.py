@@ -67,7 +67,7 @@ class PPO:
     def _deterministic_action(
         self, key: Key, state: PPOState
     ) -> tuple[Key, PPOState, Array, Array]:
-        timestep = jax.tree.map(add_time_axis, state.timestep)
+        timestep = state.timestep.to_sequence()
         actor_carry, probs = self.actor.apply(
             state.actor_params,
             observation=timestep.obs,
@@ -99,7 +99,7 @@ class PPO:
             critic_memory_key,
         ) = jax.random.split(key, 4)
 
-        timestep = jax.tree.map(add_time_axis, state.timestep)
+        timestep = state.timestep.to_sequence()
         actor_carry, probs = self.actor.apply(
             state.actor_params,
             observation=timestep.obs,
@@ -362,7 +362,7 @@ class PPO:
             length=self.cfg.num_steps,
         )
 
-        timestep = jax.tree.map(add_time_axis, state.timestep)
+        timestep = state.timestep.to_sequence()
         _, value = self.critic.apply(
             state.critic_params,
             observation=timestep.obs,
@@ -442,8 +442,7 @@ class PPO:
         )
         reward = jnp.zeros((self.cfg.num_envs,), dtype=jnp.float32)
         done = jnp.ones((self.cfg.num_envs,), dtype=jnp.bool)
-        timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
-        timestep = jax.tree.map(add_time_axis, timestep)
+        timestep = Timestep(obs=obs, action=action, reward=reward, done=done).to_sequence()
         actor_carry = self.actor.initialize_carry(obs.shape)
         critic_carry = self.critic.initialize_carry(obs.shape)
 

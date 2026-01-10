@@ -9,6 +9,7 @@ class CNN(nn.Module):
     features: Sequence[int]
     kernel_sizes: Sequence[tuple[int, int]]
     strides: Sequence[int | tuple[int, int]]
+    poolings: Optional[Sequence[Callable]] = None
     padding: str = "VALID"
     activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     normalizer: Optional[Callable] = None
@@ -18,8 +19,10 @@ class CNN(nn.Module):
     @nn.compact
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
 
-        for feature, kernel_size, stride in zip(
-            self.features, self.kernel_sizes, self.strides
+        poolings = self.poolings or [None] * len(self.features)
+
+        for feature, kernel_size, stride, pooling in zip(
+            self.features, self.kernel_sizes, self.strides, poolings
         ):
             x = nn.Conv(
                 feature,
@@ -29,9 +32,14 @@ class CNN(nn.Module):
                 kernel_init=self.kernel_init,
                 bias_init=self.bias_init,
             )(x)
+
             if self.normalizer is not None:
                 x = self.normalizer()(x)
+
             x = self.activation(x)
+
+            if pooling is not None:
+                x = pooling(x)
 
         batch_size, sequence_length, *_ = x.shape
         x = x.reshape((batch_size, sequence_length, -1))

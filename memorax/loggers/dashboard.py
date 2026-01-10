@@ -24,7 +24,8 @@ class DashboardLoggerState(BaseLoggerState):
     stats: dict[str, Any] = field(
         default_factory=lambda: {
             "global_step": 0,
-            "SPS": 0,
+            "training/SPS": 0,
+            "evaluation/SPS": 0,
             "losses": {},  # dict[str, float]
             "metrics": {},  # dict[str, float]
         }
@@ -54,7 +55,8 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
         dashboard = self.get_dashboard(
             stats={
                 "global_step": 0,
-                "SPS": 0,
+                "training/SPS": 0,
+                "evaluation/SPS": 0,
                 "losses": {},
                 "metrics": {},
             },
@@ -87,8 +89,9 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
         for step, data in sorted(state.buffer.items()):
             state.stats["global_step"] = max(state.stats["global_step"], step)
 
-            state.stats["SPS"] = data.pop(
-                "SPS", data.pop("training/SPS", state.stats["SPS"])
+            state.stats["training/SPS"] = data.pop("training/SPS", state.stats["SPS"])
+            state.stats["evaluation/SPS"] = data.pop(
+                "evaluation/SPS", state.stats["SPS"]
             )
 
             state.stats["losses"].update(
@@ -150,7 +153,12 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
         summary_table.add_row(
             "Global Step", f"{int(stats['global_step']):_}", style="white"
         )
-        summary_table.add_row("SPS", f"{int(stats['SPS']):_}", style="white")
+        summary_table.add_row(
+            "training/SPS", f"{int(stats['training/SPS']):_}", style="white"
+        )
+        summary_table.add_row(
+            "evaluation/SPS", f"{int(stats['evaluation/SPS']):_}", style="white"
+        )
 
         losses_table = Table(box=None, expand=True)
         losses_table.add_column("Losses", justify="left", width=16, style="white")

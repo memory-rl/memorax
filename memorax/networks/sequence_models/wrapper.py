@@ -1,7 +1,8 @@
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 from flax import struct
+
 
 class RecurrentWrapper(nn.Module):
     network: nn.Module
@@ -11,13 +12,16 @@ class RecurrentWrapper(nn.Module):
         return carry, self.network(inputs, **kwargs)
 
     def initialize_carry(self, rng, input_shape):
-        return jnp.zeros(input_shape)
+        batch_size, *_ = input_shape
+        *_, features = self.network.features
+        return jnp.zeros((batch_size, features))
 
 
 @struct.dataclass
 class MetaMaskState:
     carry: jnp.ndarray
     step: jnp.ndarray
+
 
 class MetaMaskWrapper(nn.Module):
     sequence_model: nn.Module
@@ -45,4 +49,3 @@ class MetaMaskWrapper(nn.Module):
             carry=self.sequence_model.initialize_carry(rng, input_shape),
             step=jnp.zeros((batch_size,), dtype=jnp.int32),
         )
-

@@ -1,7 +1,6 @@
 from typing import Any, Optional
 
 from gymnax.environments import spaces
-from gxm.spaces import Discrete, Box, Tree
 import jax.numpy as jnp
 
 from memorax.utils.wrappers import GymnaxWrapper
@@ -46,6 +45,7 @@ class GxmGymnaxWrapper(GymnaxWrapper):
         return self._gxm_to_gymnax_space(self._env.observation_space)
 
     def _gxm_to_gymnax_space(self, space: Any) -> spaces.Space:
+        from gxm.spaces import Discrete, Box, Tree
         if isinstance(space, Discrete):
             return spaces.Discrete(space.n)
         if isinstance(space, Box):

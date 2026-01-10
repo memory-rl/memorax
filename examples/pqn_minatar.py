@@ -11,6 +11,7 @@ from memorax.environments import environment
 from memorax.loggers import Logger, DashboardLogger, WandbLogger
 from memorax.networks import (
     MLP,
+    CNN,
     Network,
     heads,
     FeatureExtractor,
@@ -26,7 +27,7 @@ seed = 0
 num_seeds = 5
 
 env, env_params = environment.make("gymnax::Breakout-MinAtar")
-env = FlattenObservationWrapper(env)
+# env = FlattenObservationWrapper(env)
 
 cfg = PQNConfig(
     name="PQN",
@@ -41,8 +42,10 @@ cfg = PQNConfig(
 
 q_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=MLP(
-            features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+        observation_extractor=CNN(
+            features=(16,),
+            kernel_sizes=((3, 3),),
+            strides=(1,),
         ),
     ),
     torso=RecurrentWrapper(MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))),
@@ -76,7 +79,7 @@ agent = PQN(
 
 logger = Logger(
     [
-        DashboardLogger(title="PPO bsuite Example", total_timesteps=total_timesteps),
+        DashboardLogger(title="PQN MinAtar Breakout", total_timesteps=total_timesteps),
     ]
 )
 logger_state = logger.init(cfg=asdict(cfg))

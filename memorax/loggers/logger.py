@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar, TypeAlias
+from typing import Any, Generic, TypeAlias, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -40,7 +40,7 @@ class LoggerState(BaseLoggerState):
 
 @struct.dataclass(frozen=True)
 class Logger(BaseLogger[LoggerState]):
-    loggers: dict[str, BaseLogger[Any]]
+    loggers: dict[str, BaseLogger[Any]] | list[BaseLogger[Any]]
 
     _is_leaf = staticmethod(lambda x: isinstance(x, (BaseLogger, BaseLoggerState)))
 

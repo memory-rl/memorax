@@ -3,11 +3,10 @@ from dataclasses import field
 from typing import Any, DefaultDict, Optional
 
 from flax import struct
-
 from rich import box
 from rich.console import Console
 from rich.live import Live
-from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
+from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
 from rich.table import Table
 
 from .logger import BaseLogger, BaseLoggerState, PyTree
@@ -88,7 +87,9 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
         for step, data in sorted(state.buffer.items()):
             state.stats["global_step"] = max(state.stats["global_step"], step)
 
-            state.stats["SPS"] = data.get("SPS", state.stats["SPS"])
+            state.stats["SPS"] = data.get(
+                "SPS", data.get("training/SPS", state.stats["SPS"])
+            )
 
             state.stats["losses"].update(
                 {k: v.mean() for k, v in data.items() if k.startswith("losses/")}

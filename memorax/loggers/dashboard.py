@@ -89,9 +89,11 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
         for step, data in sorted(state.buffer.items()):
             state.stats["global_step"] = max(state.stats["global_step"], step)
 
-            state.stats["training/SPS"] = data.pop("training/SPS", state.stats["SPS"])
+            state.stats["training/SPS"] = data.pop(
+                "training/SPS", state.stats["training/SPS"]
+            )
             state.stats["evaluation/SPS"] = data.pop(
-                "evaluation/SPS", state.stats["SPS"]
+                "evaluation/SPS", state.stats["evaluation/SPS"]
             )
 
             state.stats["losses"].update(

@@ -300,7 +300,7 @@ class PQN:
             obs=obs, action=action, reward=reward, done=done
         ).to_sequence()
 
-        hidden_state = self.q_network.initialize_carry(obs.shape)
+        hidden_state = self.q_network.initialize_carry((self.cfg.num_envs, None))
         params = self.q_network.init(
             {"params": q_key, "memory": memory_key},
             observation=timestep.obs,
@@ -360,7 +360,7 @@ class PQN:
         reward = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.float32)
         done = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.bool)
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
-        hidden_state = self.q_network.initialize_carry(obs.shape)
+        hidden_state = self.q_network.initialize_carry((self.cfg.num_eval_envs, None))
 
         state = state.replace(
             timestep=timestep, hidden_state=hidden_state, env_state=env_state

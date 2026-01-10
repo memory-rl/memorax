@@ -1,24 +1,21 @@
 from functools import partial
 from typing import Any, Callable
-from flax import struct
-from flax import linen as nn
+
 import jax
 import jax.numpy as jnp
 import optax
 from flax import core
+from flax import linen as nn
+from flax import struct
 
-from memorax.networks.sequence_models.wrapper import RecurrentWrapper
-from memorax.utils.typing import (
-    Array,
-    Environment,
-    EnvParams,
-    EnvState,
-    Key,
-    Discrete,
+from memorax.networks.sequence_models.utils import (
+    add_feature_axis,
+    remove_feature_axis,
+    remove_time_axis,
 )
-from memorax.utils import generalized_advantage_estimatation, Transition, Timestep
-from memorax.networks.sequence_models import SequenceModel
-from memorax.networks.sequence_models.utils import add_time_axis, remove_time_axis, add_feature_axis, remove_feature_axis
+from memorax.networks.sequence_models.wrapper import RecurrentWrapper
+from memorax.utils import Timestep, Transition, generalized_advantage_estimatation
+from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvState, Key
 
 
 @struct.dataclass(frozen=True)
@@ -79,7 +76,11 @@ class PPO:
             initial_carry=state.actor_carry,
         )
 
-        action = jnp.argmax(probs.logits, axis=-1) if isinstance(self.env.action_space(self.env_params), Discrete) else probs.mode()
+        action = (
+            jnp.argmax(probs.logits, axis=-1)
+            if isinstance(self.env.action_space(self.env_params), Discrete)
+            else probs.mode()
+        )
         log_prob = probs.log_prob(action)
 
         action = remove_time_axis(action)
@@ -148,11 +149,13 @@ class PPO:
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
 
-        broadcast_dims = tuple(range(state.timestep.done.ndim, state.timestep.action.ndim))
+        broadcast_dims = tuple(
+            range(state.timestep.done.ndim, state.timestep.action.ndim)
+        )
         prev_action = jnp.where(
             jnp.expand_dims(state.timestep.done, axis=broadcast_dims),
-            jnp.zeros_like(state.timestep.action), 
-            state.timestep.action
+            jnp.zeros_like(state.timestep.action),
+            state.timestep.action,
         )
         transition = Transition(
             obs=state.timestep.obs,  # type: ignore
@@ -315,21 +318,27 @@ class PPO:
             returns,
         )
 
-
         def shuffle(batch):
-            shuffle_time_axis = isinstance(self.actor.torso, RecurrentWrapper) and isinstance(self.critic.torso, RecurrentWrapper)
+            shuffle_time_axis = isinstance(
+                self.actor.torso, RecurrentWrapper
+            ) and isinstance(self.critic.torso, RecurrentWrapper)
             if shuffle_time_axis:
                 batch = (
                     initial_actor_h_epoch,
                     initial_critic_h_epoch,
-                    *jax.tree.map(lambda x: x.reshape(-1, 1, *x.shape[2:]), (transitions, advantages, returns)),
+                    *jax.tree.map(
+                        lambda x: x.reshape(-1, 1, *x.shape[2:]),
+                        (transitions, advantages, returns),
+                    ),
                 )
 
             permutation = jax.random.permutation(permutation_key, self.cfg.num_envs)
 
             minibatches = jax.tree.map(
-                lambda x: jnp.take(x, permutation, axis=0).reshape(self.cfg.num_minibatches, -1, *x.shape[1:]),
-                tuple(batch)
+                lambda x: jnp.take(x, permutation, axis=0).reshape(
+                    self.cfg.num_minibatches, -1, *x.shape[1:]
+                ),
+                tuple(batch),
             )
             return minibatches
 
@@ -437,14 +446,16 @@ class PPO:
             env_keys, self.env_params
         )
         action = jnp.zeros(
-            (self.cfg.num_envs, *self.env.action_space(self.env_params).shape), 
-            dtype=self.env.action_space(self.env_params).dtype
+            (self.cfg.num_envs, *self.env.action_space(self.env_params).shape),
+            dtype=self.env.action_space(self.env_params).dtype,
         )
         reward = jnp.zeros((self.cfg.num_envs,), dtype=jnp.float32)
         done = jnp.ones((self.cfg.num_envs,), dtype=jnp.bool)
-        timestep = Timestep(obs=obs, action=action, reward=reward, done=done).to_sequence()
-        actor_carry = self.actor.initialize_carry(obs.shape)
-        critic_carry = self.critic.initialize_carry(obs.shape)
+        timestep = Timestep(
+            obs=obs, action=action, reward=reward, done=done
+        ).to_sequence()
+        actor_carry = self.actor.initialize_carry((self.cfg.num_envs, None))
+        critic_carry = self.critic.initialize_carry((self.cfg.num_envs, None))
 
         actor_params = self.actor.init(
             {
@@ -520,14 +531,18 @@ class PPO:
             reset_key, self.env_params
         )
         action = jnp.zeros(
-            (self.cfg.num_eval_envs, *self.env.action_space(self.env_params).shape), 
-            dtype=self.env.action_space(self.env_params).dtype
+            (self.cfg.num_eval_envs, *self.env.action_space(self.env_params).shape),
+            dtype=self.env.action_space(self.env_params).dtype,
         )
         reward = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.float32)
         done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
-        initial_actor_carry = self.actor.initialize_carry(obs.shape)
-        initial_critic_carry = self.critic.initialize_carry(obs.shape)
+        initial_actor_carry = self.actor.initialize_carry(
+            (self.cfg.num_eval_envs, None)
+        )
+        initial_critic_carry = self.critic.initialize_carry(
+            (self.cfg.num_eval_envs, None)
+        )
         state = state.replace(
             timestep=timestep,
             actor_carry=initial_actor_carry,
@@ -535,7 +550,9 @@ class PPO:
             env_state=env_state,
         )
 
-        policy = self._deterministic_action if deterministic else self._stochastic_action
+        policy = (
+            self._deterministic_action if deterministic else self._stochastic_action
+        )
         (key, *_), transitions = jax.lax.scan(
             partial(self._step, policy=policy),
             (key, state),

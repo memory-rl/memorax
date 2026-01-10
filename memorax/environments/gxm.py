@@ -1,17 +1,28 @@
-from gymnax.environments import spaces, EnvParams
+from typing import Any, Optional
+
+from gymnax.environments import spaces
+from gxm.spaces import Discrete, Box, Tree
+import jax.numpy as jnp
 
 from memorax.utils.wrappers import GymnaxWrapper
+from memorax.utils.typing import Key, Array, EnvParams
 
 
+# Copied from https://github.com/huterguier/gxm/blob/dev/gxm/wrappers/terminal/gxm_to_gymnax.py
 class GxmGymnaxWrapper(GymnaxWrapper):
-    def __init__(self, env):
-        super().__init__(env)
 
-    def reset(self, key, params):
-        state, timestep = self._env.init(key)
-        return timestep.obs, state
+    @property
+    def default_params(self) -> None:
+        return None
 
-    def step(self, key, state, action, params):
+    def step(
+        self,
+        key: Key,
+        state: Array,
+        action: Array,
+        params: Optional[EnvParams] = None,
+    ) -> tuple[Array, Array, Array, Array, dict[str, Any]]:
+        del params
         next_state, timestep = self._env.step(key, state, action)
         return (
             timestep.obs,
@@ -21,13 +32,34 @@ class GxmGymnaxWrapper(GymnaxWrapper):
             timestep.info,
         )
 
-    def action_space(self, params):
-        return spaces.Discrete(num_categories=self._env.action_space.n)
+    def reset(self, key: Key, params: Optional[EnvParams] = None) -> tuple[Array, Array]:
+        del params
+        state, timestep = self._env.init(key)
+        return timestep.obs, state
 
-    @property
-    def default_params(self):
-        return EnvParams(max_steps_in_episode=27_000)
+    def action_space(self, params: Optional[EnvParams] = None) -> spaces.Space:
+        del params
+        return self._gxm_to_gymnax_space(self._env.action_space)
 
+    def observation_space(self, params: Optional[EnvParams] = None) -> spaces.Space:
+        del params
+        return self._gxm_to_gymnax_space(self._env.observation_space)
+
+    def _gxm_to_gymnax_space(self, space: Any) -> spaces.Space:
+        if isinstance(space, Discrete):
+            return spaces.Discrete(space.n)
+        if isinstance(space, Box):
+            return spaces.Box(space.low, space.high, space.shape, jnp.float32)
+        if isinstance(space, Tree):
+            if isinstance(space.spaces, (list, tuple)):
+                return spaces.Tuple(
+                    [self._gxm_to_gymnax_space(s) for s in space.spaces]
+                )
+            if isinstance(space.spaces, dict):
+                return spaces.Dict(
+                    {k: self._gxm_to_gymnax_space(v) for k, v in space.spaces.items()}
+                )
+        raise NotImplementedError(f"Gxm space type {type(space)} not supported.")
 
 def make(env_id, **kwargs):
     import gxm

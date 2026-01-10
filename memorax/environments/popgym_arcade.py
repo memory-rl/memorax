@@ -1,10 +1,11 @@
 from typing import Any
-from dataclasses import dataclass
+
+from flax import struct
 
 from memorax.utils.wrappers import GymnaxWrapper
 
 
-@dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class EnvParams:
     env_params: Any
     max_steps_in_episode: int

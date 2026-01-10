@@ -18,11 +18,12 @@ class CNN(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
+        poolings = self.poolings
         if self.poolings is None:
-            self.poolings = [None] * len(self.features)
+            poolings = [None] * len(self.features)
 
         for feature, kernel_size, stride, pooling in zip(
-            self.features, self.kernel_sizes, self.strides, self.poolings
+            self.features, self.kernel_sizes, self.strides, poolings
         ):
             x = nn.Conv(
                 feature,

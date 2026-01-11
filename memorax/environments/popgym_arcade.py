@@ -12,6 +12,6 @@ def make(env_id, **kwargs):
 
     env, env_params = popgym_arcade.make(env_id, **kwargs)
     env_params = EnvParams(
-        env_params=env_params, max_steps_in_episode=env.max_steps_in_episode
+        env_params=env_params, max_steps_in_episode=env._env.max_steps_in_episode
     )
     return env, env_params

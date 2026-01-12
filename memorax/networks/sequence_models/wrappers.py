@@ -15,7 +15,8 @@ class SequenceModelWrapper(nn.Module):
 
     def initialize_carry(self, rng, input_shape):
         batch_size, *_ = input_shape
-        return jnp.zeros(add_feature_axis(batch_size))
+        *_, features = self.network.features or self.network.layers
+        return jnp.zeros((batch_size, features))
 
 
 @struct.dataclass

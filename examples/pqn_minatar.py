@@ -1,22 +1,23 @@
 import time
 from dataclasses import asdict
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 import optax
 from gymnax.wrappers import FlattenObservationWrapper
+
 from memorax.algorithms import PQN, PQNConfig
 from memorax.environments import environment
-from memorax.loggers import Logger, DashboardLogger, WandbLogger
+from memorax.loggers import DashboardLogger, Logger, WandbLogger
 from memorax.networks import (
-    MLP,
     CNN,
-    Network,
-    heads,
-    FeatureExtractor,
+    MLP,
     RNN,
-    RecurrentWrapper,
+    FeatureExtractor,
+    Network,
+    SequenceModelWrapper,
+    heads,
 )
 
 total_timesteps = 5_000_000
@@ -48,10 +49,12 @@ q_network = Network(
             strides=(1,),
         ),
     ),
-    torso=RecurrentWrapper(MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))),
+    torso=SequenceModelWrapper(
+        MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
+    ),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,
-    )
+    ),
 )
 optimizer = optax.chain(
     optax.clip_by_global_norm(1.0),

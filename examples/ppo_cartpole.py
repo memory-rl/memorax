@@ -1,20 +1,21 @@
 import time
 from dataclasses import asdict
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 import optax
+
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
-from memorax.loggers import Logger, DashboardLogger, WandbLogger
+from memorax.loggers import DashboardLogger, Logger, WandbLogger
 from memorax.networks import (
     MLP,
-    Network,
-    heads,
-    FeatureExtractor,
     RNN,
-    RecurrentWrapper,
+    FeatureExtractor,
+    Network,
+    SequenceModelWrapper,
+    heads,
 )
 
 total_timesteps = 500_000
@@ -48,11 +49,13 @@ actor_network = Network(
             features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
         ),
     ),
-    torso=RecurrentWrapper(MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))),
+    torso=SequenceModelWrapper(
+        MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
+    ),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
         kernel_init=nn.initializers.orthogonal(scale=0.01),
-    )
+    ),
 )
 actor_optimizer = optax.chain(
     optax.clip_by_global_norm(1.0),
@@ -65,7 +68,9 @@ critic_network = Network(
             features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
         ),
     ),
-    torso=RecurrentWrapper(MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))),
+    torso=SequenceModelWrapper(
+        MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
+    ),
     head=heads.VNetwork(
         kernel_init=nn.initializers.orthogonal(scale=1.0),
     ),
@@ -90,7 +95,9 @@ agent = PPO(
 
 logger = Logger(
     [
-        WandbLogger(entity="noahfarr", project="memorax", name="PPO CartPole", mode="online"),
+        WandbLogger(
+            entity="noahfarr", project="memorax", name="PPO CartPole", mode="online"
+        ),
     ]
 )
 logger_state = logger.init(cfg=asdict(cfg))

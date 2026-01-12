@@ -1,22 +1,23 @@
 import time
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 import optax
+
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
-from memorax.loggers import Logger, DashboardLogger, WandbLogger
+from memorax.loggers import DashboardLogger, Logger, WandbLogger
 from memorax.networks import (
     MLP,
+    RNN,
     Embedding,
+    FeatureExtractor,
+    MetaMaskWrapper,
     Network,
     heads,
-    FeatureExtractor,
-    RNN,
-    MetaMaskWrapper,
 )
-from memorax.networks.sequence_models.wrapper import RecurrentWrapper
+from memorax.networks.sequence_models.wrapper import SequenceModelWrapper
 
 total_timesteps = 1_000_000
 num_train_steps = 100_000
@@ -61,12 +62,14 @@ actor_network = Network(
         done_extractor=Embedding(
             features=16,
             num_embeddings=2,
-        )
+        ),
     ),
-    torso=MetaMaskWrapper(sequence_model=RNN(cell=nn.GRUCell(features=256)), steps_per_trial=1000),
+    torso=MetaMaskWrapper(
+        sequence_model=RNN(cell=nn.GRUCell(features=256)), steps_per_trial=1000
+    ),
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
-    )
+    ),
 )
 actor_optimizer = optax.chain(
     optax.clip_by_global_norm(1.0),
@@ -88,9 +91,11 @@ critic_network = Network(
         done_extractor=Embedding(
             features=16,
             num_embeddings=2,
-        )
+        ),
     ),
-    torso=MetaMaskWrapper(sequence_model=RNN(cell=nn.GRUCell(features=256)), steps_per_trial=1000),
+    torso=MetaMaskWrapper(
+        sequence_model=RNN(cell=nn.GRUCell(features=256)), steps_per_trial=1000
+    ),
     head=heads.VNetwork(),
 )
 critic_optimizer = optax.chain(

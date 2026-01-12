@@ -1,13 +1,13 @@
 from typing import Mapping, Optional
 
 import flax.linen as nn
-from flax.linen.recurrent import Carry
+import jax
 from flax.core.frozen_dict import FrozenDict
 from flax.core.scope import CollectionFilter, PRNGSequenceFilter
 from flax.linen import initializers
 from flax.linen.linear import default_kernel_init
-from flax.typing import InOutScanAxis, Initializer
-import jax
+from flax.linen.recurrent import Carry
+from flax.typing import Initializer, InOutScanAxis
 
 from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import (

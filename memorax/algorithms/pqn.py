@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 
-from memorax.networks import RecurrentWrapper
+from memorax.networks import SequenceModelWrapper
 from memorax.networks.sequence_models.utils import (
     add_feature_axis,
     remove_feature_axis,
@@ -163,7 +163,7 @@ class PQN:
         batch = (initial_hidden_state, transitions, lambda_targets)
 
         def shuffle(batch):
-            shuffle_time_axis = isinstance(self.q_network, RecurrentWrapper)
+            shuffle_time_axis = isinstance(self.q_network, SequenceModelWrapper)
             if shuffle_time_axis:
                 batch = (
                     initial_hidden_state,

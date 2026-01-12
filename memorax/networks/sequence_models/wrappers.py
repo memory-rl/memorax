@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from flax import struct
 
 
-class RecurrentWrapper(nn.Module):
+class SequenceModelWrapper(nn.Module):
     network: nn.Module
 
     def __call__(self, inputs, mask, initial_carry=None, **kwargs):

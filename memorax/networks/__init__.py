@@ -1,28 +1,28 @@
 import memorax.networks.heads as heads
 from memorax.networks.cnn import CNN
-from memorax.networks.mlp import MLP
 from memorax.networks.embedding import Embedding
 from memorax.networks.feature_extractor import FeatureExtractor
+from memorax.networks.mlp import MLP
 from memorax.networks.network import Network
 from memorax.networks.sequence_models import (
-    SequenceModel,
     FFM,
     GPT2,
-    RNN,
-    xLSTMCell,
-    GTrXL,
-    SHMCell,
-    S5,
     LRU,
-    MinGRU,
+    RNN,
+    S5,
     DeltaNet,
-    TDDeltaNet,
-    GatedDeltaNet,
-    TDGatedDeltaNet,
     DeltaProduct,
-    Mamba,
+    GatedDeltaNet,
+    GTrXL,
     KalmanNet,
     LinearTransformer,
-    RecurrentWrapper,
+    Mamba,
     MetaMaskWrapper,
+    MinGRU,
+    SequenceModel,
+    SequenceModelWrapper,
+    SHMCell,
+    TDDeltaNet,
+    TDGatedDeltaNet,
+    xLSTMCell,
 )

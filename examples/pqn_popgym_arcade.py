@@ -18,7 +18,7 @@ from memorax.networks import (
     Embedding,
     FeatureExtractor,
     Network,
-    RecurrentWrapper,
+    SequenceModelWrapper,
     heads,
 )
 
@@ -59,9 +59,10 @@ q_network = Network(
             features=5,
         ),
     ),
-    torso=RecurrentWrapper(
+    torso=SequenceModelWrapper(
         MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
     ),
+    # torso=RNN(cell=nn.GRUCell(128)),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,
     ),

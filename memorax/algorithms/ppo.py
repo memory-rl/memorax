@@ -13,7 +13,7 @@ from memorax.networks.sequence_models.utils import (
     remove_feature_axis,
     remove_time_axis,
 )
-from memorax.networks.sequence_models.wrapper import RecurrentWrapper
+from memorax.networks.sequence_models.wrapper import SequenceModelWrapper
 from memorax.utils import Timestep, Transition, generalized_advantage_estimatation
 from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvState, Key
 
@@ -320,8 +320,8 @@ class PPO:
 
         def shuffle(batch):
             shuffle_time_axis = isinstance(
-                self.actor.torso, RecurrentWrapper
-            ) and isinstance(self.critic.torso, RecurrentWrapper)
+                self.actor.torso, SequenceModelWrapper
+            ) and isinstance(self.critic.torso, SequenceModelWrapper)
             if shuffle_time_axis:
                 batch = (
                     initial_actor_h_epoch,

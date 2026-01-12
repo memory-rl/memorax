@@ -13,7 +13,7 @@ from memorax.networks.sequence_models.utils import (
     remove_feature_axis,
     remove_time_axis,
 )
-from memorax.networks.sequence_models.wrapper import SequenceModelWrapper
+from memorax.networks.sequence_models.wrappers import SequenceModelWrapper
 from memorax.utils import Timestep, Transition, generalized_advantage_estimatation
 from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvState, Key
 

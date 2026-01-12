@@ -14,9 +14,11 @@ class MLP(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
-        features = (
-            self.features if isinstance(self.features, Sequence) else [self.features]
-        )
+
+        features = self.features
+        if isinstance(self.features, int):
+            features = [self.features]
+
         for feature in features:
             x = nn.Dense(
                 feature, kernel_init=self.kernel_init, bias_init=self.bias_init

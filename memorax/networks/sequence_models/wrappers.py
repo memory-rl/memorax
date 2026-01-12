@@ -3,19 +3,17 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from memorax.networks import SequenceModel
 
-class SequenceModelWrapper(nn.Module):
+
+class SequenceModelWrapper(SequenceModel):
     network: nn.Module
-
-    @property
-    def features(self):
-        return self.network.features
 
     def __call__(self, inputs, mask, initial_carry=None, **kwargs):
         carry = initial_carry
         return carry, self.network(inputs, **kwargs)
 
-    def initialize_carry(self, rng, input_shape):
+    def initialize_carry(self, key, input_shape):
         batch_size, _ = input_shape
         return jnp.zeros((batch_size, 1))
 

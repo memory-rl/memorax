@@ -3,6 +3,8 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from memorax.networks.sequence_models.utils import add_feature_axis
+
 
 class SequenceModelWrapper(nn.Module):
     network: nn.Module
@@ -13,8 +15,7 @@ class SequenceModelWrapper(nn.Module):
 
     def initialize_carry(self, rng, input_shape):
         batch_size, *_ = input_shape
-        *_, features = self.network.features
-        return jnp.zeros((batch_size, features))
+        return jnp.zeros(add_feature_axis(batch_size))
 
 
 @struct.dataclass

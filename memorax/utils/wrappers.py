@@ -3,13 +3,14 @@ from typing import Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from flax import struct
 from gymnax.environments import environment, spaces
 
 from memorax.utils.typing import Array, Key
 
 
-class GymnaxWrapper(object):
+class GymnaxWrapper:
     """Base class for Gymnax wrappers."""
 
     def __init__(self, env):

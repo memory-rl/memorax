@@ -1,12 +1,12 @@
-from typing import Callable, Tuple, Literal
-from flax.typing import Dtype, Initializer
+from typing import Callable, Literal, Tuple
+
 import jax
 import jax.numpy as jnp
-from jax.nn.initializers import lecun_normal
-from jax.lib import xla_bridge
-
 from flax import linen as nn
 from flax.linen.dtypes import promote_dtype
+from flax.typing import Dtype, Initializer
+from jax.lib import xla_bridge
+from jax.nn.initializers import lecun_normal
 
 from memorax.utils.typing import Array
 
@@ -40,8 +40,10 @@ def add_time_axis(x: jax.Array):
 def remove_time_axis(x: jax.Array):
     return x.squeeze(1)
 
+
 def add_feature_axis(x: jax.Array):
     return x[..., None]
+
 
 def remove_feature_axis(x: jax.Array):
     return x.squeeze(-1)
@@ -81,7 +83,9 @@ def xavier_uniform():
 
 def uniform_init(min_val, max_val):
     def init(key, shape, dtype):
-        return jax.random.uniform(key, shape, minval=min_val, maxval=max_val, dtype=dtype)
+        return jax.random.uniform(
+            key, shape, minval=min_val, maxval=max_val, dtype=dtype
+        )
 
     return init
 
@@ -231,6 +235,7 @@ class CausalConv1d(nn.Module):
             y = y + bias
         return conv_state, y
 
+
 class ParallelCausalConv1d(nn.Module):
     features: int
     kernel_size: int = 4
@@ -246,7 +251,10 @@ class ParallelCausalConv1d(nn.Module):
             features=self.features,
             kernel_size=self.kernel_size,
             kernel_init=kaiming_uniform(),
-            bias_init=uniform_init(min_val=-1.0 / jnp.sqrt(self.kernel_size), max_val=1.0 / jnp.sqrt(self.kernel_size)),
+            bias_init=uniform_init(
+                min_val=-1.0 / jnp.sqrt(self.kernel_size),
+                max_val=1.0 / jnp.sqrt(self.kernel_size),
+            ),
             feature_group_count=feature_group_count,
             padding=[(padding, 0)],
             use_bias=self.use_bias,
@@ -254,6 +262,7 @@ class ParallelCausalConv1d(nn.Module):
             param_dtype=self.param_dtype,
         )(x)
         return x
+
 
 def make_hippo(n: int) -> jnp.ndarray:
     p = jnp.sqrt(1.0 + 2.0 * jnp.arange(n))

@@ -3,11 +3,13 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from memorax.networks.sequence_models.utils import add_feature_axis
-
 
 class SequenceModelWrapper(nn.Module):
     network: nn.Module
+
+    @property
+    def features(self):
+        return self.network.features
 
     def __call__(self, inputs, mask, initial_carry=None, **kwargs):
         carry = initial_carry

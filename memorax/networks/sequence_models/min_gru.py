@@ -17,7 +17,7 @@ Array = Any
 Initializer = Callable[[PRNGKey, Shape, Dtype], Array]
 
 
-class MinGRU(SequenceModel):
+class MinGRU(SequenceModel, nn.Module):
     kernel_init: Initializer = initializers.lecun_normal()
     bias_init: Initializer = initializers.zeros_init()
     dtype: Optional[Dtype] = None

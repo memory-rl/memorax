@@ -203,7 +203,7 @@ class S5Block(nn.Module):
         return carry, x
 
 
-class S5(SequenceModel):
+class S5(SequenceModel, nn.Module):
     state_size: int
     num_layers: int
     c_init: str = "truncated_standard_normal"

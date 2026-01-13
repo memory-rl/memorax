@@ -143,9 +143,7 @@ class LRUBlock(nn.Module):
         return carry, x
 
 
-class LRU(SequenceModel):
-    """Encoder containing several SequenceLayer"""
-
+class LRU(SequenceModel, nn.Module):
     hidden_dim: int
     num_layers: int
     dropout_rate: float = 0.0

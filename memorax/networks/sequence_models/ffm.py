@@ -15,7 +15,7 @@ from memorax.networks.sequence_models.utils import get_input_shape
 from memorax.utils.typing import Carry, Key
 
 
-class FFM(SequenceModel):
+class FFM(SequenceModel, nn.Module):
 
     memory_size: int
     context_size: int

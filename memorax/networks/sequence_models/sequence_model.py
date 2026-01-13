@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Optional
 
 from flax import struct
@@ -6,8 +7,7 @@ from flax import struct
 from memorax.utils.typing import Array, Carry
 
 
-@struct.dataclass(frozen=True)
-class SequenceModel(ABC):
+class SequenceModel:
     features: int
 
     @abstractmethod

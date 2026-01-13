@@ -1,16 +1,15 @@
 from functools import partial
+from typing import Any, Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-from jax import lax
 from flax import linen as nn
 from flax.linen import initializers
 from flax.linen.module import compact
-from typing import Any, Callable, Tuple, Optional
+from jax import lax
 
 from memorax.networks.sequence_models.sequence_model import SequenceModel
 
-# Type aliases
 PRNGKey = Any
 Shape = Tuple[int, ...]
 Dtype = Any
@@ -19,7 +18,6 @@ Initializer = Callable[[PRNGKey, Shape, Dtype], Array]
 
 
 class MinGRU(SequenceModel):
-    features: int
     kernel_init: Initializer = initializers.lecun_normal()
     bias_init: Initializer = initializers.zeros_init()
     dtype: Optional[Dtype] = None
@@ -27,7 +25,11 @@ class MinGRU(SequenceModel):
 
     @compact
     def __call__(
-        self, inputs: Array, mask: Array, initial_carry: Optional[Array] = None, **kwargs
+        self,
+        inputs: Array,
+        mask: Array,
+        initial_carry: Optional[Array] = None,
+        **kwargs,
     ) -> Array:
 
         _, sequence_length, _ = inputs.shape
@@ -58,9 +60,10 @@ class MinGRU(SequenceModel):
 
             return carry, y
 
-
         log_z = -nn.softplus(-z)
-        log_h_tilde = jnp.where(h_tilde >= 0, jnp.log(nn.relu(h_tilde) + 0.5), -nn.softplus(-h_tilde))
+        log_h_tilde = jnp.where(
+            h_tilde >= 0, jnp.log(nn.relu(h_tilde) + 0.5), -nn.softplus(-h_tilde)
+        )
 
         x = log_z + log_h_tilde
         decay = jnp.where(mask, -jnp.inf, -nn.softplus(z))
@@ -89,7 +92,11 @@ class MinGRU(SequenceModel):
         self, rng: Optional[PRNGKey], input_shape: Tuple[int, ...]
     ) -> Array:
         batch_size, *_ = input_shape
-        mem_shape = (batch_size, 1, self.features,)
+        mem_shape = (
+            batch_size,
+            1,
+            self.features,
+        )
 
         return jnp.zeros(mem_shape, dtype=self.dtype or self.param_dtype)
 

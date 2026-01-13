@@ -1,10 +1,11 @@
 from functools import partial
+
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
 from memorax.networks.sequence_models.sequence_model import SequenceModel
-from memorax.networks.sequence_models.utils import add_time_axis
+from memorax.networks.sequence_models.utils import add_time_axis, get_input_shape
 
 
 @jax.vmap
@@ -192,7 +193,6 @@ class MambaBlock(nn.Module):
 
 
 class Mamba(SequenceModel):
-    features: int
     num_layers: int
     expansion_factor: int = 2
     hidden_dim: int = 64
@@ -202,9 +202,13 @@ class Mamba(SequenceModel):
     prenorm: bool = False
 
     @nn.compact
-    def __call__(self, inputs, mask, initial_carry, **kwargs):
+    def __call__(self, inputs, mask, initial_carry=None, **kwargs):
         x = inputs
         new_carries = []
+
+        if initial_carry is None:
+            input_shape = get_input_shape(inputs)
+            initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
 
         for i, carry_i in enumerate(initial_carry):
             new_carry_i, x = MambaBlock(
@@ -221,7 +225,7 @@ class Mamba(SequenceModel):
 
         return tuple(new_carries), x
 
-    def initialize_carry(self, rng: jax.Array, input_shape) -> tuple:
+    def initialize_carry(self, key: jax.Array, input_shape) -> tuple:
         batch_size, *_ = input_shape
         inner_dim = self.features * self.expansion_factor
         head_dim = inner_dim // self.num_heads

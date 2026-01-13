@@ -1,25 +1,18 @@
 from functools import partial
-from typing import (
-    Any,
-    Optional,
-    TypeVar,
-)
+from typing import Any, Optional, TypeVar
 
 import jax
-from jax import numpy as jnp
 from flax import linen as nn
-from flax.linen import initializers
 from flax import struct
+from flax.linen import initializers
 from flax.linen.activation import sigmoid, tanh
 from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.module import Module, compact, nowrap
-from flax.typing import (
-    Array,
-    Dtype,
-    Initializer,
-)
+from flax.typing import Array, Dtype, Initializer
+from jax import numpy as jnp
 
 from memorax.networks.sequence_models.sequence_model import SequenceModel
+from memorax.networks.sequence_models.utils import get_input_shape
 
 A = TypeVar("A")
 Carry = Any
@@ -321,7 +314,6 @@ class GTrXLBlock(nn.Module):
 
 
 class GTrXL(SequenceModel):
-    features: int
     num_layers: int = 12
     num_heads: int = 12
     hidden_dim: Optional[int] = None
@@ -333,7 +325,7 @@ class GTrXL(SequenceModel):
     bias_init: Initializer = initializers.zeros_init()
 
     @nowrap
-    def initialize_carry(self, rng, input_shape):
+    def initialize_carry(self, key, input_shape):
         batch_size, *_ = input_shape
 
         def initialize_kv_cache():
@@ -371,9 +363,13 @@ class GTrXL(SequenceModel):
         self,
         inputs: jax.Array,
         mask: jax.Array,
-        initial_carry: tuple,
+        initial_carry: Optional[Carry] = None,
         **kwargs,
     ):
+
+        if initial_carry is None:
+            input_shape = get_input_shape(inputs)
+            initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
 
         new_carry = []
         x: Array = inputs

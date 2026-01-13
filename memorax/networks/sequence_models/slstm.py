@@ -1,33 +1,24 @@
-from functools import partial  # pylint: disable=g-importing-member
-from typing import (
-    Any,
-    TypeVar,
-)
 from collections.abc import Callable
-
-import jax
-from jax import numpy as jnp
-from jax import random
+from functools import partial  # pylint: disable=g-importing-member
+from typing import Any, TypeVar
 
 import flax.linen as nn
+import jax
 from flax.linen import initializers
 from flax.linen.activation import sigmoid, tanh
 from flax.linen.linear import default_kernel_init
 from flax.linen.module import compact, nowrap
-from flax.typing import (
-    Array,
-    PRNGKey,
-    Dtype,
-    Initializer,
-)
+from flax.typing import Array, Dtype, Initializer, PRNGKey
+from jax import numpy as jnp
+from jax import random
 
 from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import (
+    BlockDiagonalDense,
     CausalConv1d,
     MultiHeadLayerNorm,
     add_time_axis,
     powerlaw_init,
-    BlockDiagonalDense,
     remove_time_axis,
 )
 

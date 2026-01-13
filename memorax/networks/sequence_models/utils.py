@@ -49,11 +49,22 @@ def remove_feature_axis(x: jax.Array):
     return x.squeeze(-1)
 
 
-def get_time_axis_and_input_shape(inputs: jax.Array, num_feature_axes=1):
+def get_time_axis(inputs: jax.Array, num_feature_axes=1):
     time_axis = inputs.ndim - (num_feature_axes + 1)
     if time_axis < 0:
         time_axis += inputs.ndim
+    return time_axis
+
+
+def get_input_shape(inputs: jax.Array, num_feature_axes=1):
+    time_axis = get_time_axis(inputs, num_feature_axes)
     input_shape = inputs.shape[:time_axis] + inputs.shape[time_axis + 1 :]
+    return input_shape
+
+
+def get_time_axis_and_input_shape(inputs: jax.Array, num_feature_axes=1):
+    time_axis = get_time_axis(inputs, num_feature_axes)
+    input_shape = get_input_shape(inputs, num_feature_axes)
     return time_axis, input_shape
 
 

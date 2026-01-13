@@ -144,7 +144,8 @@ class LRUBlock(nn.Module):
         return carry, x
 
 
-class LRU(SequenceModel, nn.Module):
+class LRU(SequenceModel):
+    features: int
     hidden_dim: int
     num_layers: int
     dropout_rate: float = 0.0

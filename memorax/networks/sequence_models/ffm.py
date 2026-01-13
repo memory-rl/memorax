@@ -16,8 +16,9 @@ from .sequence_model import SequenceModel
 from .utils import get_input_shape
 
 
-class FFM(SequenceModel, nn.Module):
+class FFM(SequenceModel):
 
+    features: int
     memory_size: int
     context_size: int
 

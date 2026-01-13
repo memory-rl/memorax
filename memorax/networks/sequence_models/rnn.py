@@ -17,7 +17,7 @@ from memorax.networks.sequence_models.utils import (
 from .sequence_model import SequenceModel
 
 
-class RNN(SequenceModel, nn.Module):
+class RNN(SequenceModel):
 
     cell: nn.RNNCellBase
     unroll: int = 1

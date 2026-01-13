@@ -1,3 +1,5 @@
+from typing import Optional
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -8,6 +10,7 @@ from .sequence_model import SequenceModel
 
 class SequenceModelWrapper(SequenceModel, nn.Module):
     network: nn.Module
+    features: Optional[int] = None
 
     def __call__(self, inputs, mask, initial_carry=None, **kwargs):
         carry = initial_carry

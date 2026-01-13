@@ -1,24 +1,22 @@
-from typing import (
-    Optional,
-    Any,
-    TypeVar,
-)
+from typing import Any, Optional, TypeVar
 
-from jax import random
-import jax.numpy as jnp
 import flax.linen as nn
+import jax.numpy as jnp
 from flax.linen.module import compact, nowrap
 from flax.linen.recurrent import RNNCellBase
+from jax import random
 
 from memorax.networks.sequence_models.sequence_model import SequenceModel
-from .slstm import sLSTMLayer
+
 from .mlstm import mLSTMLayer
+from .slstm import sLSTMLayer
 from .utils import small_init, wang_init
 
 A = TypeVar("A")
 Carry = Any
 CarryHistory = Any
 Output = Any
+
 
 class GatedFeedForward(nn.Module):
     up_proj_dim: int
@@ -28,15 +26,21 @@ class GatedFeedForward(nn.Module):
     @compact
     def __call__(self, x):
         *_, in_features = x.shape
-        x = nn.Dense(2 * self.up_proj_dim, name="up_proj", kernel_init=small_init(in_features), use_bias=False)(x)
+        x = nn.Dense(
+            2 * self.up_proj_dim,
+            name="up_proj",
+            kernel_init=small_init(in_features),
+            use_bias=False,
+        )(x)
         gate, x = jnp.split(x, 2, axis=-1)
-        x = nn.Dense(self.down_proj_dim, name="down_proj", kernel_init=wang_init(dim=in_features, num_blocks=1), use_bias=False)(
-            nn.gelu(gate) * x
-        )
+        x = nn.Dense(
+            self.down_proj_dim,
+            name="down_proj",
+            kernel_init=wang_init(dim=in_features, num_blocks=1),
+            use_bias=False,
+        )(nn.gelu(gate) * x)
         x = nn.Dropout(rate=self.dropout_rate, deterministic=self.has_rng("dropout"))(x)
         return x
-
-
 
 
 class xLSTMBlock(nn.Module):
@@ -84,7 +88,7 @@ class xLSTMCell(RNNCellBase):
                         name=f"sLSTMCell_{i}",
                     ),
                     ffn=GatedFeedForward(
-                        up_proj_dim=int(4/3 * self.hidden_dim[i]),
+                        up_proj_dim=int(4 / 3 * self.hidden_dim[i]),
                         down_proj_dim=self.hidden_dim[i],
                     ),
                     kernel_init=self.kernel_init,

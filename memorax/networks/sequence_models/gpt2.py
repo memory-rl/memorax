@@ -1,16 +1,18 @@
-from typing import Any, Optional
 from functools import partial
-from flax.linen.module import nowrap
-from flax.typing import Dtype
-import jax.numpy as jnp
+from typing import Any, Optional
+
 import jax
+import jax.numpy as jnp
 from flax import linen as nn
 from flax import struct
+from flax.linen.module import nowrap
 from flax.linen.recurrent import Carry
+from flax.typing import Dtype
 
 from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import (
     get_attention_implementation,
+    get_input_shape,
 )
 from memorax.utils.typing import Array
 
@@ -205,8 +207,6 @@ class GPT2Block(nn.Module):
 
 
 class GPT2(SequenceModel):
-
-    features: int
     num_embeddings: int
     num_layers: int = 12
     num_heads: int = 12
@@ -223,7 +223,7 @@ class GPT2(SequenceModel):
         return 1
 
     @nowrap
-    def initialize_carry(self, rng, input_shape):
+    def initialize_carry(self, key, input_shape):
         batch_size, *_ = input_shape
         head_dim = self.features // self.num_heads
         position = jnp.full((batch_size, 1), -1, dtype=jnp.int32)
@@ -264,8 +264,13 @@ class GPT2(SequenceModel):
         self,
         inputs: jax.Array,
         mask: jax.Array,
-        initial_carry: Carry,
+        initial_carry: Optional[Carry] = None,
     ):
+
+        if initial_carry is None:
+            input_shape = get_input_shape(inputs)
+            initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
+
         carry: Carry = initial_carry
 
         x = self._add_positional_embedding(inputs, mask, carry)

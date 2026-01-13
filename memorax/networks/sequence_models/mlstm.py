@@ -1,22 +1,14 @@
 from functools import partial  # pylint: disable=g-importing-member
-from typing import (
-    Any,
-    TypeVar,
-)
-
-import jax
-from jax import numpy as jnp
-from jax import random
+from typing import Any, TypeVar
 
 import flax.linen as nn
+import jax
 from flax.linen import initializers
 from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.module import compact, nowrap
-from flax.typing import (
-    PRNGKey,
-    Dtype,
-    Initializer,
-)
+from flax.typing import Dtype, Initializer, PRNGKey
+from jax import numpy as jnp
+from jax import random
 
 from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import (
@@ -24,8 +16,8 @@ from memorax.networks.sequence_models.utils import (
     MultiHeadLayerNorm,
     ParallelCausalConv1d,
     linspace_init,
-    wang_init,
     small_init,
+    wang_init,
 )
 
 A = TypeVar("A")
@@ -79,13 +71,21 @@ class mLSTMCell(nn.Module):
         log_f_gate = -jax.nn.softplus(-f_gate)
         log_f_gate_cumsum = jnp.cumsum(log_f_gate, axis=-1)
 
-        log_f_gate_matrix = jnp.expand_dims(log_f_gate_cumsum, axis=-1) - jnp.swapaxes(jnp.expand_dims(log_f_gate_cumsum, axis=-1), -1, -2)
+        log_f_gate_matrix = jnp.expand_dims(log_f_gate_cumsum, axis=-1) - jnp.swapaxes(
+            jnp.expand_dims(log_f_gate_cumsum, axis=-1), -1, -2
+        )
 
         causal_mask = nn.make_causal_mask(jnp.ones((B, S)))
         episode_indices = jnp.cumsum(mask, axis=-1)
-        attention_mask = nn.make_attention_mask(episode_indices, episode_indices, pairwise_fn=jnp.equal)
+        attention_mask = nn.make_attention_mask(
+            episode_indices, episode_indices, pairwise_fn=jnp.equal
+        )
         mask = nn.combine_masks(attention_mask, causal_mask)
-        log_f_gate_matrix = jnp.where(mask, -jnp.inf, log_f_gate_matrix, )
+        log_f_gate_matrix = jnp.where(
+            mask,
+            -jnp.inf,
+            log_f_gate_matrix,
+        )
 
         log_d_matrix = log_f_gate_matrix + jnp.expand_dims(i_gate, axis=-1)
         max_d = jnp.max(log_d_matrix, axis=-1, keepdims=True)
@@ -104,7 +104,7 @@ class mLSTMCell(nn.Module):
 
         normalizer = jnp.maximum(
             jnp.abs(jnp.sum(e_matrix, axis=-1, keepdims=True)) + inter_n,
-            jnp.exp(-stabilization)
+            jnp.exp(-stabilization),
         )
         intra = (e_matrix / (normalizer + 1e-6)) @ v
         inter = inter_c / (normalizer + 1e-6)
@@ -114,16 +114,21 @@ class mLSTMCell(nn.Module):
 
         log_gates = i_gate - log_f_gate_cumsum
         prev_m = prev_m.reshape(B, NH, 1)
-        m = jnp.maximum(final_decay + prev_m, jnp.max(
-            log_gates + final_decay, axis=-2, keepdims=True
-        ))
+        m = jnp.maximum(
+            final_decay + prev_m,
+            jnp.max(log_gates + final_decay, axis=-2, keepdims=True),
+        )
 
         prev_decay = jnp.exp(prev_m + final_decay - m)
         kv_decay = jnp.exp(log_gates + final_decay - m)
-        c = prev_c * jnp.expand_dims(prev_decay, axis=-1) + jnp.swapaxes(k * jnp.expand_dims(kv_decay, -1), -1, -2) @ v
+        c = (
+            prev_c * jnp.expand_dims(prev_decay, axis=-1)
+            + jnp.swapaxes(k * jnp.expand_dims(kv_decay, -1), -1, -2) @ v
+        )
         n = prev_n * prev_decay + jnp.sum(k * kv_decay[..., None, None], axis=-1)
 
         return (c, n, m), output
+
 
 class mLSTMLayer(nn.Module):
 
@@ -166,7 +171,7 @@ class mLSTMLayer(nn.Module):
             features=hidden_dim,
         )(x)
         conv_x_act = jax.nn.silu(conv_x)[:, -S:, :]
-        conv_state = x[:, -self.conv_kernel_size:, :]
+        conv_state = x[:, -self.conv_kernel_size :, :]
         x = x[:, -S:, :]
 
         projection = partial(

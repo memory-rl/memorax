@@ -1,19 +1,22 @@
 from functools import partial
+from typing import Optional
+
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from flax.linen.module import compact, nowrap
 from flax.linen import initializers
-import flax.linen as nn
 from flax.linen.linear import Dense, default_kernel_init
+from flax.linen.module import compact, nowrap
 from flax.linen.normalization import LayerNorm
-from flax.typing import Array, PRNGKey, Dtype, Initializer
+from flax.typing import Array, Dtype, Initializer, PRNGKey
 
 from memorax.networks.sequence_models.sequence_model import SequenceModel
+from memorax.networks.sequence_models.utils import get_input_shape
+from memorax.utils.typing import Carry, Key
+
 
 class FFM(SequenceModel):
-    """Fast & Forgetful Memory (FFM)."""
 
-    features: int
     memory_size: int
     context_size: int
 
@@ -107,7 +110,7 @@ class FFM(SequenceModel):
         return carry, j, id_rhs
 
     @nowrap
-    def initialize_carry(self, rng: PRNGKey, input_shape: tuple[int, ...]) -> Array:
+    def initialize_carry(self, key: Key, input_shape: tuple[int, ...]) -> Carry:
         batch_size, *_ = input_shape
         mem_shape = (
             batch_size,
@@ -119,8 +122,17 @@ class FFM(SequenceModel):
 
     @compact
     def __call__(
-        self, inputs: Array, mask: Array, initial_carry: Array, **kwargs
+        self,
+        inputs: Array,
+        mask: Array,
+        initial_carry: Optional[Carry] = None,
+        **kwargs,
     ) -> tuple[Array, Array]:
+
+        if initial_carry is None:
+            input_shape = get_input_shape(inputs)
+            initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
+
         dense = partial(
             Dense,
             use_bias=True,

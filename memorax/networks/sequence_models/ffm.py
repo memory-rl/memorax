@@ -10,9 +10,10 @@ from flax.linen.module import compact, nowrap
 from flax.linen.normalization import LayerNorm
 from flax.typing import Array, Dtype, Initializer, PRNGKey
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
-from memorax.networks.sequence_models.utils import get_input_shape
 from memorax.utils.typing import Carry, Key
+
+from .sequence_model import SequenceModel
+from .utils import get_input_shape
 
 
 class FFM(SequenceModel, nn.Module):

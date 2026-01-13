@@ -10,7 +10,6 @@ from flax.typing import Dtype, Initializer, PRNGKey
 from jax import numpy as jnp
 from jax import random
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import (
     BlockDiagonalDense,
     MultiHeadLayerNorm,

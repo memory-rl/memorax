@@ -3,10 +3,10 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from memorax.networks import SequenceModel
+from .sequence_model import SequenceModel
 
 
-class SequenceModelWrapper(SequenceModel):
+class SequenceModelWrapper(SequenceModel, nn.Module):
     network: nn.Module
 
     def __call__(self, inputs, mask, initial_carry=None, **kwargs):
@@ -24,7 +24,7 @@ class MetaMaskState:
     step: jnp.ndarray
 
 
-class MetaMaskWrapper(nn.Module):
+class MetaMaskWrapper(SequenceModel, nn.Module):
     sequence_model: nn.Module
     steps_per_trial: int
 
@@ -44,9 +44,9 @@ class MetaMaskWrapper(nn.Module):
         carry = MetaMaskState(carry=carry, step=initial_carry.step + sequence_length)
         return carry, outputs
 
-    def initialize_carry(self, rng, input_shape):
+    def initialize_carry(self, key, input_shape):
         batch_size, *_ = input_shape
         return MetaMaskState(
-            carry=self.sequence_model.initialize_carry(rng, input_shape),
+            carry=self.sequence_model.initialize_carry(key, input_shape),
             step=jnp.zeros((batch_size,), dtype=jnp.int32),
         )

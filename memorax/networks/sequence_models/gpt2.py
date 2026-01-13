@@ -9,12 +9,13 @@ from flax.linen.module import nowrap
 from flax.linen.recurrent import Carry
 from flax.typing import Dtype
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import (
     get_attention_implementation,
     get_input_shape,
 )
 from memorax.utils.typing import Array
+
+from .sequence_model import SequenceModel
 
 
 def _get_positions(mask, start):

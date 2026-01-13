@@ -6,8 +6,7 @@ from flax import linen as nn
 from flax.linen.recurrent import Carry
 from jax.nn.initializers import lecun_normal, normal
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
-
+from .sequence_model import SequenceModel
 from .utils import (
     add_time_axis,
     discretize_bilinear,

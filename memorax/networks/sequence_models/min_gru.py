@@ -8,7 +8,7 @@ from flax.linen import initializers
 from flax.linen.module import compact
 from jax import lax
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
+from .sequence_model import SequenceModel
 
 PRNGKey = Any
 Shape = Tuple[int, ...]

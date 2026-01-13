@@ -4,8 +4,9 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import add_time_axis, get_input_shape
+
+from .sequence_model import SequenceModel
 
 
 @jax.vmap

@@ -11,8 +11,9 @@ from flax.linen.module import Module, compact, nowrap
 from flax.typing import Array, Dtype, Initializer
 from jax import numpy as jnp
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import get_input_shape
+
+from .sequence_model import SequenceModel
 
 A = TypeVar("A")
 Carry = Any

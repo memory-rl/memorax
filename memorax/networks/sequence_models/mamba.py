@@ -193,7 +193,8 @@ class MambaBlock(nn.Module):
         return carry, output
 
 
-class Mamba(SequenceModel, nn.Module):
+class Mamba(SequenceModel):
+    features: int
     num_layers: int
     expansion_factor: int = 2
     hidden_dim: int = 64

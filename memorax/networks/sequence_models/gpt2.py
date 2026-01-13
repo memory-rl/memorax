@@ -207,7 +207,8 @@ class GPT2Block(nn.Module):
         return x, kv_cache
 
 
-class GPT2(SequenceModel, nn.Module):
+class GPT2(SequenceModel):
+    features: int
     num_embeddings: int
     num_layers: int = 12
     num_heads: int = 12

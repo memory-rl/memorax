@@ -6,7 +6,7 @@ from flax import struct
 from memorax.utils.typing import Array, Carry
 
 
-@struct.dataclass
+@struct.dataclass(frozen=True)
 class SequenceModel(ABC):
     features: int
 

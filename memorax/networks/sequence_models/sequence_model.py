@@ -1,9 +1,12 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from flax import struct
+
 from memorax.utils.typing import Array, Carry
 
 
+@struct.dataclass
 class SequenceModel(ABC):
     features: int
 

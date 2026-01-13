@@ -313,7 +313,7 @@ class GTrXLBlock(nn.Module):
         return x, kv_cache
 
 
-class GTrXL(SequenceModel):
+class GTrXL(SequenceModel, nn.Module):
     num_layers: int = 12
     num_heads: int = 12
     hidden_dim: Optional[int] = None

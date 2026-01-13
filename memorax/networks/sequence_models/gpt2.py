@@ -206,7 +206,7 @@ class GPT2Block(nn.Module):
         return x, kv_cache
 
 
-class GPT2(SequenceModel):
+class GPT2(SequenceModel, nn.Module):
     num_embeddings: int
     num_layers: int = 12
     num_heads: int = 12
@@ -265,6 +265,7 @@ class GPT2(SequenceModel):
         inputs: jax.Array,
         mask: jax.Array,
         initial_carry: Optional[Carry] = None,
+        **kwargs,
     ):
 
         if initial_carry is None:
@@ -294,8 +295,6 @@ class GPT2(SequenceModel):
             )
             new_carry.append(kv_cache)
         new_carry = tuple(new_carry)
-
-        self.sow("intermediates", "representation", x)
 
         x = nn.LayerNorm(
             epsilon=1e-5,

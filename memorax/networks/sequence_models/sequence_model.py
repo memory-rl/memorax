@@ -1,12 +1,10 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 
-import flax.linen as nn
-
 from memorax.utils.typing import Array, Carry
 
 
-class SequenceModel(ABC, nn.Module):
+class SequenceModel(ABC):
     features: int
 
     @abstractmethod

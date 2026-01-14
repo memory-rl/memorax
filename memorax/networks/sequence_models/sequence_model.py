@@ -6,7 +6,7 @@ import flax.linen as nn
 from memorax.utils.typing import Array, Carry
 
 
-class SequenceModel(nn.Module):
+class SequenceModel(ABC, nn.Module):
 
     @abstractmethod
     def __call__(

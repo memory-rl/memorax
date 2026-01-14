@@ -10,7 +10,6 @@ from .sequence_model import SequenceModel
 
 class SequenceModelWrapper(SequenceModel, nn.Module):
     network: nn.Module
-    features: Optional[int] = None
 
     def __call__(self, inputs, mask, initial_carry=None, **kwargs):
         carry = initial_carry

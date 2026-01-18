@@ -4,7 +4,8 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from memorax.networks.sequence_models.utils import add_time_axis, get_input_shape
+from memorax.networks.sequence_models.utils import (add_time_axis,
+                                                    get_input_shape)
 
 from .sequence_model import SequenceModel
 
@@ -160,9 +161,7 @@ class MambaBlock(nn.Module):
             num_heads=self.num_heads,
             head_dim=head_dim,
             name="ssm",
-        )(
-            ssm_signal, dt_softplus, ssm_dynamics, ssm_readout, mask, carry
-        )
+        )(ssm_signal, dt_softplus, ssm_dynamics, ssm_readout, mask, carry)
 
         # Flatten heads back to [Batch, Length, Expanded_Dim]
         ssm_output = ssm_output.reshape(batch, length, expanded_dim)

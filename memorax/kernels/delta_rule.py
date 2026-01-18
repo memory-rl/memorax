@@ -1,8 +1,9 @@
+import functools
+
 import jax
 import jax.numpy as jnp
 from jax import custom_vjp
 from jax.experimental import pallas as pl
-import functools
 
 
 def delta_rule_fwd_kernel(

@@ -1,4 +1,5 @@
 from typing import Any
+
 from flax.struct import dataclass
 from gymnax.environments import spaces
 
@@ -7,7 +8,6 @@ from memorax.utils.wrappers import GymnaxWrapper
 
 class PixelCraftaxEnvWrapper(GymnaxWrapper):
     def __init__(self, env, normalize: bool = False):
-
         super().__init__(env)
 
         self.renderer = None
@@ -50,7 +50,6 @@ class PixelCraftaxEnvWrapper(GymnaxWrapper):
 
 
 class CraftaxWrapper(GymnaxWrapper):
-
     def reset(self, key, params):
         return self._env.reset(key, params.env_params)
 

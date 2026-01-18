@@ -19,7 +19,6 @@ StateT = TypeVar("StateT", bound=BaseLoggerState)
 
 @struct.dataclass(frozen=True)
 class BaseLogger(Generic[StateT], ABC):
-
     @abstractmethod
     def init(self, **kwargs) -> StateT: ...
 

@@ -27,9 +27,9 @@ class MaskObservationWrapper(GymnaxWrapper):
         self.mask_dims = jnp.array(mask_dims, dtype=int)
 
     def observation_space(self, params) -> spaces.Box:
-        assert isinstance(
-            self._env.observation_space(params), spaces.Box
-        ), "Only Box spaces are supported for now."
+        assert isinstance(self._env.observation_space(params), spaces.Box), (
+            "Only Box spaces are supported for now."
+        )
         low = self._env.observation_space(params).low
         if isinstance(low, jnp.ndarray):
             low = low[self.mask_dims]
@@ -141,6 +141,7 @@ class NormalizeObservationWrapper(GymnaxWrapper):
             done,
             info,
         )
+
 
 class ClipActionWrapper(GymnaxWrapper):
     def __init__(self, env, low=-1.0, high=1.0):

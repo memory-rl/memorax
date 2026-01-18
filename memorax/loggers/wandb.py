@@ -1,14 +1,14 @@
-from typing import Literal
 from collections import defaultdict
 from dataclasses import field
-from .logger import BaseLogger, BaseLoggerState, PyTree
+from typing import Literal, Optional
 
 import chex
-from typing import Optional
-import wandb
 from wandb.sdk.wandb_run import Run
 
+import wandb
 from memorax.utils.stats import naniqm
+
+from .logger import BaseLogger, BaseLoggerState, PyTree
 
 
 @chex.dataclass(frozen=True)

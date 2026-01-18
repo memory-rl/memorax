@@ -37,7 +37,6 @@ class SHMCell(RNNCellBase):
 
     @compact
     def __call__(self, carry: Array, inputs: Array) -> tuple[Array, Array]:
-
         dense = partial(
             Dense,
             use_bias=False,

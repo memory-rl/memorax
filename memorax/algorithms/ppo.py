@@ -8,14 +8,14 @@ from flax import core
 from flax import linen as nn
 from flax import struct
 
-from memorax.networks.sequence_models.utils import (
-    add_feature_axis,
-    remove_feature_axis,
-    remove_time_axis,
-)
+from memorax.networks.sequence_models.utils import (add_feature_axis,
+                                                    remove_feature_axis,
+                                                    remove_time_axis)
 from memorax.networks.sequence_models.wrappers import SequenceModelWrapper
-from memorax.utils import Timestep, Transition, generalized_advantage_estimatation
-from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvState, Key
+from memorax.utils import (Timestep, Transition,
+                           generalized_advantage_estimatation)
+from memorax.utils.typing import (Array, Discrete, Environment, EnvParams,
+                                  EnvState, Key)
 
 
 @struct.dataclass(frozen=True)
@@ -233,11 +233,9 @@ class PPO:
     def _update_critic(
         self, key, state: PPOState, initial_critic_carry, transitions, returns
     ):
-
         key, memory_key, dropout_key = jax.random.split(key, 3)
 
         def critic_loss_fn(params):
-
             _, values = self.critic.apply(
                 params,
                 observation=transitions.obs,
@@ -297,7 +295,6 @@ class PPO:
         return (key, state), (actor_loss, critic_loss, aux)
 
     def _update_epoch(self, carry: tuple, _):
-
         (
             key,
             state,
@@ -361,7 +358,6 @@ class PPO:
         ), (actor_loss, critic_loss, aux)
 
     def _update_step(self, carry: tuple, _):
-
         key, state = carry
         initial_actor_h_rollout = state.actor_carry
         initial_critic_h_rollout = state.critic_carry
@@ -509,7 +505,6 @@ class PPO:
 
     @partial(jax.jit, static_argnums=(0, 3))
     def train(self, key, state, num_steps):
-
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
@@ -524,7 +519,6 @@ class PPO:
 
     @partial(jax.jit, static_argnames=["self", "num_steps", "deterministic"])
     def evaluate(self, key, state, num_steps, deterministic=True):
-
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(

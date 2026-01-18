@@ -32,7 +32,6 @@ class MinGRU(SequenceModel):
         initial_carry: Optional[Array] = None,
         **kwargs,
     ) -> Array:
-
         _, sequence_length, _ = inputs.shape
         mask = mask[..., None]
 

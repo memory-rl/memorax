@@ -9,7 +9,6 @@ default_embed_init = nn.initializers.variance_scaling(
 
 
 class Embedding(nn.Module):
-
     features: int
     num_embeddings: int
     embedding_init: nn.initializers.Initializer = default_embed_init

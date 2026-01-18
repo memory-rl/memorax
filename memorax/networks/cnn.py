@@ -5,7 +5,6 @@ import jax.numpy as jnp
 
 
 class CNN(nn.Module):
-
     features: Sequence[int]
     kernel_sizes: Sequence[tuple[int, int]]
     strides: Sequence[int | tuple[int, int]]
@@ -18,7 +17,6 @@ class CNN(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
-
         poolings = self.poolings or [None] * len(self.features)
 
         for feature, kernel_size, stride, pooling in zip(

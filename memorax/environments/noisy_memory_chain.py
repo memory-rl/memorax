@@ -3,7 +3,6 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 from flax import struct
-
 from gymnax.environments import environment, spaces
 
 
@@ -24,7 +23,6 @@ class EnvParams(environment.EnvParams):
 
 
 class NoisyMemoryChain(environment.Environment[EnvState, EnvParams]):
-
     def __init__(self, num_bits: int = 1, n_noise: int = 10):
         super().__init__()
         self.num_bits = num_bits

@@ -10,14 +10,11 @@ from flax.typing import Dtype, Initializer, PRNGKey
 from jax import numpy as jnp
 from jax import random
 
-from memorax.networks.sequence_models.utils import (
-    BlockDiagonalDense,
-    MultiHeadLayerNorm,
-    ParallelCausalConv1d,
-    linspace_init,
-    small_init,
-    wang_init,
-)
+from memorax.networks.sequence_models.utils import (BlockDiagonalDense,
+                                                    MultiHeadLayerNorm,
+                                                    ParallelCausalConv1d,
+                                                    linspace_init, small_init,
+                                                    wang_init)
 
 A = TypeVar("A")
 Carry = Any
@@ -26,7 +23,6 @@ Output = Any
 
 
 class mLSTMCell(nn.Module):
-
     hidden_dim: int
     num_heads: int
 
@@ -130,7 +126,6 @@ class mLSTMCell(nn.Module):
 
 
 class mLSTMLayer(nn.Module):
-
     features: int
     hidden_dim: int
     up_proj_factor: float = 2

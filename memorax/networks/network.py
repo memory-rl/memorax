@@ -3,13 +3,15 @@ from typing import Optional
 import flax.linen as nn
 import jax
 
+from memorax.networks import Identity
+from memorax.networks.sequence_models.wrappers import SequenceModelWrapper
 from memorax.utils.typing import Array
 
 
 class Network(nn.Module):
-    feature_extractor: nn.Module
-    torso: Optional[nn.Module]
-    head: nn.Module
+    feature_extractor: nn.Module = Identity()
+    torso: nn.Module = SequenceModelWrapper(Identity())
+    head: nn.Module = Identity()
 
     @nn.compact
     def __call__(
@@ -18,13 +20,14 @@ class Network(nn.Module):
         mask: Array,
         **kwargs,
     ):
+        x = observation
+
         x = self.feature_extractor(observation, **kwargs)
 
-        carry = None
-        if self.torso is not None:
-            carry, x = self.torso(x, mask=mask, **kwargs)
+        carry, x = self.torso(x, mask=mask, **kwargs)
 
-        return carry, self.head(x, **kwargs)
+        x = self.head(x, **kwargs)
+        return carry, x
 
     @nn.nowrap
     def initialize_carry(self, input_shape):

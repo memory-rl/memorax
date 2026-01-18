@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from gymnax.environments import spaces, EnvParams
+from gymnax.environments import EnvParams, spaces
 
 from memorax.utils.wrappers import GymnaxWrapper, MaskObservationWrapper
 
@@ -43,7 +43,13 @@ class BraxGymnaxWrapper(GymnaxWrapper):
 
     def step(self, key, state, action, params):
         next_state = self._env.step(state, action)
-        return next_state.obs, next_state, next_state.reward, next_state.done.astype(jnp.bool), {}
+        return (
+            next_state.obs,
+            next_state,
+            next_state.reward,
+            next_state.done.astype(jnp.bool),
+            {},
+        )
 
     def observation_space(self, params):
         return spaces.Box(

@@ -2,6 +2,7 @@ from typing import Optional
 
 import jax.numpy as jnp
 
+
 def broadcast(x: Optional[jnp.ndarray], to: jnp.ndarray):
     if x is None:
         return x

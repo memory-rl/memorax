@@ -17,7 +17,6 @@ from .utils import get_input_shape
 
 
 class FFM(SequenceModel):
-
     features: int
     memory_size: int
     context_size: int
@@ -80,7 +79,6 @@ class FFM(SequenceModel):
         return jnp.exp(self._log_gamma(a, b, t))
 
     def _aggregate(self, x, carry, mask):
-
         timestep = jnp.arange(-1, x.shape[0], dtype=self.param_dtype)
         timestep = jax.lax.complex(timestep, jnp.zeros_like(timestep))
 
@@ -130,7 +128,6 @@ class FFM(SequenceModel):
         initial_carry: Optional[Carry] = None,
         **kwargs,
     ) -> tuple[Array, Array]:
-
         if initial_carry is None:
             input_shape = get_input_shape(inputs)
             initial_carry = self.initialize_carry(jax.random.key(0), input_shape)

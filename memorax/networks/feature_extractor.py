@@ -5,7 +5,6 @@ import jax.numpy as jnp
 
 
 class FeatureExtractor(nn.Module):
-
     observation_extractor: nn.Module
     action_extractor: Optional[nn.Module] = None
     reward_extractor: Optional[nn.Module] = None

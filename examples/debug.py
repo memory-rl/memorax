@@ -1,15 +1,10 @@
-import jax
 import flax.linen as nn
+import jax
 import optax
+
 from memorax.algorithms.rppo import RPPO, RPPOConfig
 from memorax.environments import environment
-from memorax.networks import (
-    MLP,
-    Network,
-    heads,
-    FeatureExtractor,
-    GTrXL,
-)
+from memorax.networks import MLP, FeatureExtractor, GTrXL, Network, heads
 from memorax.networks.recurrent.rnn import RNN
 
 total_timesteps = 1_000_000
@@ -97,6 +92,5 @@ print("================ FINISHED INITIALIZATION ================")
 key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
 
 for i in range(0, total_timesteps, num_train_steps):
-
     key, state, transitions = agent.train(key, state, num_steps=num_train_steps)
     # key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)

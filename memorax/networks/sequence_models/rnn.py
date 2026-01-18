@@ -10,15 +10,12 @@ from flax.linen.recurrent import Carry
 from flax.typing import Initializer, InOutScanAxis
 
 from memorax.networks.sequence_models.utils import (
-    get_time_axis_and_input_shape,
-    mask_carry,
-)
+    get_time_axis_and_input_shape, mask_carry)
 
 from .sequence_model import SequenceModel
 
 
 class RNN(SequenceModel):
-
     cell: nn.RNNCellBase
     unroll: int = 1
     variable_axes: Mapping[CollectionFilter, InOutScanAxis] = FrozenDict()

@@ -5,7 +5,6 @@ import jax.numpy as jnp
 
 
 class MLP(nn.Module):
-
     features: int | Sequence[int]
     activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     normalizer: Optional[Callable] = None
@@ -14,7 +13,6 @@ class MLP(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
-
         if isinstance(self.features, int):
             features = [self.features]
         else:

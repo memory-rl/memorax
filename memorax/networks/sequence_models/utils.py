@@ -114,7 +114,6 @@ def powerlaw_init(num_heads, head_dim):
 
 
 def linspace_init(start, stop):
-
     def init(key, shape, dtype):
         num_dims, *_ = shape
         return jnp.linspace(start, stop, num_dims, dtype=dtype)
@@ -139,7 +138,6 @@ def wang_init(dim, num_blocks):
 
 
 class BlockDiagonalDense(nn.Module):
-
     features: int
     num_heads: int
     use_bias: bool = True
@@ -201,9 +199,7 @@ class MultiHeadLayerNorm(nn.Module):
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-        )(
-            x
-        )
+        )(x)
 
         if self.use_scale:
             gamma = self.param(

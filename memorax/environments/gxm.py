@@ -1,15 +1,14 @@
 from typing import Any, Optional
 
-from gymnax.environments import spaces
 import jax.numpy as jnp
+from gymnax.environments import spaces
 
+from memorax.utils.typing import Array, EnvParams, Key
 from memorax.utils.wrappers import GymnaxWrapper
-from memorax.utils.typing import Key, Array, EnvParams
 
 
 # Copied from https://github.com/huterguier/gxm/blob/dev/gxm/wrappers/terminal/gxm_to_gymnax.py
 class GxmGymnaxWrapper(GymnaxWrapper):
-
     @property
     def default_params(self) -> None:
         return None
@@ -31,7 +30,9 @@ class GxmGymnaxWrapper(GymnaxWrapper):
             timestep.info,
         )
 
-    def reset(self, key: Key, params: Optional[EnvParams] = None) -> tuple[Array, Array]:
+    def reset(
+        self, key: Key, params: Optional[EnvParams] = None
+    ) -> tuple[Array, Array]:
         del params
         state, timestep = self._env.init(key)
         return timestep.obs, state
@@ -45,7 +46,8 @@ class GxmGymnaxWrapper(GymnaxWrapper):
         return self._gxm_to_gymnax_space(self._env.observation_space)
 
     def _gxm_to_gymnax_space(self, space: Any) -> spaces.Space:
-        from gxm.spaces import Discrete, Box, Tree
+        from gxm.spaces import Box, Discrete, Tree
+
         if isinstance(space, Discrete):
             return spaces.Discrete(space.n)
         if isinstance(space, Box):
@@ -60,6 +62,7 @@ class GxmGymnaxWrapper(GymnaxWrapper):
                     {k: self._gxm_to_gymnax_space(v) for k, v in space.spaces.items()}
                 )
         raise NotImplementedError(f"Gxm space type {type(space)} not supported.")
+
 
 def make(env_id, **kwargs):
     import gxm

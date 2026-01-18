@@ -12,7 +12,6 @@ class EnvParams:
 
 
 class PopGymArcadeWrapper(GymnaxWrapper):
-
     def reset(self, key, params):
         return self._env.reset(key, params.env_params)
 

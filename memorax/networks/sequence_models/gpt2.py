@@ -10,9 +10,7 @@ from flax.linen.recurrent import Carry
 from flax.typing import Dtype
 
 from memorax.networks.sequence_models.utils import (
-    get_attention_implementation,
-    get_input_shape,
-)
+    get_attention_implementation, get_input_shape)
 from memorax.utils.typing import Array
 
 from .sequence_model import SequenceModel
@@ -54,9 +52,9 @@ class MultiHeadAttentionBlock(nn.Module):
 
         B, T, *_ = x.shape
 
-        assert (
-            T <= self.context_length
-        ), f"T must be less than or equal to context_length, but was T: {T}, context_length: {self.context_length}"
+        assert T <= self.context_length, (
+            f"T must be less than or equal to context_length, but was T: {T}, context_length: {self.context_length}"
+        )
 
         projection = partial(
             nn.DenseGeneral,
@@ -146,7 +144,6 @@ class MLP(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-
         projection = partial(
             nn.Dense,
             dtype=self.dtype,
@@ -269,7 +266,6 @@ class GPT2(SequenceModel):
         initial_carry: Optional[Carry] = None,
         **kwargs,
     ):
-
         if initial_carry is None:
             input_shape = get_input_shape(inputs)
             initial_carry = self.initialize_carry(jax.random.key(0), input_shape)

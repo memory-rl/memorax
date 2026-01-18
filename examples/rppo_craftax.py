@@ -1,19 +1,14 @@
 import time
 from dataclasses import asdict
 
-import jax
 import flax.linen as nn
+import jax
 import optax
+
 from memorax.algorithms.rppo import RPPO, RPPOConfig
 from memorax.environments import environment
-from memorax.loggers import Logger, DashboardLogger
-from memorax.networks import (
-    MLP,
-    Network,
-    heads,
-    FeatureExtractor,
-    xLSTMCell,
-)
+from memorax.loggers import DashboardLogger, Logger
+from memorax.networks import MLP, FeatureExtractor, Network, heads, xLSTMCell
 from memorax.networks.recurrent.rnn import RNN
 
 total_timesteps = 1_000_000_000
@@ -122,7 +117,6 @@ logger_state = logger.log(logger_state, evaluation_statistics, step=state.step.i
 logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
-
     start = time.perf_counter()
     key, state, transitions = agent.train(key, state, num_steps=num_train_steps)
     jax.block_until_ready(state)

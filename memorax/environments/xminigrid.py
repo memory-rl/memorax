@@ -1,10 +1,12 @@
-from typing import Any
 from dataclasses import dataclass
-from gymnax.environments import spaces
+from typing import Any
+
 import jax.numpy as jnp
 from flax import struct
+from gymnax.environments import spaces
 
 from memorax.utils.wrappers import GymnaxWrapper
+
 
 @struct.dataclass(frozen=True)
 class EnvParams:
@@ -33,9 +35,7 @@ class XLandMiniGridWrapper(GymnaxWrapper):
         )
 
     def action_space(self, params):
-        return spaces.Discrete(
-            self._env.num_actions(params.env_params)
-        )
+        return spaces.Discrete(self._env.num_actions(params.env_params))
 
 
 def make(env_id, benchmark_name, ruleset_key, **kwargs):

@@ -82,9 +82,9 @@ class RelativeMultiHeadAttentionBlock(Module):
         B, T, *_ = x.shape
         head_dim = self.features // self.num_heads
 
-        assert (
-            T <= self.context_length + self.memory_length
-        ), f"T must be less than or equal to context_length + memory_length, but was T: {T}, context_length + memory_length: {self.context_length + self.memory_length}"
+        assert T <= self.context_length + self.memory_length, (
+            f"T must be less than or equal to context_length + memory_length, but was T: {T}, context_length + memory_length: {self.context_length + self.memory_length}"
+        )
 
         projection = partial(
             nn.DenseGeneral,
@@ -368,7 +368,6 @@ class GTrXL(SequenceModel):
         initial_carry: Optional[Carry] = None,
         **kwargs,
     ):
-
         if initial_carry is None:
             input_shape = get_input_shape(inputs)
             initial_carry = self.initialize_carry(jax.random.key(0), input_shape)

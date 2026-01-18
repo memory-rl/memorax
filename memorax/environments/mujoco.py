@@ -6,7 +6,6 @@ from memorax.utils.wrappers import GymnaxWrapper
 
 
 class TimeLimitWrapper(GymnaxWrapper):
-
     def __init__(self, env, episode_length):
         super().__init__(env)
         self.episode_length = episode_length
@@ -27,7 +26,6 @@ class TimeLimitWrapper(GymnaxWrapper):
 
 
 class AutoResetWrapper(GymnaxWrapper):
-
     def reset(self, rng: jax.Array):
         state = self._env.reset(rng)
         state.info["first_pipeline_state"] = state.pipeline_state

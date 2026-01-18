@@ -1,23 +1,15 @@
 from functools import partial
 from typing import Any, Callable
 
-from flax import struct
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
-from flax import core
+from flax import core, struct
 
-from memorax.utils.typing import (
-    Array,
-    Buffer,
-    BufferState,
-    Environment,
-    EnvParams,
-    EnvState,
-    Key,
-)
-from memorax.utils import periodic_incremental_update, Transition
+from memorax.utils import Transition, periodic_incremental_update
+from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
+                                  EnvParams, EnvState, Key)
 
 
 @struct.dataclass
@@ -380,7 +372,15 @@ class SACD:
         alpha_params = self.alpha_network.init(alpha_key)
         alpha_optimizer_state = self.alpha_optimizer.init(alpha_params)
 
-        transition = Transition(obs=obs, prev_done=done, action=action, reward=reward, next_obs=obs, done=done, info=info)  # type: ignore
+        transition = Transition(
+            obs=obs,
+            prev_done=done,
+            action=action,
+            reward=reward,
+            next_obs=obs,
+            done=done,
+            info=info,
+        )  # type: ignore
         transition = jax.tree.map(lambda x: x[0], transition)
 
         buffer_state = self.buffer.init(transition)
@@ -404,7 +404,6 @@ class SACD:
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key, state: SACDState, num_steps: int) -> tuple[Key, SACDState]:
-
         (key, state), _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
             (key, state),
@@ -414,7 +413,6 @@ class SACD:
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(self, key: Key, state: SACDState, num_steps: int):
-
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
@@ -425,7 +423,6 @@ class SACD:
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: Key, state: SACDState, num_steps: int):
-
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(

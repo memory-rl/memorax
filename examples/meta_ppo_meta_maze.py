@@ -8,15 +8,8 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger, WandbLogger
-from memorax.networks import (
-    MLP,
-    RNN,
-    Embedding,
-    FeatureExtractor,
-    MetaMaskWrapper,
-    Network,
-    heads,
-)
+from memorax.networks import (MLP, RNN, Embedding, FeatureExtractor,
+                              MetaMaskWrapper, Network, heads)
 from memorax.networks.sequence_models.wrapper import SequenceModelWrapper
 
 total_timesteps = 1_000_000
@@ -138,7 +131,6 @@ logger_state = logger.log(
 logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
-
     start = time.perf_counter()
     keys, state, transitions = train(keys, state, num_train_steps)
     jax.block_until_ready(state)

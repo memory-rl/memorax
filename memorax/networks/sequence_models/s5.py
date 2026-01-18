@@ -7,17 +7,9 @@ from flax.linen.recurrent import Carry
 from jax.nn.initializers import lecun_normal, normal
 
 from .sequence_model import SequenceModel
-from .utils import (
-    add_time_axis,
-    discretize_bilinear,
-    discretize_zoh,
-    get_input_shape,
-    init_cv,
-    init_log_steps,
-    init_v_inv_b,
-    make_dplr_hippo,
-    truncated_standard_normal,
-)
+from .utils import (add_time_axis, discretize_bilinear, discretize_zoh,
+                    get_input_shape, init_cv, init_log_steps, init_v_inv_b,
+                    make_dplr_hippo, truncated_standard_normal)
 
 
 class S5Layer(nn.Module):

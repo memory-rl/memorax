@@ -1,29 +1,17 @@
 import time
 
-from flashbax import make_item_buffer
-import jax
 import flax.linen as nn
+import jax
 import optax
+from flashbax import make_item_buffer
+
 from memorax.algorithms import SAC, SACConfig
 from memorax.environments import environment
-from memorax.loggers import Logger, DashboardLogger, WandbLogger
-from memorax.networks import (
-    MLP,
-    Network,
-    heads,
-    FeatureExtractor,
-    RNN,
-    GPT2,
-    GTrXL,
-    LRU,
-    DeltaNet,
-    TDDeltaNet,
-    GatedDeltaNet,
-    TDGatedDeltaNet,
-    DeltaProduct,
-    xLSTMCell,
-    Mamba,
-)
+from memorax.loggers import DashboardLogger, Logger, WandbLogger
+from memorax.networks import (GPT2, LRU, MLP, RNN, DeltaNet, DeltaProduct,
+                              FeatureExtractor, GatedDeltaNet, GTrXL, Mamba,
+                              Network, TDDeltaNet, TDGatedDeltaNet, heads,
+                              xLSTMCell)
 
 total_timesteps = 1_000_000
 num_train_steps = 10_000
@@ -148,7 +136,6 @@ logger_state = logger.log(
 logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
-
     start = time.perf_counter()
     keys, state, transitions = train(keys, state, num_train_steps)
     jax.block_until_ready(state)

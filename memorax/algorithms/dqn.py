@@ -1,23 +1,15 @@
 from functools import partial
 from typing import Any, Callable, Optional
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from flax import struct
-import flax.linen as nn
 import optax
-from flax import core
+from flax import core, struct
 
-from memorax.utils.typing import (
-    Array,
-    Buffer,
-    BufferState,
-    Environment,
-    EnvParams,
-    EnvState,
-    Key,
-)
-from memorax.utils import periodic_incremental_update, Transition
+from memorax.utils import Transition, periodic_incremental_update
+from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
+                                  EnvParams, EnvState, Key)
 
 
 @struct.dataclass(frozen=True)
@@ -63,9 +55,7 @@ class DQN:
     buffer: Buffer
     epsilon_schedule: optax.Schedule
 
-    def _greedy_action(
-        self, key: Key, state: DQNState
-    ) -> tuple[Key, DQNState, Array]:
+    def _greedy_action(self, key: Key, state: DQNState) -> tuple[Key, DQNState, Array]:
         key, memory_key = jax.random.split(key)
         hidden_state, q_values = self.q_network.apply(
             state.params,
@@ -78,9 +68,7 @@ class DQN:
         state = state.replace(hidden_state=hidden_state)
         return key, state, action
 
-    def _random_action(
-        self, key: Key, state: DQNState
-    ) -> tuple[Key, DQNState, Array]:
+    def _random_action(self, key: Key, state: DQNState) -> tuple[Key, DQNState, Array]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
@@ -89,7 +77,6 @@ class DQN:
     def _epsilon_greedy_action(
         self, key: Key, state: DQNState
     ) -> tuple[Key, DQNState, Array]:
-
         key, state, random_action = self._random_action(key, state)
 
         key, state, greedy_action = self._greedy_action(key, state)
@@ -141,7 +128,6 @@ class DQN:
         return (key, state), transition
 
     def _update(self, key: Key, state: DQNState) -> tuple[DQNState, Array, Array]:
-
         batch = self.buffer.sample(state.buffer_state, key)
 
         key, memory_key, next_memory_key = jax.random.split(key, 3)
@@ -223,7 +209,6 @@ class DQN:
         return state, loss, q_value.mean()
 
     def _learn(self, carry, _):
-
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
             carry,
@@ -294,10 +279,7 @@ class DQN:
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(
-        self, key: Key, state: DQNState, num_steps: int
-    ) -> tuple[Key, DQNState]:
-
+    def warmup(self, key: Key, state: DQNState, num_steps: int) -> tuple[Key, DQNState]:
         (key, state), _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
             (key, state),
@@ -312,11 +294,13 @@ class DQN:
         state: DQNState,
         num_steps: int,
     ):
-
         (
-            key,
-            state,
-        ), transitions = jax.lax.scan(
+            (
+                key,
+                state,
+            ),
+            transitions,
+        ) = jax.lax.scan(
             self._learn,
             (key, state),
             length=(num_steps // self.cfg.train_frequency),
@@ -325,7 +309,6 @@ class DQN:
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: Key, state: DQNState, num_steps: int) -> tuple[Key, dict]:
-
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
@@ -334,7 +317,9 @@ class DQN:
         done = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.bool_)
         hidden_state = self.q_network.initialize_carry(obs.shape)
 
-        state = state.replace(obs=obs, done=done, hidden_state=hidden_state, env_state=env_state)  # type: ignore
+        state = state.replace(
+            obs=obs, done=done, hidden_state=hidden_state, env_state=env_state
+        )  # type: ignore
 
         (key, _), transitions = jax.lax.scan(
             partial(self._step, policy=self._greedy_action, write_to_buffer=False),

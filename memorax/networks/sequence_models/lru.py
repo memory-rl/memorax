@@ -4,7 +4,8 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from memorax.networks.sequence_models.utils import add_time_axis, get_input_shape
+from memorax.networks.sequence_models.utils import (add_time_axis,
+                                                    get_input_shape)
 
 from .sequence_model import SequenceModel
 
@@ -40,7 +41,6 @@ def gamma_log_init(key, lamb):
 
 
 class LRULayer(nn.Module):
-
     features: int
     hidden_dim: int
     r_min: float = 0.0
@@ -113,7 +113,6 @@ class LRULayer(nn.Module):
 
 
 class LRUBlock(nn.Module):
-
     features: int
     hidden_dim: int
     dropout_rate: float = 0.0

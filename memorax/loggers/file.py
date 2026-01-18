@@ -74,7 +74,6 @@ class FileLogger(BaseLogger[FileLoggerState]):
     def emit(self, state: FileLoggerState) -> FileLoggerState:
         for step, data in sorted(state.buffer.items()):
             for seed, path in state.paths.items():
-
                 for metric, value in {
                     k: (
                         v[seed]

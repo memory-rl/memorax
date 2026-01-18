@@ -1,29 +1,17 @@
 import time
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 import optax
+
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
-from memorax.loggers import Logger, DashboardLogger, WandbLogger
-from memorax.networks import (
-    MLP,
-    Network,
-    heads,
-    FeatureExtractor,
-    RNN,
-    GPT2,
-    GTrXL,
-    LRU,
-    DeltaNet,
-    TDDeltaNet,
-    GatedDeltaNet,
-    TDGatedDeltaNet,
-    DeltaProduct,
-    xLSTMCell,
-    Mamba,
-)
+from memorax.loggers import DashboardLogger, Logger, WandbLogger
+from memorax.networks import (GPT2, LRU, MLP, RNN, DeltaNet, DeltaProduct,
+                              FeatureExtractor, GatedDeltaNet, GTrXL, Mamba,
+                              Network, TDDeltaNet, TDGatedDeltaNet, heads,
+                              xLSTMCell)
 
 total_timesteps = 1_000_000
 num_train_steps = 10_000
@@ -59,7 +47,7 @@ actor_network = Network(
     torso=RNN(cell=nn.GRUCell(features=256)),
     head=heads.Gaussian(
         action_dim=env.action_space(env_params).shape[0],
-    )
+    ),
 )
 actor_optimizer = optax.chain(
     optax.clip_by_global_norm(1.0),
@@ -117,7 +105,6 @@ logger_state = logger.log(
 logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
-
     start = time.perf_counter()
     keys, state, transitions = train(keys, state, num_train_steps)
     jax.block_until_ready(state)

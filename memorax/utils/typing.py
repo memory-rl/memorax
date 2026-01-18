@@ -1,8 +1,8 @@
-from typing import Any, Protocol, Callable, TypeAlias
+from typing import Any, Callable, Protocol, TypeAlias
 
-import jax
 import flashbax as fbx
 import gymnax
+import jax
 
 Key: TypeAlias = jax.Array
 Array: TypeAlias = jax.Array

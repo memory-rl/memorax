@@ -7,7 +7,6 @@ from memorax.utils.typing import Array, Carry
 
 
 class SequenceModel(ABC, nn.Module):
-
     @abstractmethod
     def __call__(
         self,

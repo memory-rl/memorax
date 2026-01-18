@@ -1,29 +1,16 @@
 import time
 
-import jax
 import flax.linen as nn
+import jax
 import optax
+
 from memorax.algorithms import PQN, PQNConfig
 from memorax.environments import environment
-from memorax.loggers import Logger, DashboardLogger, WandbLogger
-from memorax.networks import (
-    MLP,
-    Network,
-    heads,
-    FeatureExtractor,
-    RNN,
-    GPT2,
-    GTrXL,
-    LRU,
-    DeltaNet,
-    TDDeltaNet,
-    GatedDeltaNet,
-    TDGatedDeltaNet,
-    DeltaProduct,
-    xLSTMCell,
-    Mamba,
-    RecurrentWrapper,
-)
+from memorax.loggers import DashboardLogger, Logger, WandbLogger
+from memorax.networks import (GPT2, LRU, MLP, RNN, DeltaNet, DeltaProduct,
+                              FeatureExtractor, GatedDeltaNet, GTrXL, Mamba,
+                              Network, RecurrentWrapper, TDDeltaNet,
+                              TDGatedDeltaNet, heads, xLSTMCell)
 
 total_timesteps = 1_000_000
 num_train_steps = 100_000
@@ -79,7 +66,8 @@ optimizer = optax.chain(
 )
 
 schedule = optax.linear_schedule(
-    cfg.start_e, cfg.end_e, cfg.exploration_fraction * total_timesteps)
+    cfg.start_e, cfg.end_e, cfg.exploration_fraction * total_timesteps
+)
 
 key = jax.random.key(seed)
 keys = jax.random.split(key, num_seeds)
@@ -117,7 +105,6 @@ logger_state = logger.log(
 logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
-
     start = time.perf_counter()
     keys, state, transitions = train(keys, state, num_train_steps)
     jax.block_until_ready(state)

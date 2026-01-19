@@ -36,7 +36,7 @@ class DashboardLoggerState(BaseLoggerState):
 class DashboardLogger(BaseLogger[DashboardLoggerState]):
     title: Optional[str]
     name: Optional[str] = None
-    total_timesteps: Optional[int] = None
+    total_timesteps: int = 0
     refresh_per_second: int = 10
     env_id: Optional[str] = None
 

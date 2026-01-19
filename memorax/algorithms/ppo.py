@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -8,14 +8,14 @@ from flax import core
 from flax import linen as nn
 from flax import struct
 
-from memorax.networks.sequence_models.utils import (add_feature_axis,
-                                                    remove_feature_axis,
-                                                    remove_time_axis)
+from memorax.networks.sequence_models.utils import (
+    add_feature_axis,
+    remove_feature_axis,
+    remove_time_axis,
+)
 from memorax.networks.sequence_models.wrappers import SequenceModelWrapper
-from memorax.utils import (Timestep, Transition,
-                           generalized_advantage_estimatation)
-from memorax.utils.typing import (Array, Discrete, Environment, EnvParams,
-                                  EnvState, Key)
+from memorax.utils import Timestep, Transition, generalized_advantage_estimatation
+from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvState, Key
 
 
 @struct.dataclass(frozen=True)
@@ -33,6 +33,7 @@ class PPOConfig:
     clip_vloss: bool
     ent_coef: float
     vf_coef: float
+    target_kl: Optional[float] = None
 
     @property
     def batch_size(self):
@@ -294,7 +295,7 @@ class PPO:
 
         return (key, state), (actor_loss, critic_loss, aux)
 
-    def _update_epoch(self, carry: tuple, _):
+    def _update_epoch(self, carry: tuple):
         (
             key,
             state,
@@ -303,6 +304,8 @@ class PPO:
             transitions,
             advantages,
             returns,
+            *_,
+            epoch,
         ) = carry
 
         key, permutation_key = jax.random.split(key)
@@ -319,6 +322,7 @@ class PPO:
             shuffle_time_axis = isinstance(
                 self.actor.torso, SequenceModelWrapper
             ) and isinstance(self.critic.torso, SequenceModelWrapper)
+            num_permutations = self.cfg.num_envs
             if shuffle_time_axis:
                 batch = (
                     initial_actor_h_epoch,
@@ -328,8 +332,9 @@ class PPO:
                         (transitions, advantages, returns),
                     ),
                 )
+                num_permutations *= self.cfg.num_envs
 
-            permutation = jax.random.permutation(permutation_key, self.cfg.num_envs)
+            permutation = jax.random.permutation(permutation_key, num_permutations)
 
             minibatches = jax.tree.map(
                 lambda x: jnp.take(x, permutation, axis=0).reshape(
@@ -341,10 +346,16 @@ class PPO:
 
         minibatches = shuffle(batch)
 
-        (key, state), (actor_loss, critic_loss, aux) = jax.lax.scan(
-            self._update_minibatch,
-            (key, state),
-            minibatches,
+        (key, state), (actor_loss, critic_loss, (entropy, approx_kl, clipfrac)) = (
+            jax.lax.scan(
+                self._update_minibatch,
+                (key, state),
+                minibatches,
+            )
+        )
+
+        metrics = jax.tree.map(
+            lambda x: x.mean(), (actor_loss, critic_loss, entropy, approx_kl, clipfrac)
         )
 
         return (
@@ -355,7 +366,9 @@ class PPO:
             transitions,
             advantages,
             returns,
-        ), (actor_loss, critic_loss, aux)
+            metrics,
+            epoch + 1,
+        )
 
     def _update_step(self, carry: tuple, _):
         key, state = carry
@@ -395,7 +408,18 @@ class PPO:
         if self.cfg.normalize_advantage:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        (key, state, *_), (actor_loss, critic_loss, aux) = jax.lax.scan(
+        def cond_fun(carry):
+            *_, (*_, approx_kl, _), epoch = carry
+
+            cond = epoch < self.cfg.update_epochs
+
+            if self.cfg.target_kl:
+                cond = cond & (approx_kl < self.cfg.target_kl)
+
+            return cond
+
+        (key, state, *_, metrics, _) = jax.lax.while_loop(
+            cond_fun,
             self._update_epoch,
             (
                 key,
@@ -405,11 +429,14 @@ class PPO:
                 transitions,
                 advantages,
                 returns,
+                (0.0, 0.0, 0.0, 0.0, 0.0),
+                0,
             ),
-            length=self.cfg.update_epochs,
         )
 
-        entropy, approx_kl, clipfrac = aux
+        actor_loss, critic_loss, entropy, approx_kl, clipfrac = jax.tree.map(
+            lambda x: jnp.expand_dims(x, axis=(0, 1)), metrics
+        )
         info = {
             **transitions.info,
             "losses/actor_loss": actor_loss,

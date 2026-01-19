@@ -9,11 +9,17 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger, WandbLogger
-from memorax.networks import (MLP, RNN, FeatureExtractor, Network,
-                              SequenceModelWrapper, heads)
+from memorax.networks import (
+    MLP,
+    RNN,
+    FeatureExtractor,
+    Network,
+    SequenceModelWrapper,
+    heads,
+)
 
 total_timesteps = 500_000
-num_train_steps = 50_000
+num_train_steps = 10_000
 num_eval_steps = 10_000
 
 seed = 0
@@ -23,12 +29,12 @@ env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = PPOConfig(
     name="PPO",
-    num_envs=32,
+    num_envs=8,
     num_eval_envs=16,
-    num_steps=64,
-    gamma=0.999,
+    num_steps=128,
+    gamma=0.99,
     gae_lambda=0.95,
-    num_minibatches=8,
+    num_minibatches=4,
     update_epochs=4,
     normalize_advantage=True,
     clip_coef=0.2,
@@ -37,42 +43,36 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
+feature_extractor = FeatureExtractor(
+    observation_extractor=MLP(
+        features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+    ),
+)
+torso = SequenceModelWrapper(
+    MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
+)
 actor_network = Network(
-    feature_extractor=FeatureExtractor(
-        observation_extractor=MLP(
-            features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ),
-    ),
-    torso=SequenceModelWrapper(
-        MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
-    ),
+    feature_extractor=feature_extractor,
+    torso=torso,
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
         kernel_init=nn.initializers.orthogonal(scale=0.01),
     ),
 )
-actor_optimizer = optax.chain(
-    optax.clip_by_global_norm(1.0),
-    optax.adam(learning_rate=3e-4, eps=1e-5),
-)
 
 critic_network = Network(
-    feature_extractor=FeatureExtractor(
-        observation_extractor=MLP(
-            features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ),
-    ),
-    torso=SequenceModelWrapper(
-        MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
-    ),
+    feature_extractor=feature_extractor,
+    torso=torso,
     head=heads.VNetwork(
         kernel_init=nn.initializers.orthogonal(scale=1.0),
     ),
 )
-critic_optimizer = optax.chain(
+
+optimizer = optax.chain(
     optax.clip_by_global_norm(1.0),
     optax.adam(learning_rate=3e-4, eps=1e-5),
 )
+
 
 key = jax.random.key(seed)
 keys = jax.random.split(key, num_seeds)
@@ -83,16 +83,12 @@ agent = PPO(
     env_params=env_params,
     actor=actor_network,
     critic=critic_network,
-    actor_optimizer=actor_optimizer,
-    critic_optimizer=critic_optimizer,
+    actor_optimizer=optimizer,
+    critic_optimizer=optimizer,
 )
 
 logger = Logger(
-    [
-        WandbLogger(
-            entity="noahfarr", project="memorax", name="PPO CartPole", mode="online"
-        ),
-    ]
+    [DashboardLogger(title="PPO CartPole", total_timesteps=total_timesteps)]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 

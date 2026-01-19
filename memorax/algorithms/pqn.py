@@ -9,9 +9,11 @@ import optax
 from flax import core, struct
 
 from memorax.networks import SequenceModelWrapper
-from memorax.networks.sequence_models.utils import (add_feature_axis,
-                                                    remove_feature_axis,
-                                                    remove_time_axis)
+from memorax.networks.sequence_models.utils import (
+    add_feature_axis,
+    remove_feature_axis,
+    remove_time_axis,
+)
 from memorax.utils import Timestep, Transition
 from memorax.utils.typing import Array, Environment, EnvParams, EnvState, Key
 
@@ -161,6 +163,7 @@ class PQN:
 
         def shuffle(batch):
             shuffle_time_axis = isinstance(self.q_network, SequenceModelWrapper)
+            num_permutations = self.cfg.num_envs
             if shuffle_time_axis:
                 batch = (
                     initial_hidden_state,
@@ -169,8 +172,9 @@ class PQN:
                         (transitions, lambda_targets),
                     ),
                 )
+                num_permutations *= self.cfg.num_steps
 
-            permutation = jax.random.permutation(permutation_key, self.cfg.num_envs)
+            permutation = jax.random.permutation(permutation_key, num_permutations)
 
             minibatches = jax.tree.map(
                 lambda x: jnp.take(x, permutation, axis=0).reshape(

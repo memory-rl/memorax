@@ -332,7 +332,7 @@ class PPO:
                         (transitions, advantages, returns),
                     ),
                 )
-                num_permutations *= self.cfg.num_envs
+                num_permutations *= self.cfg.num_steps
 
             permutation = jax.random.permutation(permutation_key, num_permutations)
 

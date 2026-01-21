@@ -1,11 +1,14 @@
 from functools import partial
+
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from memorax.networks.sequence_models.utils import add_time_axis
+from memorax.networks.sequence_models.utils import (add_time_axis,
+                                                    get_input_shape)
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
+from .sequence_model import SequenceModel
+
 
 @jax.vmap
 def _binary_operator_reset(q_i, q_j):
@@ -38,7 +41,6 @@ def gamma_log_init(key, lamb):
 
 
 class LRULayer(nn.Module):
-
     features: int
     hidden_dim: int
     r_min: float = 0.0
@@ -111,7 +113,6 @@ class LRULayer(nn.Module):
 
 
 class LRUBlock(nn.Module):
-
     features: int
     hidden_dim: int
     dropout_rate: float = 0.0
@@ -143,8 +144,6 @@ class LRUBlock(nn.Module):
 
 
 class LRU(SequenceModel):
-    """Encoder containing several SequenceLayer"""
-
     features: int
     hidden_dim: int
     num_layers: int
@@ -153,8 +152,12 @@ class LRU(SequenceModel):
     prenorm: bool = False
 
     @nn.compact
-    def __call__(self, inputs, mask, initial_carry, **kwargs):
+    def __call__(self, inputs, mask, initial_carry=None, **kwargs):
         x = inputs
+
+        if initial_carry is None:
+            input_shape = get_input_shape(inputs)
+            initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
         new_carry = []
         for carry_i in initial_carry:
             new_carry_i, x = LRUBlock(
@@ -167,7 +170,7 @@ class LRU(SequenceModel):
             new_carry.append(new_carry_i)
         return tuple(new_carry), x
 
-    def initialize_carry(self, rng: jax.Array, input_shape) -> tuple:
+    def initialize_carry(self, key: jax.Array, input_shape) -> tuple:
         batch_size, *_ = input_shape
 
         initial_carry = jnp.zeros(

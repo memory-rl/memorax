@@ -1,11 +1,10 @@
-from gymnax.environments import spaces
 import numpy as np
+from gymnax.environments import spaces
 
 from memorax.utils.wrappers import GymnaxWrapper
 
 
 class NavixGymnaxWrapper(GymnaxWrapper):
-
     def reset(self, key, params=None):
         timestep = self._env.reset(key)
         return timestep.observation, timestep

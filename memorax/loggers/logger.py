@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar, TypeAlias
+from typing import Any, Generic, TypeAlias, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -19,9 +19,8 @@ StateT = TypeVar("StateT", bound=BaseLoggerState)
 
 @struct.dataclass(frozen=True)
 class BaseLogger(Generic[StateT], ABC):
-
     @abstractmethod
-    def init(self, cfg) -> StateT: ...
+    def init(self, **kwargs) -> StateT: ...
 
     @abstractmethod
     def log(self, state: StateT, data: PyTree, step: PyTree) -> StateT: ...
@@ -40,13 +39,13 @@ class LoggerState(BaseLoggerState):
 
 @struct.dataclass(frozen=True)
 class Logger(BaseLogger[LoggerState]):
-    loggers: dict[str, BaseLogger[Any]]
+    loggers: dict[str, BaseLogger[Any]] | list[BaseLogger[Any]]
 
     _is_leaf = staticmethod(lambda x: isinstance(x, (BaseLogger, BaseLoggerState)))
 
-    def init(self, cfg: dict) -> LoggerState:
+    def init(self, **kwargs) -> LoggerState:
         logger_states = jax.tree.map(
-            lambda logger: logger.init(cfg),
+            lambda logger: logger.init(**kwargs),
             self.loggers,
             is_leaf=self._is_leaf,
         )
@@ -84,8 +83,6 @@ class Logger(BaseLogger[LoggerState]):
             return {
                 f"{prefix}/mean_{metric}": jnp.nanmean(a),
                 f"{prefix}/std_{metric}": jnp.nanstd(a),
-                # f"{prefix}/min_{metric}": jnp.nanmin(a),
-                # f"{prefix}/max_{metric}": jnp.nanmax(a),
             }
 
         num_episodes = {f"{prefix}/num_episodes": transitions.num_episodes}

@@ -10,15 +10,11 @@ else:
 import chex
 import jax
 import jax.numpy as jnp
-
-from flashbax.buffers.trajectory_buffer import (
-    Experience,
-    TrajectoryBuffer,
-    TrajectoryBufferState,
-    TrajectoryBufferSample,
-    make_trajectory_buffer,
-)
 from flashbax import utils
+from flashbax.buffers.trajectory_buffer import (Experience, TrajectoryBuffer,
+                                                TrajectoryBufferSample,
+                                                TrajectoryBufferState,
+                                                make_trajectory_buffer)
 from flashbax.utils import add_dim_to_args
 
 
@@ -47,7 +43,7 @@ def validate_max_length_add_batch_size(max_length: int, add_batch_size: int):
     if max_length // add_batch_size < 2:
         raise ValueError(
             f"""max_length//add_batch_size must be greater than 2. It is currently
-            {max_length}//{add_batch_size} = {max_length//add_batch_size}"""
+            {max_length}//{add_batch_size} = {max_length // add_batch_size}"""
         )
 
 
@@ -179,9 +175,7 @@ def make_episode_buffer(
                 lambda k, p: jax.random.choice(
                     k, a=max_length_time_axis, shape=(), p=p, replace=True
                 )
-            )(
-                keys, row_start_probs
-            )  # [N]
+            )(keys, row_start_probs)  # [N]
             return rows, starts
 
         def _fallback_beginning(key):

@@ -2,10 +2,9 @@ from collections import defaultdict
 from dataclasses import field
 
 from flax import struct
+from tensorboardX import SummaryWriter
 
 from .logger import BaseLogger, BaseLoggerState, PyTree
-
-from tensorboardX import SummaryWriter
 
 
 @struct.dataclass(frozen=True)

@@ -5,10 +5,10 @@ import jax.numpy as jnp
 
 
 class FeatureExtractor(nn.Module):
-
     observation_extractor: nn.Module
     action_extractor: Optional[nn.Module] = None
     reward_extractor: Optional[nn.Module] = None
+    done_extractor: Optional[nn.Module] = None
 
     def extract(
         self,
@@ -23,12 +23,16 @@ class FeatureExtractor(nn.Module):
     def __call__(
         self,
         observation: jnp.ndarray,
-        action: Optional[jnp.ndarray] = None,
-        reward: Optional[jnp.ndarray] = None,
+        action: jnp.ndarray,
+        reward: jnp.ndarray,
+        done: jnp.ndarray,
         **kwargs,
-    ) -> jnp.ndarray:
+    ):
         features = [self.observation_extractor(observation)]
         self.extract(features, self.action_extractor, action)
         self.extract(features, self.reward_extractor, reward)
+        self.extract(features, self.done_extractor, done.astype(jnp.int32))
 
-        return jnp.concatenate(features, axis=-1)
+        features = jnp.concatenate(features, axis=-1)
+
+        return features

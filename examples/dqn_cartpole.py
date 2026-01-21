@@ -1,10 +1,11 @@
+import flashbax as fbx
 import jax
 import optax
-import flashbax as fbx
+
 from memorax.algorithms.dqn import DQN, DQNConfig
 from memorax.environments import environment
-from memorax.loggers import Logger, DashboardLogger
-from memorax.networks import MLP, Network, heads, FeatureExtractor
+from memorax.loggers import DashboardLogger, Logger
+from memorax.networks import MLP, FeatureExtractor, Network, heads
 
 total_timesteps = 500_000
 num_train_steps = 50_000

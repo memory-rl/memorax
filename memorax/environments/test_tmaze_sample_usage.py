@@ -2,6 +2,7 @@
 # thought i leave it here as reference for now on how to use the tmaze_env
 
 import jax
+
 from memorax.environments.tmaze_env import make_tmaze_env
 
 

@@ -2,8 +2,9 @@
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["memorax", "tests"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["memorax*"]
 
 [project]
 name = "memorax"
@@ -32,6 +33,7 @@ popgym-arcade    = ["popgym-arcade>=0.0.4"]
 playground= ["playground>=0.0.5", "warp-lang>=1.9.1"]
 gxm       = ["gxm"]
 popjym    = ["popjym"]
+xminigrid = ["xminigrid"]
 
 all = [
     "brax>=0.12.4",

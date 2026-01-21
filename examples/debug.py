@@ -1,15 +1,10 @@
-import jax
 import flax.linen as nn
+import jax
 import optax
+
 from memorax.algorithms.rppo import RPPO, RPPOConfig
 from memorax.environments import environment
-from memorax.networks import (
-    MLP,
-    SequenceNetwork,
-    heads,
-    FeatureExtractor,
-    GTrXL,
-)
+from memorax.networks import MLP, FeatureExtractor, GTrXL, Network, heads
 from memorax.networks.recurrent.rnn import RNN
 
 total_timesteps = 1_000_000
@@ -45,7 +40,7 @@ cfg = RPPOConfig(
     learning_starts=0,
 )
 
-actor_network = SequenceNetwork(
+actor_network = Network(
     feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(128,))),
     # torso=GPT2(features=128, num_layers=1, num_heads=1, context_length=6),
     torso=GTrXL(
@@ -63,7 +58,7 @@ actor_optimizer = optax.chain(
     optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
 )
 
-critic_network = SequenceNetwork(
+critic_network = Network(
     feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(128,))),
     # torso=GPT2(features=128, num_layers=1, num_heads=1, context_length=6),
     # torso=GTrXL(
@@ -97,6 +92,5 @@ print("================ FINISHED INITIALIZATION ================")
 key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
 
 for i in range(0, total_timesteps, num_train_steps):
-
     key, state, transitions = agent.train(key, state, num_steps=num_train_steps)
     # key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)

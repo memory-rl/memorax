@@ -3,12 +3,14 @@ from typing import Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+from flax import struct
 from gymnax.environments import environment, spaces
 
 from memorax.utils.typing import Array, Key
 
 
-class GymnaxWrapper(object):
+class GymnaxWrapper:
     """Base class for Gymnax wrappers."""
 
     def __init__(self, env):
@@ -25,9 +27,9 @@ class MaskObservationWrapper(GymnaxWrapper):
         self.mask_dims = jnp.array(mask_dims, dtype=int)
 
     def observation_space(self, params) -> spaces.Box:
-        assert isinstance(
-            self._env.observation_space(params), spaces.Box
-        ), "Only Box spaces are supported for now."
+        assert isinstance(self._env.observation_space(params), spaces.Box), (
+            "Only Box spaces are supported for now."
+        )
         low = self._env.observation_space(params).low
         if isinstance(low, jnp.ndarray):
             low = low[self.mask_dims]
@@ -62,3 +64,101 @@ class MaskObservationWrapper(GymnaxWrapper):
         obs, state, reward, done, info = self._env.step(key, state, action, params)
         obs = obs[self.mask_dims]
         return obs, state, reward, done, info
+
+
+@struct.dataclass
+class NormalizeObservationWrapperState:
+    mean: jnp.ndarray
+    var: jnp.ndarray
+    count: float
+    env_state: environment.EnvState
+
+
+class NormalizeObservationWrapper(GymnaxWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+
+    def reset(self, key, params=None):
+        obs, state = self._env.reset(key, params)
+        state = NormalizeObservationWrapperState(
+            mean=jnp.zeros_like(obs),
+            var=jnp.ones_like(obs),
+            count=1e-4,
+            env_state=state,
+        )
+        batch_mean = jnp.mean(obs, axis=0)
+        batch_var = jnp.var(obs, axis=0)
+        batch_count = obs.shape[0]
+
+        delta = batch_mean - state.mean
+        tot_count = state.count + batch_count
+
+        new_mean = state.mean + delta * batch_count / tot_count
+        m_a = state.var * state.count
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + jnp.square(delta) * state.count * batch_count / tot_count
+        new_var = M2 / tot_count
+        new_count = tot_count
+
+        state = NormalizeObservationWrapperState(
+            mean=new_mean,
+            var=new_var,
+            count=new_count,
+            env_state=state.env_state,
+        )
+
+        return (obs - state.mean) / jnp.sqrt(state.var + 1e-8), state
+
+    def step(self, key, state, action, params=None):
+        obs, env_state, reward, done, info = self._env.step(
+            key, state.env_state, action, params
+        )
+
+        batch_mean = jnp.mean(obs, axis=0)
+        batch_var = jnp.var(obs, axis=0)
+        batch_count = obs.shape[0]
+
+        delta = batch_mean - state.mean
+        tot_count = state.count + batch_count
+
+        new_mean = state.mean + delta * batch_count / tot_count
+        m_a = state.var * state.count
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + jnp.square(delta) * state.count * batch_count / tot_count
+        new_var = M2 / tot_count
+        new_count = tot_count
+
+        state = NormalizeObservationWrapperState(
+            mean=new_mean,
+            var=new_var,
+            count=new_count,
+            env_state=env_state,
+        )
+        return (
+            (obs - state.mean) / jnp.sqrt(state.var + 1e-8),
+            state,
+            reward,
+            done,
+            info,
+        )
+
+
+class ClipActionWrapper(GymnaxWrapper):
+    def __init__(self, env, low=-1.0, high=1.0):
+        super().__init__(env)
+        self.low = low
+        self.high = high
+
+    def step(self, key, state, action, params=None):
+        action = jnp.clip(action, self.low, self.high)
+        return self._env.step(key, state, action, params)
+
+
+class ScaleRewardWrapper(GymnaxWrapper):
+    def __init__(self, env, scale=1.0):
+        super().__init__(env)
+        self.scale = scale
+
+    def step(self, key, state, action, params=None):
+        obs, env_state, reward, done, info = self._env.step(key, state, action, params)
+        return obs, env_state, self.scale * reward, done, info

@@ -1,3 +1,5 @@
+from typing import Callable, Optional
+
 import distrax
 import flax.linen as nn
 import jax.numpy as jnp
@@ -22,9 +24,9 @@ class ContinuousQNetwork(nn.Module):
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, *, action: jnp.ndarray, **kwargs) -> jnp.ndarray:
         q_values = nn.Dense(1, kernel_init=self.kernel_init, bias_init=self.bias_init)(
-            x
+            jnp.concatenate([x, action], axis=-1)
         )
         return jnp.squeeze(q_values, -1)
 
@@ -55,18 +57,20 @@ class Categorical(nn.Module):
 
 class Gaussian(nn.Module):
     action_dim: int
+    transform: Callable | distrax.Bijector = lambda x: x
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, **kwargs) -> distrax.MultivariateNormalDiag:
+    def __call__(self, x: jnp.ndarray, **kwargs):
         mean = nn.Dense(
             self.action_dim, kernel_init=self.kernel_init, bias_init=self.bias_init
         )(x)
 
         log_std = self.param("log_std", nn.initializers.zeros, self.action_dim)
         std = jnp.exp(log_std)
-        return distrax.MultivariateNormalDiag(loc=mean, scale_diag=std)
+        dist = distrax.MultivariateNormalDiag(loc=mean, scale_diag=std)
+        return distrax.Transformed(dist, self.transform)
 
 
 class SquashedGaussian(nn.Module):
@@ -78,7 +82,7 @@ class SquashedGaussian(nn.Module):
     LOG_STD_MAX = 2
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, **kwargs):
         temperature = kwargs.get("temperature", 1.0)
 
         mean = nn.Dense(

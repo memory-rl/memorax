@@ -1,25 +1,19 @@
 from functools import partial
-from typing import (
-    Any,
-    Optional,
-    TypeVar,
-)
+from typing import Any, Optional, TypeVar
 
 import jax
-from jax import numpy as jnp
 from flax import linen as nn
-from flax.linen import initializers
 from flax import struct
+from flax.linen import initializers
 from flax.linen.activation import sigmoid, tanh
 from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.module import Module, compact, nowrap
-from flax.typing import (
-    Array,
-    Dtype,
-    Initializer,
-)
+from flax.typing import Array, Dtype, Initializer
+from jax import numpy as jnp
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
+from memorax.networks.sequence_models.utils import get_input_shape
+
+from .sequence_model import SequenceModel
 
 A = TypeVar("A")
 Carry = Any
@@ -88,9 +82,9 @@ class RelativeMultiHeadAttentionBlock(Module):
         B, T, *_ = x.shape
         head_dim = self.features // self.num_heads
 
-        assert (
-            T <= self.context_length + self.memory_length
-        ), f"T must be less than or equal to context_length + memory_length, but was T: {T}, context_length + memory_length: {self.context_length + self.memory_length}"
+        assert T <= self.context_length + self.memory_length, (
+            f"T must be less than or equal to context_length + memory_length, but was T: {T}, context_length + memory_length: {self.context_length + self.memory_length}"
+        )
 
         projection = partial(
             nn.DenseGeneral,
@@ -333,7 +327,7 @@ class GTrXL(SequenceModel):
     bias_init: Initializer = initializers.zeros_init()
 
     @nowrap
-    def initialize_carry(self, rng, input_shape):
+    def initialize_carry(self, key, input_shape):
         batch_size, *_ = input_shape
 
         def initialize_kv_cache():
@@ -371,9 +365,12 @@ class GTrXL(SequenceModel):
         self,
         inputs: jax.Array,
         mask: jax.Array,
-        initial_carry: tuple,
+        initial_carry: Optional[Carry] = None,
         **kwargs,
     ):
+        if initial_carry is None:
+            input_shape = get_input_shape(inputs)
+            initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
 
         new_carry = []
         x: Array = inputs

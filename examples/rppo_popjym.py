@@ -1,25 +1,15 @@
 import time
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 import optax
+
 from memorax.algorithms.rppo import RPPO, RPPOConfig
 from memorax.environments import environment
-from memorax.loggers import Logger, DashboardLogger
-from memorax.networks import (
-    MLP,
-    SequenceNetwork,
-    heads,
-    FeatureExtractor,
-    RNN,
-    SHMCell,
-    FFM,
-    GPT2,
-    GTrXL,
-    xLSTMCell,
-    DeltaNet,
-)
+from memorax.loggers import DashboardLogger, Logger
+from memorax.networks import (FFM, GPT2, MLP, RNN, DeltaNet, FeatureExtractor,
+                              GTrXL, Network, SHMCell, heads, xLSTMCell)
 
 total_timesteps = 15_000_000
 num_train_steps = 1024 * 64
@@ -47,7 +37,7 @@ cfg = RPPOConfig(
     learning_starts=0,
 )
 
-actor_network = SequenceNetwork(
+actor_network = Network(
     feature_extractor=FeatureExtractor(
         observation_extractor=MLP(features=(192,)),
         action_extractor=MLP(features=(64,)),
@@ -85,7 +75,7 @@ actor_optimizer = optax.chain(
     optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
 )
 
-critic_network = SequenceNetwork(
+critic_network = Network(
     feature_extractor=FeatureExtractor(
         observation_extractor=MLP(features=(192,)),
         action_extractor=MLP(features=(64,)),
@@ -146,7 +136,6 @@ logger_state = logger.log(logger_state, data, step=state.step.item())
 logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
-
     start = time.perf_counter()
     key, state, transitions = agent.train(key, state, num_steps=num_train_steps)
     jax.block_until_ready(state)

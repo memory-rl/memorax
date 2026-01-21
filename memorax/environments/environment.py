@@ -1,13 +1,5 @@
-from memorax.environments import (
-    brax,
-    craftax,
-    gxm,
-    gymnax,
-    mujoco,
-    navix,
-    popgym_arcade,
-    popjym,
-)
+from memorax.environments import (brax, craftax, gxm, gymnax, mujoco, navix,
+                                  popgym_arcade, popjym, xminigrid)
 
 register = {
     "brax": brax.make,
@@ -18,6 +10,7 @@ register = {
     "navix": navix.make,
     "popgym_arcade": popgym_arcade.make,
     "popjym": popjym.make,
+    "xminigrid": xminigrid.make,
 }
 
 

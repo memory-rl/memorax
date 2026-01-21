@@ -1,12 +1,12 @@
-from typing import Callable, Tuple, Literal
-from flax.typing import Dtype, Initializer
+from typing import Callable, Literal, Tuple
+
 import jax
 import jax.numpy as jnp
-from jax.nn.initializers import lecun_normal
-from jax.lib import xla_bridge
-
 from flax import linen as nn
 from flax.linen.dtypes import promote_dtype
+from flax.typing import Dtype, Initializer
+from jax.lib import xla_bridge
+from jax.nn.initializers import lecun_normal
 
 from memorax.utils.typing import Array
 
@@ -41,11 +41,30 @@ def remove_time_axis(x: jax.Array):
     return x.squeeze(1)
 
 
-def get_time_axis_and_input_shape(inputs: jax.Array, num_feature_axes=1):
+def add_feature_axis(x: jax.Array):
+    return x[..., None]
+
+
+def remove_feature_axis(x: jax.Array):
+    return x.squeeze(-1)
+
+
+def get_time_axis(inputs: jax.Array, num_feature_axes=1):
     time_axis = inputs.ndim - (num_feature_axes + 1)
     if time_axis < 0:
         time_axis += inputs.ndim
+    return time_axis
+
+
+def get_input_shape(inputs: jax.Array, num_feature_axes=1):
+    time_axis = get_time_axis(inputs, num_feature_axes)
     input_shape = inputs.shape[:time_axis] + inputs.shape[time_axis + 1 :]
+    return input_shape
+
+
+def get_time_axis_and_input_shape(inputs: jax.Array, num_feature_axes=1):
+    time_axis = get_time_axis(inputs, num_feature_axes)
+    input_shape = get_input_shape(inputs, num_feature_axes)
     return time_axis, input_shape
 
 
@@ -73,9 +92,11 @@ def xavier_uniform():
     return nn.initializers.variance_scaling(1.0, "fan_avg", "uniform")
 
 
-def uniform(minval, maxval):
+def uniform_init(min_val, max_val):
     def init(key, shape, dtype):
-        return jax.random.uniform(key, shape, minval=minval, maxval=maxval, dtype=dtype)
+        return jax.random.uniform(
+            key, shape, minval=min_val, maxval=max_val, dtype=dtype
+        )
 
     return init
 
@@ -93,7 +114,6 @@ def powerlaw_init(num_heads, head_dim):
 
 
 def linspace_init(start, stop):
-
     def init(key, shape, dtype):
         num_dims, *_ = shape
         return jnp.linspace(start, stop, num_dims, dtype=dtype)
@@ -118,7 +138,6 @@ def wang_init(dim, num_blocks):
 
 
 class BlockDiagonalDense(nn.Module):
-
     features: int
     num_heads: int
     use_bias: bool = True
@@ -180,9 +199,7 @@ class MultiHeadLayerNorm(nn.Module):
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-        )(
-            x
-        )
+        )(x)
 
         if self.use_scale:
             gamma = self.param(
@@ -224,6 +241,34 @@ class CausalConv1d(nn.Module):
             )
             y = y + bias
         return conv_state, y
+
+
+class ParallelCausalConv1d(nn.Module):
+    features: int
+    kernel_size: int = 4
+    use_bias: bool = True
+    param_dtype: jnp.dtype = jnp.float32
+    dtype: jnp.dtype = jnp.float32
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray):
+        *_, feature_group_count = x.shape
+        padding = self.kernel_size - 1
+        x = nn.Conv(
+            features=self.features,
+            kernel_size=self.kernel_size,
+            kernel_init=kaiming_uniform(),
+            bias_init=uniform_init(
+                min_val=-1.0 / jnp.sqrt(self.kernel_size),
+                max_val=1.0 / jnp.sqrt(self.kernel_size),
+            ),
+            feature_group_count=feature_group_count,
+            padding=[(padding, 0)],
+            use_bias=self.use_bias,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )(x)
+        return x
 
 
 def make_hippo(n: int) -> jnp.ndarray:

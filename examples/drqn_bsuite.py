@@ -1,19 +1,14 @@
 import time
 
-import jax
 import flax.linen as nn
+import jax
 import optax
+
 from memorax.algorithms.drqn import DRQN, DRQNConfig
 from memorax.buffers import make_episode_buffer
 from memorax.environments import environment
-from memorax.loggers import Logger, DashboardLogger
-from memorax.networks import (
-    MLP,
-    SequenceNetwork,
-    RNN,
-    heads,
-    FeatureExtractor,
-)
+from memorax.loggers import DashboardLogger, Logger
+from memorax.networks import MLP, RNN, FeatureExtractor, Network, heads
 
 total_timesteps = 500_000
 num_train_steps = 50_000
@@ -42,7 +37,7 @@ cfg = DRQNConfig(
     mask=False,
 )
 
-q_network = SequenceNetwork(
+q_network = Network(
     feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(128,))),
     torso=RNN(cell=nn.GRUCell(features=128), unroll=16),
     head=heads.DiscreteQNetwork(
@@ -96,7 +91,6 @@ logger_state = logger.log(logger_state, evaluation_statistics, step=state.step.i
 logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
-
     start = time.perf_counter()
     key, state, transitions = agent.train(key, state, num_steps=num_train_steps)
     end = time.perf_counter()

@@ -1,27 +1,17 @@
 from functools import partial
-from typing import (
-    Any,
-    TypeVar,
-)
-
-import jax
-from jax import numpy as jnp
-from jax import random
+from typing import Any, TypeVar
 
 import flax.linen as nn
+import jax
 from flax.linen import LayerNorm, initializers
 from flax.linen.activation import sigmoid
 from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.module import compact, nowrap
-from flax.typing import (
-    Array,
-    PRNGKey,
-    Dtype,
-    Initializer,
-)
 from flax.linen.recurrent import RNNCellBase
+from flax.typing import Array, Dtype, Initializer, PRNGKey
+from jax import numpy as jnp
+from jax import random
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import xavier_uniform
 
 A = TypeVar("A")
@@ -47,7 +37,6 @@ class SHMCell(RNNCellBase):
 
     @compact
     def __call__(self, carry: Array, inputs: Array) -> tuple[Array, Array]:
-
         dense = partial(
             Dense,
             use_bias=False,

@@ -1,21 +1,15 @@
-from typing import Any, Tuple
-from flax.linen.recurrent import Carry
+from typing import Any, Optional, Tuple
+
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
+from flax.linen.recurrent import Carry
 from jax.nn.initializers import lecun_normal, normal
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
-from .utils import (
-    discretize_bilinear,
-    discretize_zoh,
-    init_cv,
-    init_log_steps,
-    init_v_inv_b,
-    make_dplr_hippo,
-    truncated_standard_normal,
-    add_time_axis,
-)
+from .sequence_model import SequenceModel
+from .utils import (add_time_axis, discretize_bilinear, discretize_zoh,
+                    get_input_shape, init_cv, init_log_steps, init_v_inv_b,
+                    make_dplr_hippo, truncated_standard_normal)
 
 
 class S5Layer(nn.Module):
@@ -215,7 +209,7 @@ class S5(SequenceModel):
     kernel_init: Any = None
     bias_init: Any = None
 
-    def initialize_carry(self, rng: jax.Array, input_shape: Tuple[int, ...]) -> tuple:
+    def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> tuple:
         batch_size, *_ = input_shape
 
         initial_carry = jnp.zeros(
@@ -233,10 +227,14 @@ class S5(SequenceModel):
         self,
         inputs: jax.Array,
         mask: jax.Array,
-        initial_carry: Carry,
+        initial_carry: Optional[Carry] = None,
         **kwargs,
     ):
         new_carry = []
+
+        if initial_carry is None:
+            input_shape = get_input_shape(inputs)
+            initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
 
         x = inputs
         mask = mask.astype(jnp.float32)

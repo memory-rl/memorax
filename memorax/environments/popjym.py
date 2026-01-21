@@ -1,10 +1,6 @@
-from functools import partial
 from typing import Any
-from dataclasses import dataclass
 
-from gymnax.environments import spaces
-import jax
-import jax.numpy as jnp
+from flax import struct
 
 from memorax.utils.wrappers import GymnaxWrapper
 
@@ -39,7 +35,7 @@ max_steps_in_episode = {
 }
 
 
-@dataclass(frozen=True)
+@struct.dataclass(frozen=True)
 class EnvParams:
     env_params: Any
     max_steps_in_episode: int

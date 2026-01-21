@@ -1,23 +1,21 @@
-from typing import Mapping
+from typing import Mapping, Optional
 
 import flax.linen as nn
-from flax.linen.recurrent import Carry
+import jax
 from flax.core.frozen_dict import FrozenDict
 from flax.core.scope import CollectionFilter, PRNGSequenceFilter
 from flax.linen import initializers
 from flax.linen.linear import default_kernel_init
-from flax.typing import InOutScanAxis, Initializer
-import jax
+from flax.linen.recurrent import Carry
+from flax.typing import Initializer, InOutScanAxis
 
-from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import (
-    get_time_axis_and_input_shape,
-    mask_carry,
-)
+    get_time_axis_and_input_shape, mask_carry)
+
+from .sequence_model import SequenceModel
 
 
 class RNN(SequenceModel):
-
     cell: nn.RNNCellBase
     unroll: int = 1
     variable_axes: Mapping[CollectionFilter, InOutScanAxis] = FrozenDict()
@@ -32,10 +30,13 @@ class RNN(SequenceModel):
         self,
         inputs: jax.Array,
         mask: jax.Array,
-        initial_carry: Carry,
+        initial_carry: Optional[Carry] = None,
         **kwargs,
     ):
         time_axis, input_shape = get_time_axis_and_input_shape(inputs)
+
+        if initial_carry is None:
+            initial_carry = self.cell.initialize_carry(jax.random.key(0), input_shape)
 
         carry: Carry = initial_carry
 

@@ -1,9 +1,9 @@
+import gymnax
 import jax
 import jax.numpy as jnp
-import gymnax
 import navix as nx
-from navix.spaces import Discrete, Continuous
 from flax import struct
+from navix.spaces import Continuous, Discrete
 
 from memorax.utils import NavixGymnaxWrapper
 

@@ -1,7 +1,7 @@
-import jax.numpy as jnp
 import gymnax
-from gymnax.environments import environment
+import jax.numpy as jnp
 from flax import struct
+from gymnax.environments import environment
 
 from memorax.utils.wrappers import GymnaxWrapper
 
@@ -15,7 +15,6 @@ class BSuiteEnvState:
 
 
 class BSuiteWrapper(GymnaxWrapper):
-
     def __init__(self, env: environment.Environment):
         super().__init__(env)
 

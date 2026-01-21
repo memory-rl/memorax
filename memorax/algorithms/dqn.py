@@ -30,6 +30,7 @@ class DQNConfig:
     learning_starts: int
     train_frequency: int
     mask: bool
+    burn_in_length: int = 0
 
 
 @struct.dataclass(frozen=True)
@@ -132,11 +133,36 @@ class DQN:
 
         key, memory_key, next_memory_key = jax.random.split(key, 3)
 
+        experience = batch.experience
+        initial_carry = None
+        initial_target_carry = None
+
+        if self.cfg.burn_in_length > 0:
+            burn_in = jax.tree.map(
+                lambda x: x[:, : self.cfg.burn_in_length], experience
+            )
+            initial_carry, _ = self.q_network.apply(
+                jax.lax.stop_gradient(state.params),
+                burn_in.obs,
+                mask=burn_in.prev_done,
+            )
+            initial_carry = jax.lax.stop_gradient(initial_carry)
+            initial_target_carry, _ = self.q_network.apply(
+                jax.lax.stop_gradient(state.target_params),
+                burn_in.next_obs,
+                mask=burn_in.done,
+            )
+            initial_target_carry = jax.lax.stop_gradient(initial_target_carry)
+            experience = jax.tree.map(
+                lambda x: x[:, self.cfg.burn_in_length :], experience
+            )
+
         def make_dqn_target():
             _, next_target_q_values = self.q_network.apply(
                 state.target_params,
-                batch.experience.next_obs,
-                mask=batch.experience.done,
+                experience.next_obs,
+                mask=experience.done,
+                initial_carry=initial_target_carry,
                 rngs={"memory": next_memory_key},
             )
             return jnp.max(next_target_q_values, axis=-1)
@@ -144,8 +170,9 @@ class DQN:
         def make_double_dqn_target():
             _, next_q_values = self.q_network.apply(
                 state.target_params,
-                batch.experience.next_obs,
-                mask=batch.experience.done,
+                experience.next_obs,
+                mask=experience.done,
+                initial_carry=initial_target_carry,
                 rngs={"memory": next_memory_key},
             )
             next_action = jnp.argmax(next_q_values, axis=-1)
@@ -159,24 +186,25 @@ class DQN:
         )
 
         td_target = (
-            batch.experience.reward
-            + (1 - batch.experience.done) * self.cfg.gamma * next_target_q_value
+            experience.reward
+            + (1 - experience.done) * self.cfg.gamma * next_target_q_value
         )
 
         mask = jnp.ones_like(td_target)
         if self.cfg.mask:
-            episode_idx = jnp.cumsum(batch.experience.prev_done, axis=1)
-            terminal = (episode_idx == 1) & batch.experience.prev_done
+            episode_idx = jnp.cumsum(experience.prev_done, axis=1)
+            terminal = (episode_idx == 1) & experience.prev_done
             mask *= (episode_idx == 0) | terminal
 
         def loss_fn(params):
             hidden_state, q_value = self.q_network.apply(
                 params,
-                batch.experience.obs,
-                mask=batch.experience.prev_done,
+                experience.obs,
+                mask=experience.prev_done,
+                initial_carry=initial_carry,
                 rngs={"memory": memory_key},
             )
-            action = jnp.expand_dims(batch.experience.action, axis=-1)
+            action = jnp.expand_dims(experience.action, axis=-1)
             q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
             td_error = q_value - td_target
             loss = (jnp.square(td_error)).mean(where=mask.astype(jnp.bool_))

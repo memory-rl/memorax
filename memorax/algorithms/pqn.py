@@ -28,6 +28,7 @@ class PQNConfig:
     td_lambda: float
     num_minibatches: int
     update_epochs: int
+    burn_in_length: int = 0
 
     @property
     def batch_size(self):
@@ -202,6 +203,25 @@ class PQN:
         hidden_state, transitions, target = minibatch
 
         key, memory_key, dropout_key = jax.random.split(key, 3)
+
+        if self.cfg.burn_in_length > 0:
+            burn_in = jax.tree.map(
+                lambda x: x[:, : self.cfg.burn_in_length], transitions
+            )
+            hidden_state, _ = self.q_network.apply(
+                jax.lax.stop_gradient(state.params),
+                observation=burn_in.obs,
+                mask=burn_in.prev_done,
+                action=burn_in.prev_action,
+                reward=add_feature_axis(burn_in.prev_reward),
+                done=burn_in.prev_done,
+                initial_carry=hidden_state,
+            )
+            hidden_state = jax.lax.stop_gradient(hidden_state)
+            transitions = jax.tree.map(
+                lambda x: x[:, self.cfg.burn_in_length :], transitions
+            )
+            target = target[:, self.cfg.burn_in_length :]
 
         def loss_fn(params):
             _, q_values = self.q_network.apply(

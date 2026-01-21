@@ -34,6 +34,7 @@ class PPOConfig:
     ent_coef: float
     vf_coef: float
     target_kl: Optional[float] = None
+    burn_in_length: int = 0
 
     @property
     def batch_size(self):
@@ -183,6 +184,25 @@ class PPO:
     ):
         key, memory_key, dropout_key = jax.random.split(key, 3)
 
+        if self.cfg.burn_in_length > 0:
+            burn_in = jax.tree.map(
+                lambda x: x[:, : self.cfg.burn_in_length], transitions
+            )
+            initial_actor_carry, _ = self.actor.apply(
+                jax.lax.stop_gradient(state.actor_params),
+                observation=burn_in.obs,
+                mask=burn_in.prev_done,
+                action=burn_in.prev_action,
+                reward=add_feature_axis(burn_in.prev_reward),
+                done=burn_in.prev_done,
+                initial_carry=initial_actor_carry,
+            )
+            initial_actor_carry = jax.lax.stop_gradient(initial_actor_carry)
+            transitions = jax.tree.map(
+                lambda x: x[:, self.cfg.burn_in_length :], transitions
+            )
+            advantages = advantages[:, self.cfg.burn_in_length :]
+
         def actor_loss_fn(params):
             _, probs = self.actor.apply(
                 params,
@@ -235,6 +255,25 @@ class PPO:
         self, key, state: PPOState, initial_critic_carry, transitions, returns
     ):
         key, memory_key, dropout_key = jax.random.split(key, 3)
+
+        if self.cfg.burn_in_length > 0:
+            burn_in = jax.tree.map(
+                lambda x: x[:, : self.cfg.burn_in_length], transitions
+            )
+            initial_critic_carry, _ = self.critic.apply(
+                jax.lax.stop_gradient(state.critic_params),
+                observation=burn_in.obs,
+                mask=burn_in.prev_done,
+                action=burn_in.prev_action,
+                reward=add_feature_axis(burn_in.prev_reward),
+                done=burn_in.prev_done,
+                initial_carry=initial_critic_carry,
+            )
+            initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
+            transitions = jax.tree.map(
+                lambda x: x[:, self.cfg.burn_in_length :], transitions
+            )
+            returns = returns[:, self.cfg.burn_in_length :]
 
         def critic_loss_fn(params):
             _, values = self.critic.apply(

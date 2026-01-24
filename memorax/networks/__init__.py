@@ -3,11 +3,13 @@ from memorax.networks.blocks import (
     FFN,
     GatedFFN,
     GatedResidual,
+    MoE,
     PostNorm,
     PreNorm,
     Residual,
     SegmentRecurrence,
     Stack,
+    TopKRouter,
 )
 from memorax.networks.cnn import CNN
 from memorax.networks.embedding import Embedding
@@ -25,7 +27,6 @@ from memorax.networks.sequence_models import (
     MemoroidCellBase,
     MetaMaskWrapper,
     MinGRUCell,
-    RetentionCell,
     S5Cell,
     SelfAttention,
     SequenceModel,

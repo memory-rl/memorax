@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -31,6 +31,11 @@ class SelfAttention(SequenceModel):
     kernel_init: Any
     bias_init: Any
     dropout: float = 0.0
+    positional_embedding: Callable = lambda query, key, query_pos, key_pos: (
+        query,
+        key,
+        None,
+    )
 
     @nn.nowrap
     def initialize_carry(self, key, input_shape):
@@ -48,15 +53,27 @@ class SelfAttention(SequenceModel):
         return Carry(mask, key, value)
 
     @nn.compact
-    def __call__(self, x, mask, initial_carry: Optional[Carry] = None, **kwargs):
-
+    def __call__(
+        self,
+        x,
+        mask,
+        initial_carry: Optional[Carry] = None,
+        memory: Optional[Array] = None,
+        memory_mask: Optional[Array] = None,
+        **kwargs,
+    ):
         if initial_carry is None:
             input_shape = get_input_shape(x)
             initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
 
+        B, T, *_ = x.shape
         head_dim = self.features // self.num_heads
 
-        B, T, *_ = x.shape
+        if memory is None:
+            memory = jnp.zeros((B, 0, self.features), dtype=self.dtype)
+            memory_mask = jnp.zeros((B, 0), dtype=jnp.int32)
+
+        _, M, *_ = memory.shape
 
         assert (
             T <= self.context_length
@@ -73,32 +90,41 @@ class SelfAttention(SequenceModel):
 
         query = projection(name="query")(x)
 
-        key = projection(name="key")(x)
-        key = jnp.concatenate([initial_carry.key, key], axis=1)
-        key = key[:, -self.context_length :]
+        key = projection(name="key")(jnp.concatenate([memory, x], axis=1))
+        key = jnp.concatenate([key[:, :M], initial_carry.key, key[:, M:]], axis=1)
+        key = key[:, -(M + self.context_length) :]
 
-        value = projection(name="value")(x)
-        value = jnp.concatenate([initial_carry.value, value], axis=1)
-        value = value[:, -self.context_length :]
+        value = projection(name="value")(jnp.concatenate([memory, x], axis=1))
+        value = jnp.concatenate(
+            [value[:, :M], initial_carry.value, value[:, M:]], axis=1
+        )
+        value = value[:, -(M + self.context_length) :]
 
-        query_input = (
+        query_mask = (
             jnp.cumsum(mask.astype(jnp.int32), axis=1)
-            + jnp.max(jnp.cumsum(initial_carry.mask, axis=1), axis=1)[..., None]
+            + jnp.max(
+                jnp.cumsum(
+                    jnp.concatenate([memory_mask, initial_carry.mask], axis=1), axis=1
+                ),
+                axis=1,
+            )[..., None]
         )
 
-        key_mask = jnp.concatenate([initial_carry.mask, mask], axis=1, dtype=jnp.int32)
-        key_input = jnp.cumsum(key_mask, axis=1)
-        key_input = key_input[:, -self.context_length :]
+        key_mask = jnp.concatenate(
+            [memory_mask, initial_carry.mask, mask], axis=1, dtype=jnp.int32
+        )
+        key_mask = jnp.cumsum(key_mask, axis=1)
+        key_mask = key_mask[:, -(M + self.context_length) :]
 
         attention_mask = nn.make_attention_mask(
-            query_input, key_input, pairwise_fn=jnp.equal
+            query_mask, key_mask, pairwise_fn=jnp.equal
         )
 
-        query_input = jnp.arange(T) + self.context_length
+        query_input = jnp.arange(T) + M + self.context_length
         query_input = jnp.broadcast_to(query_input, (B, T))
-        key_input = jnp.arange(self.context_length + T)
-        key_input = jnp.broadcast_to(key_input, (B, self.context_length + T))
-        key_input = key_input[:, -self.context_length :]
+        key_input = jnp.arange(M + self.context_length + T)
+        key_input = jnp.broadcast_to(key_input, (B, M + self.context_length + T))
+        key_input = key_input[:, -(M + self.context_length) :]
         causal_mask = nn.make_attention_mask(
             query_input, key_input, pairwise_fn=jnp.greater_equal
         )
@@ -109,10 +135,13 @@ class SelfAttention(SequenceModel):
         B, _, T, S = causal_mask.shape
         causal_mask = jnp.broadcast_to(causal_mask, (B, self.num_heads, T, S))
 
+        query, key, bias = self.positional_embedding(query, key, query_input, key_input)
+
         x = jax.nn.dot_product_attention(
             query.astype(jnp.bfloat16),
             key.astype(jnp.bfloat16),
             value.astype(jnp.bfloat16),
+            bias=bias,
             mask=nn.combine_masks(attention_mask, causal_mask, dtype=jnp.bool),
             implementation=get_attention_implementation(),
         )
@@ -129,7 +158,11 @@ class SelfAttention(SequenceModel):
 
         y = nn.Dropout(rate=self.dropout)(y, deterministic=not self.has_rng("dropout"))
 
-        mask = key_mask[:, -self.context_length :]
-        initial_carry = initial_carry.replace(mask=mask, key=key, value=value)
+        mask = jnp.concatenate([initial_carry.mask, mask], axis=1)[
+            :, -self.context_length :
+        ]
+        key = key[:, -self.context_length :]
+        value = value[:, -self.context_length :]
+        carry = initial_carry.replace(mask=mask, key=key, value=value)
 
-        return y, initial_carry
+        return carry, y

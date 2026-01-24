@@ -7,7 +7,6 @@ from flax import linen as nn
 from flax.linen import compact
 from flax.typing import Dtype, Initializer
 from jax import lax
-
 from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import broadcast_mask
 from memorax.utils.typing import Array, Carry
@@ -33,7 +32,6 @@ class LinearAttention(SequenceModel):
         initial_carry: Optional[Carry] = None,
         **kwargs,
     ) -> Tuple[Array, Array]:
-
         batch_size, sequence_length, in_features = inputs.shape
 
         if initial_carry is None:

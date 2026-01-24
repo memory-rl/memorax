@@ -5,7 +5,6 @@ import jax.numpy as jnp
 from flax.linen.module import compact, nowrap
 from flax.linen.recurrent import RNNCellBase
 from jax import random
-
 from memorax.networks.sequence_models.sequence_model import SequenceModel
 
 from .mlstm import mLSTMLayer

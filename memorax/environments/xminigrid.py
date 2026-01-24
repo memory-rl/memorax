@@ -19,13 +19,13 @@ class XLandMiniGridWrapper(GymnaxWrapper):
         super().__init__(env)
 
     def reset(self, key, params):
-        return self._env.reset(key, params.env_params)
+        timestep = self._env.reset(params.env_params, key)
+        return timestep.observation, timestep.state
 
     def step(self, key, state, action, params):
-        obs, new_state, reward, done, info = self._env.step(
-            key, state, action, params.env_params
-        )
-        return obs, new_state, reward, done, info
+        timestep = self._env.step(params.env_params, state, action)
+        done = timestep.step_type == 2  # LAST step type
+        return timestep.observation, timestep.state, timestep.reward, done, {}
 
     def observation_space(self, params):
         return spaces.Box(

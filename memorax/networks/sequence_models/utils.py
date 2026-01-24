@@ -7,7 +7,6 @@ from flax.linen.dtypes import promote_dtype
 from flax.typing import Dtype, Initializer
 from jax.lib import xla_bridge
 from jax.nn.initializers import lecun_normal
-
 from memorax.utils.typing import Array
 
 Implementation = Literal["xla", "cudnn"]
@@ -239,9 +238,7 @@ class MultiHeadLayerNorm(nn.Module):
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-        )(
-            x
-        )
+        )(x)
 
         if self.use_scale:
             gamma = self.param(

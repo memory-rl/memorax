@@ -1,4 +1,13 @@
 import memorax.networks.heads as heads
+from memorax.networks.blocks import (
+    FFN,
+    GatedFFN,
+    GatedResidual,
+    PostNorm,
+    PreNorm,
+    Residual,
+    ScaledResidual,
+)
 from memorax.networks.cnn import CNN
 from memorax.networks.embedding import Embedding
 from memorax.networks.feature_extractor import FeatureExtractor

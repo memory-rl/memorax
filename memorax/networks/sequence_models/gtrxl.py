@@ -10,7 +10,6 @@ from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.module import Module, compact, nowrap
 from flax.typing import Array, Dtype, Initializer
 from jax import numpy as jnp
-
 from memorax.networks.sequence_models.utils import get_input_shape
 
 from .sequence_model import SequenceModel

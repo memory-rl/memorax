@@ -8,7 +8,7 @@ include = ["memorax*"]
 
 [project]
 name = "memorax"
-version = "0.1.0"
+version = "1.0.0"
 description = "A unified JAX/Flax framework for memory-augmented reinforcement learning with support for RNNs, SSMs, and Transformers"
 readme = "README.md"
 license = "Apache-2.0"

@@ -163,7 +163,7 @@ class PQN:
         batch = (initial_hidden_state, transitions, lambda_targets)
 
         def shuffle(batch):
-            shuffle_time_axis = isinstance(self.q_network, SequenceModelWrapper)
+            shuffle_time_axis = initial_hidden_state is None
             num_permutations = self.cfg.num_envs
             if shuffle_time_axis:
                 batch = (

@@ -338,8 +338,8 @@ class PPO:
         (
             key,
             state,
-            initial_actor_h_epoch,
-            initial_critic_h_epoch,
+            initial_actor_carry,
+            initial_critic_carry,
             transitions,
             advantages,
             returns,
@@ -350,22 +350,22 @@ class PPO:
         key, permutation_key = jax.random.split(key)
 
         batch = (
-            initial_actor_h_epoch,
-            initial_critic_h_epoch,
+            initial_actor_carry,
+            initial_critic_carry,
             transitions,
             advantages,
             returns,
         )
 
         def shuffle(batch):
-            shuffle_time_axis = isinstance(
-                self.actor.torso, SequenceModelWrapper
-            ) and isinstance(self.critic.torso, SequenceModelWrapper)
+            shuffle_time_axis = (
+                initial_actor_carry is None or initial_critic_carry is None
+            )
             num_permutations = self.cfg.num_envs
             if shuffle_time_axis:
                 batch = (
-                    initial_actor_h_epoch,
-                    initial_critic_h_epoch,
+                    initial_actor_carry,
+                    initial_critic_carry,
                     *jax.tree.map(
                         lambda x: x.reshape(-1, 1, *x.shape[2:]),
                         (transitions, advantages, returns),
@@ -400,8 +400,8 @@ class PPO:
         return (
             key,
             state,
-            initial_actor_h_epoch,
-            initial_critic_h_epoch,
+            initial_actor_carry,
+            initial_critic_carry,
             transitions,
             advantages,
             returns,
@@ -411,8 +411,8 @@ class PPO:
 
     def _update_step(self, carry: tuple, _):
         key, state = carry
-        initial_actor_h_rollout = state.actor_carry
-        initial_critic_h_rollout = state.critic_carry
+        initial_actor_carry = state.actor_carry
+        initial_critic_carry = state.critic_carry
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),
             (key, state),
@@ -457,14 +457,14 @@ class PPO:
 
             return cond
 
-        (key, state, *_, metrics, _) = jax.lax.while_loop(
+        key, state, *_, metrics, _ = jax.lax.while_loop(
             cond_fun,
             self._update_epoch,
             (
                 key,
                 state,
-                initial_actor_h_rollout,
-                initial_critic_h_rollout,
+                initial_actor_carry,
+                initial_critic_carry,
                 transitions,
                 advantages,
                 returns,

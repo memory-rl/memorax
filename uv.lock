@@ -1752,7 +1752,7 @@ wheels = [
 
 [[package]]
 name = "memorax"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "distrax" },
@@ -1761,7 +1761,6 @@ dependencies = [
     { name = "gymnax" },
     { name = "jax" },
     { name = "neptune-scale" },
-    { name = "popjym" },
     { name = "tensorboardx" },
     { name = "wandb" },
 ]
@@ -1851,7 +1850,6 @@ requires-dist = [
     { name = "playground", marker = "extra == 'playground'", specifier = ">=0.0.5" },
     { name = "popgym-arcade", marker = "extra == 'all'", specifier = ">=0.0.4" },
     { name = "popgym-arcade", marker = "extra == 'popgym-arcade'", specifier = ">=0.0.4" },
-    { name = "popjym", specifier = ">=0.0.1" },
     { name = "popjym", marker = "extra == 'all'" },
     { name = "popjym", marker = "extra == 'popjym'", git = "https://github.com/EdanToledo/popjym.git" },
     { name = "tensorboardx", specifier = ">=2.6.4" },

@@ -16,8 +16,7 @@ class SequenceModelWrapper(SequenceModel, nn.Module):
         return carry, self.network(inputs, **kwargs)
 
     def initialize_carry(self, key, input_shape):
-        batch_size, _ = input_shape
-        return jnp.zeros((batch_size, 1))
+        return None
 
 
 @struct.dataclass

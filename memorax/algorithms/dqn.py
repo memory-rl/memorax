@@ -8,8 +8,15 @@ import optax
 from flax import core, struct
 
 from memorax.utils import Transition, periodic_incremental_update
-from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
-                                  EnvParams, EnvState, Key)
+from memorax.utils.typing import (
+    Array,
+    Buffer,
+    BufferState,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
 
 
 @struct.dataclass(frozen=True)

@@ -1,48 +1,118 @@
-from functools import partial  # pylint: disable=g-importing-member
-from typing import Any, TypeVar
+"""mLSTM as a Memoroid algebra for efficient parallel computation.
+
+The mLSTM (matrix LSTM) is a linear attention variant with learned
+per-step gating. By formulating it as a Memoroid algebra, we can
+use associative scan for O(log n) parallel depth instead of O(n)
+sequential RNN computation.
+
+Core recurrence:
+    C_new = f * C + i * (k ⊗ v)   # matrix memory
+    n_new = f * n + i * k          # normalizer
+    output = (q @ C) / (q @ n)     # query
+
+This is associative when we track cumulative decay properly.
+"""
+
+from functools import partial
+from typing import Tuple
 
 import flax.linen as nn
 import jax
+import jax.numpy as jnp
 from flax.linen import initializers
-from flax.linen.linear import Dense, default_kernel_init
-from flax.linen.module import compact, nowrap
-from flax.typing import Dtype, Initializer, PRNGKey
-from jax import numpy as jnp
-from jax import random
-from memorax.networks.sequence_models.utils import (
-    BlockDiagonalDense,
-    MultiHeadLayerNorm,
-    ParallelCausalConv1d,
-    linspace_init,
-    small_init,
-    wang_init,
-)
+from flax.linen.linear import Dense
+from flax.typing import Dtype
 
-A = TypeVar("A")
-Carry = Any
-CarryHistory = Any
-Output = Any
+from memorax.utils.typing import Array, Carry
+
+from .memoroid import Algebra
+from .utils import wang_init
 
 
-class mLSTMCell(nn.Module):
+class mLSTM(Algebra):
+    """Matrix LSTM as a Memoroid algebra.
+
+    Uses gated linear attention with matrix memory, computed efficiently
+    via associative scan.
+
+    Element: (log_f, C, n, m) where:
+        - log_f: cumulative log forget gate for relative decay
+        - C: matrix memory contribution (k ⊗ v scaled by input gate)
+        - n: normalizer contribution (k scaled by input gate)
+        - m: max log value for numerical stability
+
+    Combine: Accumulates states with relative exponential decay.
+
+    Attributes:
+        features: Output feature dimension.
+        hidden_dim: Hidden dimension (before expansion).
+        num_heads: Number of attention heads.
+        head_dim: Dimension per head (computed as hidden_dim / num_heads).
+        dropout_rate: Dropout rate.
+        dtype: Data type for computation.
+        param_dtype: Data type for parameters.
+    """
+
+    features: int
     hidden_dim: int
-    num_heads: int
+    num_heads: int = 4
+    dropout_rate: float = 0.0
+    dtype: Dtype | None = None
+    param_dtype: Dtype = jnp.float32
 
-    kernel_init: Initializer
-    bias_init: Initializer
-    dtype: Dtype | None
-    param_dtype: Dtype
-    carry_init: Initializer
+    @nn.compact
+    def __call__(self, x: Array, **kwargs) -> Carry:
+        """Compute mLSTM elements for parallel scan.
 
-    @compact
-    def __call__(self, q, k, v, mask, state):
-        B, S, _ = q.shape
-        NH = self.num_heads
-        DH = self.hidden_dim // NH
+        Args:
+            x: Input of shape (B, T, D)
 
-        prev_c, prev_n, prev_m = state
+        Returns:
+            Carry tuple of (log_f, C, n, m) where:
+                - log_f: (B, T, NH, 1, 1) cumulative log forget
+                - C: (B, T, NH, DH, DH) matrix memory contribution
+                - n: (B, T, NH, DH, 1) normalizer contribution
+                - m: (B, T, NH, 1, 1) max log value for stability
+        """
+        B, T, _ = x.shape
+        head_dim = self.hidden_dim // self.num_heads
 
-        qkv = jnp.concatenate([q, k, v], axis=-1)
+        if self.hidden_dim % self.num_heads != 0:
+            raise ValueError(
+                f"hidden_dim ({self.hidden_dim}) must be divisible by "
+                f"num_heads ({self.num_heads})."
+            )
+
+        # Project to hidden dimension
+        x_proj = Dense(
+            features=self.hidden_dim,
+            use_bias=False,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            name="in_proj",
+        )(x)
+
+        # Q, K, V projections
+        projection = partial(
+            Dense,
+            features=self.hidden_dim,
+            use_bias=False,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
+
+        q = projection(name="q")(x_proj)
+        k = projection(name="k")(x_proj)
+        v = projection(name="v")(x_proj)
+
+        # Reshape to heads: (B, T, NH, DH)
+        q = q.reshape(B, T, self.num_heads, head_dim)
+        k = k.reshape(B, T, self.num_heads, head_dim)
+        v = v.reshape(B, T, self.num_heads, head_dim)
+
+        # Gate projections from concatenated qkv
+        qkv = jnp.concatenate([q, k, v], axis=-1)  # (B, T, NH, 3*DH)
+        qkv_flat = qkv.reshape(B, T, -1)  # (B, T, NH*3*DH)
 
         gate = partial(
             Dense,
@@ -52,199 +122,169 @@ class mLSTMCell(nn.Module):
             param_dtype=self.param_dtype,
         )
 
-        i_gate = gate(name="wi", bias_init=initializers.normal(stddev=0.1))(qkv)
-        i_gate = i_gate.reshape(B, NH, S)
-        f_gate = gate(name="wf", bias_init=linspace_init(start=3.0, stop=6.0))(qkv)
-        f_gate = f_gate.reshape(B, NH, S)
+        i_gate = gate(name="wi", bias_init=initializers.normal(stddev=0.1))(qkv_flat)
+        f_gate = gate(name="wf", bias_init=initializers.constant(4.0))(qkv_flat)
 
-        def to_heads(x):
-            x = x.reshape(B, NH, S, DH)
-            return x
+        # Reshape gates: (B, T, NH)
+        i_gate = i_gate.reshape(B, T, self.num_heads)
+        f_gate = f_gate.reshape(B, T, self.num_heads)
 
-        q = to_heads(q) / jnp.sqrt(DH)
-        k = to_heads(k)
-        v = to_heads(v)
+        # Log-space gates for numerical stability
+        log_f = -jax.nn.softplus(-f_gate)  # (B, T, NH)
+        log_i = i_gate  # Keep in log space
 
-        log_f_gate = -jax.nn.softplus(-f_gate)
-        log_f_gate_cumsum = jnp.cumsum(log_f_gate, axis=-1)
+        # Compute max for stability: m = max(log_i)
+        m = log_i[:, :, :, None, None]  # (B, T, NH, 1, 1)
 
-        log_f_gate_matrix = jnp.expand_dims(log_f_gate_cumsum, axis=-1) - jnp.swapaxes(
-            jnp.expand_dims(log_f_gate_cumsum, axis=-1), -1, -2
-        )
+        # Stable input gate
+        i_stable = jnp.exp(log_i - m.squeeze(-1).squeeze(-1))  # (B, T, NH)
 
-        causal_mask = nn.make_causal_mask(jnp.ones((B, S)))
-        episode_indices = jnp.cumsum(mask, axis=-1)
-        attention_mask = nn.make_attention_mask(
-            episode_indices, episode_indices, pairwise_fn=jnp.equal
-        )
-        mask = nn.combine_masks(attention_mask, causal_mask)
-        log_f_gate_matrix = jnp.where(
-            mask,
-            -jnp.inf,
-            log_f_gate_matrix,
-        )
+        # Scale k and v by sqrt for numerical stability
+        k = k / jnp.sqrt(head_dim)
 
-        log_d_matrix = log_f_gate_matrix + jnp.expand_dims(i_gate, axis=-1)
-        max_d = jnp.max(log_d_matrix, axis=-1, keepdims=True)
+        # Compute contributions
+        # C_contribution = i * (k ⊗ v): (B, T, NH, DH, DH)
+        k_col = k[:, :, :, :, None]  # (B, T, NH, DH, 1)
+        v_row = v[:, :, :, None, :]  # (B, T, NH, 1, DH)
+        kv_outer = k_col @ v_row  # (B, T, NH, DH, DH)
 
-        state_decay_curve = jnp.expand_dims(log_f_gate_cumsum, axis=-1) + prev_m
-        stabilization = jnp.maximum(max_d, state_decay_curve)
-        decay = jnp.exp(state_decay_curve - stabilization)
+        i_expanded = i_stable[:, :, :, None, None]  # (B, T, NH, 1, 1)
+        C = i_expanded * kv_outer  # (B, T, NH, DH, DH)
 
-        inter_c = (q * decay) @ prev_c
-        inter_n = (q * decay) @ prev_n
+        # n_contribution = i * k: (B, T, NH, DH, 1)
+        n = i_stable[:, :, :, None] * k  # (B, T, NH, DH)
+        n = n[:, :, :, :, None]  # (B, T, NH, DH, 1)
 
-        d_matrix = jnp.exp(log_d_matrix - stabilization)
+        # Reshape log_f for broadcasting: (B, T, NH, 1, 1)
+        log_f = log_f[:, :, :, None, None]
 
-        qk_matrix = q @ jnp.swapaxes(k, -1, -2)
-        e_matrix = qk_matrix * d_matrix
+        return (log_f, C, n, m)
 
-        normalizer = jnp.maximum(
-            jnp.abs(jnp.sum(e_matrix, axis=-1, keepdims=True)) + inter_n,
-            jnp.exp(-stabilization),
-        )
-        intra = (e_matrix / (normalizer + 1e-6)) @ v
-        inter = inter_c / (normalizer + 1e-6)
-        output = (intra + inter).reshape(B, NH, S, DH)
+    def combine(self, a: Carry, b: Carry) -> Carry:
+        """Combine two elements with decay-weighted accumulation.
 
-        final_decay = log_f_gate_cumsum[..., -1, None]
+        When combining element a (earlier positions) with element b
+        (later positions), a's state decays by b's cumulative forget gate.
 
-        log_gates = i_gate - log_f_gate_cumsum
-        prev_m = prev_m.reshape(B, NH, 1)
-        m = jnp.maximum(
-            final_decay + prev_m,
-            jnp.max(log_gates + final_decay, axis=-2, keepdims=True),
-        )
+        Args:
+            a: Earlier element (log_f_a, C_a, n_a, m_a)
+            b: Later element (log_f_b, C_b, n_b, m_b)
 
-        prev_decay = jnp.exp(prev_m + final_decay - m)
-        kv_decay = jnp.exp(log_gates + final_decay - m)
-        c = (
-            prev_c * jnp.expand_dims(prev_decay, axis=-1)
-            + jnp.swapaxes(k * jnp.expand_dims(kv_decay, -1), -1, -2) @ v
-        )
-        n = prev_n * prev_decay + jnp.sum(k * kv_decay[..., None, None], axis=-1)
+        Returns:
+            Combined element with accumulated state.
+        """
+        log_f_a, C_a, n_a, m_a = a
+        log_f_b, C_b, n_b, m_b = b
 
-        return (c, n, m), output
+        # Combined cumulative decay
+        log_f_combined = log_f_a + log_f_b
 
+        # Numerical stability: find max of decayed a and b
+        m_a_decayed = m_a + log_f_b  # a's contribution after decay
+        m_combined = jnp.maximum(m_a_decayed, m_b)
 
-class mLSTMLayer(nn.Module):
-    features: int
-    hidden_dim: int
-    up_proj_factor: float = 2
-    block_size: int = 4
-    num_heads: int = 4
-    conv_kernel_size: int = 4
-    num_blocks: int = 1
-    block_size: int = 4
+        # Compute stable scaling factors
+        scale_a = jnp.exp(m_a_decayed - m_combined)
+        scale_b = jnp.exp(m_b - m_combined)
 
-    kernel_init: Initializer = default_kernel_init
-    bias_init: Initializer = initializers.zeros_init()
-    dropout_rate: float = 0.0
-    dtype: Dtype | None = None
-    param_dtype: jnp.dtype = jnp.float32
-    carry_init: Initializer = initializers.zeros_init()
+        # Combine states
+        C_combined = scale_a * C_a + scale_b * C_b
+        n_combined = scale_a * n_a + scale_b * n_b
 
-    @compact
-    def __call__(self, inputs, mask, carry):
-        _, S, *_ = inputs.shape
-        conv_state, cell_state = carry
+        return (log_f_combined, C_combined, n_combined, m_combined)
 
-        hidden_dim: int = self.hidden_dim * self.up_proj_factor
+    @nn.compact
+    def read(self, h: Carry, x: Array, **kwargs) -> Array:
+        """Query accumulated memory to produce output.
 
-        up_proj = Dense(
-            features=2 * hidden_dim,
+        Args:
+            h: Accumulated state (log_f, C, n, m)
+            x: Original input of shape (B, T, D)
+
+        Returns:
+            Output of shape (B, T, features)
+        """
+        B, T, in_features = x.shape
+        head_dim = self.hidden_dim // self.num_heads
+
+        # Project input for query
+        x_proj = Dense(
+            features=self.hidden_dim,
             use_bias=False,
-            kernel_init=small_init(self.hidden_dim),
-            bias_init=self.bias_init,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="up_proj",
-        )(inputs)
-        x, z = jnp.split(up_proj, 2, axis=-1)
-
-        x = jnp.concatenate([conv_state, x], axis=1)
-        conv_x = ParallelCausalConv1d(
-            features=hidden_dim,
+            name="in_proj",
         )(x)
-        conv_x_act = jax.nn.silu(conv_x)[:, -S:, :]
-        conv_state = x[:, -self.conv_kernel_size :, :]
-        x = x[:, -S:, :]
 
-        projection = partial(
-            BlockDiagonalDense,
-            features=hidden_dim,
-            num_heads=hidden_dim // self.block_size,
+        q = Dense(
+            features=self.hidden_dim,
             use_bias=False,
-            kernel_init=small_init(self.features),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-        )
+            name="q",
+        )(x_proj)
 
-        q = projection(name="q")(conv_x_act)
-        k = projection(name="k")(conv_x_act)
-        v = projection(name="v")(x)
+        # Reshape to heads: (B, T, NH, DH)
+        q = q.reshape(B, T, self.num_heads, head_dim)
+        q = q / jnp.sqrt(head_dim)
 
-        cell_state, h_tilde = mLSTMCell(
-            hidden_dim=hidden_dim,
-            num_heads=self.num_heads,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            carry_init=self.carry_init,
-        )(q, k, v, mask, cell_state)
+        # Extract accumulated state
+        _, C, n, m = h
 
-        learnable_skip = self.param(
-            "learnable_skip",
-            initializers.ones_init(),
-            (hidden_dim,),
-            self.param_dtype,
-        )
-        h = h_tilde + (learnable_skip * conv_x_act)
-        h = h * jax.nn.silu(z)
+        # Query the memory: h_tilde = (q @ C) / normalize(q @ n)
+        q_row = q[:, :, :, None, :]  # (B, T, NH, 1, DH)
 
+        # q @ C: (B, T, NH, 1, DH) @ (B, T, NH, DH, DH) -> (B, T, NH, 1, DH)
+        qC = (q_row @ C).squeeze(-2)  # (B, T, NH, DH)
+
+        # q @ n: (B, T, NH, 1, DH) @ (B, T, NH, DH, 1) -> (B, T, NH, 1, 1)
+        qn = (q_row @ n).squeeze(-2).squeeze(-1)  # (B, T, NH)
+
+        # Normalize
+        normalizer = jnp.maximum(jnp.abs(qn), 1.0)[:, :, :, None]
+        h_tilde = qC / (normalizer + 1e-6)
+
+        # Reshape and project output
+        h_tilde = h_tilde.reshape(B, T, self.hidden_dim)
+
+        # Output projection
         y = Dense(
             features=self.features,
             use_bias=False,
-            kernel_init=wang_init(self.hidden_dim, self.num_blocks),
-            bias_init=self.bias_init,
+            kernel_init=wang_init(self.hidden_dim, num_blocks=1),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="down_proj",
-        )(h)
+            name="out_proj",
+        )(h_tilde)
 
+        # Dropout
         y = nn.Dropout(
             rate=self.dropout_rate, deterministic=not self.has_rng("dropout")
         )(y)
 
-        return (conv_state, cell_state), y[:, -S:, :]
+        return y
 
-    @staticmethod
-    @nowrap
-    def _initialize_carry(
-        rng: PRNGKey,
-        input_shape: tuple[int, ...],
-        *,
-        hidden_dim,
-        carry_init=initializers.zeros_init(),
-        up_proj_factor=2,
-        num_heads=4,
-        conv_kernel_size=4,
-        param_dtype=jnp.float32,
-    ) -> tuple:
-        """To be called by xLSTMCell"""
-        *batch_dims, _ = input_shape
-        hidden_dim = hidden_dim * up_proj_factor
-        head_dim = hidden_dim // num_heads
-        key_c, key_n, key_m, key_conv = random.split(rng, 4)
+    def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
+        """Initialize carry with identity decay and zero state.
 
-        conv_state = carry_init(key_conv, (*batch_dims, conv_kernel_size, hidden_dim))
+        Args:
+            key: Random key (unused).
+            input_shape: Shape of input (batch_size, features).
 
-        C = carry_init(
-            key_c, ((*batch_dims, num_heads, head_dim, head_dim)), param_dtype
-        )
-        n = carry_init(key_n, ((*batch_dims, num_heads, head_dim, 1)), param_dtype)
-        m = carry_init(key_m, ((*batch_dims, num_heads, 1, 1)), param_dtype)
-        cell_state = (C, n, m)
+        Returns:
+            Initial carry tuple (log_f, C, n, m).
+        """
+        batch_size, *_ = input_shape
+        head_dim = self.hidden_dim // self.num_heads
 
-        return conv_state, cell_state
+        # Initial cumulative log decay is 0 (no decay yet)
+        log_f = jnp.zeros((batch_size, 1, self.num_heads, 1, 1))
+
+        # Initial state is zero
+        C = jnp.zeros((batch_size, 1, self.num_heads, head_dim, head_dim))
+        n = jnp.zeros((batch_size, 1, self.num_heads, head_dim, 1))
+
+        # Initial max is -inf (will be overwritten on first combine)
+        m = jnp.full((batch_size, 1, self.num_heads, 1, 1), -1e9)
+
+        return (log_f, C, n, m)

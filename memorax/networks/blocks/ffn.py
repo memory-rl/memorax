@@ -9,16 +9,7 @@ from .base import Block
 
 
 class FFN(nn.Module, Block):
-    """Standard feed-forward network: Dense -> Activation -> Dense.
-
-    Args:
-        dim: Output dimension.
-        expansion_factor: Hidden dimension multiplier (default 4).
-        activation: Activation function (default GELU).
-        dropout_rate: Dropout rate after activation (default 0.0).
-        kernel_init: Kernel initializer.
-        bias_init: Bias initializer.
-    """
+    """Standard feed-forward network: Dense -> Activation -> Dense."""
 
     features: int
     expansion_factor: int = 4
@@ -41,7 +32,6 @@ class FFN(nn.Module, Block):
             hidden_dim,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
-            name="up_proj",
         )(inputs)
         x = self.activation(x)
         x = nn.Dropout(
@@ -51,25 +41,13 @@ class FFN(nn.Module, Block):
             self.features,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
-            name="down_proj",
         )(x)
 
         return None, x
 
 
 class GatedFFN(nn.Module, Block):
-    """Gated feed-forward network (SwiGLU-style): Dense -> split -> act(gate) * value -> Dense.
-
-    This implements the gated linear unit variant used in models like LLaMA and PaLM.
-
-    Args:
-        dim: Output dimension.
-        expansion_factor: Hidden dimension multiplier (default 4).
-        activation: Gate activation function (default GELU).
-        dropout_rate: Dropout rate before output projection (default 0.0).
-        kernel_init: Kernel initializer.
-        use_bias: Whether to use bias in dense layers (default False for SwiGLU).
-    """
+    """Gated feed-forward network (SwiGLU-style): Dense -> split -> act(gate) * value -> Dense."""
 
     features: int
     expansion_factor: int = 4

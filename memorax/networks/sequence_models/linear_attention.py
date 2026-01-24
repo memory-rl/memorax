@@ -4,40 +4,43 @@ from typing import Optional, Tuple
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
-from flax.linen import compact
 from flax.typing import Dtype, Initializer
-from jax import lax
-from memorax.networks.sequence_models.sequence_model import SequenceModel
-from memorax.networks.sequence_models.utils import broadcast_mask
+
 from memorax.utils.typing import Array, Carry
 
+from .memoroid import Algebra
 
-class LinearAttention(SequenceModel):
+
+class LinearAttention(Algebra):
+    """Linear attention as a memoroid algebra.
+
+    Uses kernel feature maps (ReLU) to linearize attention, enabling
+    efficient parallel computation via associative scan.
+
+    Element: (decay, state) where state is the outer product of value and key
+    Combine: (decay_j * decay_i, decay_j * state_i + state_j)
+    """
+
     head_dim: int
     num_heads: int
     kernel_init: Initializer
     bias_init: Initializer
     param_dtype: Dtype
-    dtype: Optional[Dtype]
+    dtype: Optional[Dtype] = None
 
-    def initialize_carry(self, key, input_shape) -> Carry:
-        batch_size, *_ = input_shape
-        return jnp.zeros((batch_size, self.num_heads, self.head_dim, self.head_dim))
+    @nn.compact
+    def __call__(self, x: Array, **kwargs) -> Carry:
+        """Compute key-value outer products for memory storage.
 
-    @compact
-    def __call__(
-        self,
-        inputs: Array,
-        mask: Array,
-        initial_carry: Optional[Carry] = None,
-        **kwargs,
-    ) -> Tuple[Array, Array]:
-        batch_size, sequence_length, in_features = inputs.shape
+        Args:
+            x: Input of shape (B, T, D)
 
-        if initial_carry is None:
-            initial_carry = jnp.zeros(
-                (batch_size, self.num_heads, self.head_dim, self.head_dim)
-            )
+        Returns:
+            Carry tuple of (decay, state) where:
+                - decay: scalar 1.0 broadcast to (B, T, H, 1, 1)
+                - state: outer product (B, T, H, head_dim, head_dim)
+        """
+        batch_size, sequence_length, _ = x.shape
 
         projection = partial(
             nn.DenseGeneral,
@@ -49,43 +52,70 @@ class LinearAttention(SequenceModel):
             bias_init=self.bias_init,
         )
 
-        query = projection(name="query")(inputs)
-        key = projection(name="key")(inputs)
-        value = projection(name="value")(inputs)
+        key = projection(name="key")(x)
+        value = projection(name="value")(x)
 
-        query = nn.relu(query)
         key = nn.relu(key)
 
-        outer_product = jnp.einsum("bshi,bshj->bshij", value, key)
+        state = jnp.einsum("bthi,bthj->bthij", value, key)
 
-        decay = jnp.broadcast_to(jnp.eye(self.head_dim), outer_product.shape)
-        decay = decay * (1.0 - broadcast_mask(mask, decay))
+        decay = jnp.ones((batch_size, sequence_length, self.num_heads, 1, 1))
 
-        def binary_operator(lhs, rhs):
-            decay_i, outer_i = lhs
-            decay_j, outer_j = rhs
-            return (
-                jnp.einsum("bhij,bhjk->bhik", decay_j, decay_i),
-                jnp.einsum("bhij,bhjk->bhik", decay_j, outer_i) + outer_j,
-            )
+        return (decay, state)
 
-        cumulative_decay, state = lax.associative_scan(
-            binary_operator, (decay, outer_product), axis=1
+    def combine(self, a: Carry, b: Carry) -> Carry:
+        """Combine two elements via decay-weighted accumulation."""
+        decay_i, state_i = a
+        decay_j, state_j = b
+        return (decay_j * decay_i, decay_j * state_i + state_j)
+
+    @nn.compact
+    def read(self, h: Carry, x: Array, **kwargs) -> Array:
+        """Query accumulated memory to produce output.
+
+        Args:
+            h: Accumulated state (decay, state)
+            x: Original input of shape (B, T, D)
+
+        Returns:
+            Output of shape (B, T, D)
+        """
+        batch_size, sequence_length, in_features = x.shape
+
+        projection = partial(
+            nn.DenseGeneral,
+            features=(self.num_heads, self.head_dim),
+            use_bias=False,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
         )
 
-        carry = jnp.einsum("bshij,bhjk->bshik", cumulative_decay, initial_carry) + state
+        query = projection(name="query")(x)
+        query = nn.relu(query)
+
+        _, state = h
 
         hidden_dim = self.num_heads * self.head_dim
-        x = jnp.einsum("bshij,bshj->bshi", carry, query).reshape(
+        output = jnp.einsum("bthij,bthj->bthi", state, query).reshape(
             batch_size, sequence_length, hidden_dim
         )
 
-        x = nn.RMSNorm(dtype=self.dtype)(x)
+        output = nn.RMSNorm(dtype=self.dtype)(output)
+        output = nn.Dense(
+            features=in_features,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+        )(output)
 
-        y = nn.Dense(
-            features=in_features, kernel_init=self.kernel_init, bias_init=self.bias_init
-        )(x)
+        return output
 
-        final_carry = carry[:, -1]
-
-        return final_carry, y
+    def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
+        """Initialize carry with identity decay and zero state."""
+        batch_size, *_ = input_shape
+        decay = jnp.ones((batch_size, 1, self.num_heads, 1, 1))
+        state = jnp.zeros(
+            (batch_size, 1, self.num_heads, self.head_dim, self.head_dim)
+        )
+        return (decay, state)

@@ -67,7 +67,7 @@ class FFM(Algebra):
 
     def _gamma(self, delta_t):
         """Compute decay factor for time difference delta_t."""
-        a = jnp.clip(self.a, a_min=-self.limit, a_max=-1e-8)
+        a = jnp.clip(self.a, min=-self.limit, max=-1e-8)
         a = a.reshape(1, self.memory_size, 1)
         b = self.b.reshape(1, 1, self.context_size)
         ab = jax.lax.complex(a, b)

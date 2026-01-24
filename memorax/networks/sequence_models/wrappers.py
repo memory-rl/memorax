@@ -47,8 +47,8 @@ class MetaMaskWrapper(SequenceModel, nn.Module):
         return carry, outputs
 
     def initialize_carry(self, key, input_shape):
-        batch_size, *_ = input_shape
+        batch_size, *_, features = input_shape
         return MetaMaskState(
-            carry=self.sequence_model.initialize_carry(key, input_shape),
+            carry=self.sequence_model.initialize_carry(key, (batch_size, features)),
             step=jnp.zeros((batch_size,), dtype=jnp.int32),
         )

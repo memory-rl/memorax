@@ -7,7 +7,7 @@ from flax import linen as nn
 from memorax.utils.typing import Array, Carry
 
 from .sequence_model import SequenceModel
-from .utils import get_input_shape
+from .utils import broadcast_mask, get_input_shape
 
 
 class Algebra(nn.Module):
@@ -62,7 +62,7 @@ class Memoroid(SequenceModel):
             combined = self.algebra.combine(lhs_i, lhs_j)
 
             out = jax.tree.map(
-                lambda lj, c: jnp.where(rhs_j, lj, c),
+                lambda lj, c: jnp.where(broadcast_mask(rhs_j, lj), lj, c),
                 lhs_j,
                 combined,
             )

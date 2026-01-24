@@ -11,7 +11,6 @@ from memorax.algorithms import (
     PPO,
     PQN,
     SAC,
-    SACD,
     DQNConfig,
     DQNState,
     PPOConfig,
@@ -20,8 +19,6 @@ from memorax.algorithms import (
     PQNState,
     SACConfig,
     SACState,
-    SACDConfig,
-    SACDState,
 )
 from memorax.networks import MLP, Identity, Network, SequenceModelWrapper
 from memorax.networks.heads import (
@@ -447,95 +444,6 @@ class TestSAC:
     def test_init(self, agent, random_key):
         key, state = agent.init(random_key)
         assert isinstance(state, SACState)
-        assert state.step == 0
-        assert isinstance(key, jax.Array)
-
-    def test_warmup(self, agent, random_key):
-        key, state = agent.init(random_key)
-        key, state = agent.warmup(key, state, num_steps=32)
-        assert state.step > 0
-
-    def test_train(self, agent, random_key):
-        key, state = agent.init(random_key)
-        key, state = agent.warmup(key, state, num_steps=64)
-        key, state, transitions = agent.train(key, state, num_steps=64)
-        assert transitions is not None
-
-    def test_evaluate(self, agent, random_key):
-        key, state = agent.init(random_key)
-        key, transitions = agent.evaluate(key, state, num_steps=32)
-        assert transitions is not None
-
-
-class TestSACD:
-    """Test SACD algorithm with discrete action space (CartPole)."""
-
-    @pytest.fixture
-    def agent(self, cartpole_env):
-        env, env_params = cartpole_env
-        action_dim = env.action_space(env_params).n
-
-        cfg = SACDConfig(
-            name="test_sacd",
-            actor_lr=1e-3,
-            critic_lr=1e-3,
-            alpha_lr=1e-3,
-            num_envs=2,
-            num_eval_envs=2,
-            buffer_size=256,
-            gamma=0.99,
-            tau=0.005,
-            train_frequency=4,
-            target_update_frequency=1,
-            batch_size=16,
-            initial_alpha=1.0,
-            target_entropy_scale=0.98,
-            learning_starts=32,
-            mask=False,
-        )
-
-        actor_network = Network(
-            feature_extractor=MLP(features=32),
-            torso=SequenceModelWrapper(Identity()),
-            head=Categorical(action_dim=action_dim),
-        )
-
-        critic_network = DualCriticNetwork(
-            feature_extractor=MLP(features=32),
-            torso=SequenceModelWrapper(Identity()),
-            head1=DiscreteQNetwork(action_dim=action_dim),
-            head2=DiscreteQNetwork(action_dim=action_dim),
-        )
-
-        alpha_network = Alpha(initial_alpha=cfg.initial_alpha)
-
-        actor_optimizer = optax.adam(cfg.actor_lr)
-        critic_optimizer = optax.adam(cfg.critic_lr)
-        alpha_optimizer = optax.adam(cfg.alpha_lr)
-
-        buffer = make_trajectory_buffer(
-            buffer_size=cfg.buffer_size,
-            batch_size=cfg.batch_size,
-            sequence_length=1,
-            num_envs=cfg.num_envs,
-        )
-
-        return SACD(
-            cfg=cfg,
-            env=env,
-            env_params=env_params,
-            actor_network=actor_network,
-            critic_network=critic_network,
-            alpha_network=alpha_network,
-            actor_optimizer=actor_optimizer,
-            critic_optimizer=critic_optimizer,
-            alpha_optimizer=alpha_optimizer,
-            buffer=buffer,
-        )
-
-    def test_init(self, agent, random_key):
-        key, state = agent.init(random_key)
-        assert isinstance(state, SACDState)
         assert state.step == 0
         assert isinstance(key, jax.Array)
 

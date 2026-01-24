@@ -9,8 +9,9 @@ include = ["memorax*"]
 [project]
 name = "memorax"
 version = "0.1.0"
-description = "Add your description here"
+description = "A unified JAX/Flax framework for memory-augmented reinforcement learning with support for RNNs, SSMs, and Transformers"
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
     "jax>=0.7.2",
@@ -52,6 +53,14 @@ cuda = ["jax[cuda12]>=0.7.2"]
 
 [dependency-groups]
 development = ["pre-commit>=4.2.0", "pytest"]
+docs = [
+    "sphinx>=7.2.0",
+    "sphinx-book-theme>=1.1.0",
+    "myst-parser>=2.0.0",
+    "sphinx-autodoc-typehints>=1.25.0",
+    "sphinx-copybutton>=0.5.2",
+    "sphinx-design>=0.5.0",
+]
 
 [tool.uv]
 package = true

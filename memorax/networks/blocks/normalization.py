@@ -4,8 +4,10 @@ import flax.linen as nn
 
 from memorax.utils.typing import Array, Carry
 
+from .base import Block
 
-class PreNorm(nn.Module):
+
+class PreNorm(nn.Module, Block):
     """Applies normalization before the module: output = module(norm(x)).
 
     Args:
@@ -29,7 +31,7 @@ class PreNorm(nn.Module):
         return self.module(x, mask=mask, initial_carry=initial_carry, **kwargs)
 
 
-class PostNorm(nn.Module):
+class PostNorm(nn.Module, Block):
     """Applies normalization after the module: output = norm(module(x)).
 
     Args:

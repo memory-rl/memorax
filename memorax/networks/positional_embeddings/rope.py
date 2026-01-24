@@ -5,11 +5,11 @@ from flax import struct
 
 from memorax.utils.typing import Array
 
-from .base import PositionalEmbedding
+from .base import RelativePositionalEmbedding
 
 
 @struct.dataclass
-class RoPE(PositionalEmbedding):
+class RoPE(RelativePositionalEmbedding):
     base: float = 10000.0
 
     def compute_coefficients(self, dim: int, max_seq_len: int) -> Array:

@@ -5,11 +5,11 @@ from flax import struct
 
 from memorax.utils.typing import Array
 
-from .base import PositionalEmbedding
+from .base import RelativePositionalEmbedding
 
 
 @struct.dataclass
-class ALiBi(PositionalEmbedding):
+class ALiBi(RelativePositionalEmbedding):
     num_heads: int
 
     def compute_coefficients(self) -> Array:

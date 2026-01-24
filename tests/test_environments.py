@@ -354,7 +354,7 @@ class TestPopGymArcadeEnvironments:
         pytest.importorskip("popgym_arcade")
         from memorax.environments import popgym_arcade
 
-        return popgym_arcade.make("RepeatFirstEasy")
+        return popgym_arcade.make("CountRecallEasy")
 
     def test_reset(self, popgym_env):
         env, env_params = popgym_env

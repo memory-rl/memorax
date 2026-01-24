@@ -28,7 +28,7 @@ class TimeLimitWrapper(GymnaxWrapper):
 class AutoResetWrapper(GymnaxWrapper):
     def reset(self, rng: jax.Array):
         state = self._env.reset(rng)
-        state.info["first_pipeline_state"] = state.pipeline_state
+        state.info["first_data"] = state.data
         state.info["first_obs"] = state.obs
         return state
 
@@ -38,7 +38,7 @@ class AutoResetWrapper(GymnaxWrapper):
             steps = jnp.where(state.done, jnp.zeros_like(steps), steps)
             state.info.update(steps=steps)
         state = state.replace(done=jnp.zeros_like(state.done))
-        state = self.env.step(state, action)
+        state = self._env.step(state, action)
 
         def where_done(x, y):
             done = state.done
@@ -48,11 +48,11 @@ class AutoResetWrapper(GymnaxWrapper):
                 done = jnp.reshape(done, [x.shape[0]] + [1] * (len(x.shape) - 1))  # type: ignore
             return jnp.where(done, x, y)
 
-        pipeline_state = jax.tree.map(
-            where_done, state.info["first_pipeline_state"], state.pipeline_state
+        data = jax.tree.map(
+            where_done, state.info["first_data"], state.data
         )
         obs = jax.tree.map(where_done, state.info["first_obs"], state.obs)
-        return state.replace(pipeline_state=pipeline_state, obs=obs)
+        return state.replace(data=data, obs=obs)
 
 
 class MuJoCoGymnaxWrapper(GymnaxWrapper):

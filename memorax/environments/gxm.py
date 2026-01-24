@@ -43,7 +43,8 @@ class GxmGymnaxWrapper(GymnaxWrapper):
 
     def observation_space(self, params: Optional[EnvParams] = None) -> spaces.Space:
         del params
-        return self._gxm_to_gymnax_space(self._env.observation_space)
+        # Access the underlying gymnax env's observation_space
+        return self._env.env.observation_space(self._env.env_params)
 
     def _gxm_to_gymnax_space(self, space: Any) -> spaces.Space:
         from gxm.spaces import Box, Discrete, Tree

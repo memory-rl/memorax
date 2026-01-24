@@ -4,8 +4,10 @@ import flax.linen as nn
 
 from memorax.utils.typing import Array, Carry
 
+from .base import Block
 
-class Residual(nn.Module):
+
+class Residual(nn.Module, Block):
     """Wraps a module with a residual connection: output = x + module(x)."""
 
     module: nn.Module
@@ -24,7 +26,7 @@ class Residual(nn.Module):
         return carry, inputs + output
 
 
-class GatedResidual(nn.Module):
+class GatedResidual(nn.Module, Block):
     """Residual connection with a learned gate: output = x + gate * module(x)."""
 
     module: nn.Module

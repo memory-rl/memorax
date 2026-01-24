@@ -5,8 +5,10 @@ import jax.numpy as jnp
 
 from memorax.utils.typing import Array, Carry
 
+from .base import Block
 
-class FFN(nn.Module):
+
+class FFN(nn.Module, Block):
     """Standard feed-forward network: Dense -> Activation -> Dense.
 
     Args:
@@ -55,7 +57,7 @@ class FFN(nn.Module):
         return None, x
 
 
-class GatedFFN(nn.Module):
+class GatedFFN(nn.Module, Block):
     """Gated feed-forward network (SwiGLU-style): Dense -> split -> act(gate) * value -> Dense.
 
     This implements the gated linear unit variant used in models like LLaMA and PaLM.

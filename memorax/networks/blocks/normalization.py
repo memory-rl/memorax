@@ -27,7 +27,7 @@ class PreNorm(nn.Module, Block):
         initial_carry: Optional[Carry] = None,
         **kwargs,
     ) -> tuple[Carry, Array]:
-        x = self.norm(inputs)
+        x = self.norm()(inputs)
         return self.module(x, mask=mask, initial_carry=initial_carry, **kwargs)
 
 
@@ -54,4 +54,4 @@ class PostNorm(nn.Module, Block):
         carry, output = self.module(
             inputs, mask=mask, initial_carry=initial_carry, **kwargs
         )
-        return carry, self.norm(output)
+        return carry, self.norm()(output)

@@ -26,8 +26,9 @@ class RoPE(RelativePositionalEmbedding):
 
     def apply(self, x: Array, positions: Array) -> Array:
         head_dim = x.shape[-1]
-        frequencies = self.compute_coefficients(head_dim, int(positions.max()) + 1)
-        frequencies = frequencies[positions]
+        t = positions.astype(jnp.float32)
+        freqs = 1.0 / (self.base ** (jnp.arange(0, head_dim, 2, dtype=jnp.float32) / head_dim))
+        frequencies = t[..., None] * freqs
         frequencies = frequencies[:, :, None, :]
 
         cos = jnp.cos(frequencies)

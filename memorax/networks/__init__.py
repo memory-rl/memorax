@@ -1,4 +1,5 @@
 import memorax.networks.heads as heads
+from memorax.networks.architectures import GPT2, GPT2Block, TransformerXL, TransformerXLBlock
 from memorax.networks.blocks import (
     FFN,
     GatedFFN,
@@ -6,6 +7,7 @@ from memorax.networks.blocks import (
     PostNorm,
     PreNorm,
     Residual,
+    SegmentRecurrence,
 )
 from memorax.networks.cnn import CNN
 from memorax.networks.vit import PatchEmbedding, ViT
@@ -23,6 +25,7 @@ from memorax.networks.sequence_models import (
     Mamba,
     MetaMaskWrapper,
     MinGRU,
+    SelfAttention,
     SequenceModel,
     SequenceModelWrapper,
     SHMCell,

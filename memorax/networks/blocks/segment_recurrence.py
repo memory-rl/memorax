@@ -4,6 +4,8 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 from flax import struct
+
+from memorax.networks.blocks import Block
 from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import get_input_shape
 from memorax.utils.typing import Array, Carry
@@ -15,7 +17,19 @@ class Memory:
     mask: Array
 
 
-class SegmentRecurrence(SequenceModel):
+class SegmentRecurrence(nn.Module, Block):
+    """Wraps a sequence model with segment-level recurrence memory.
+
+    This block maintains a fixed-length memory of past outputs that can be
+    used by the wrapped sequence model for cross-segment attention.
+
+    Args:
+        sequence_model: The underlying sequence model to wrap.
+        memory_length: Maximum number of past timesteps to retain.
+        features: Feature dimension of the memory.
+        dtype: Data type for memory storage.
+    """
+
     sequence_model: SequenceModel
     memory_length: int
     features: int
@@ -34,19 +48,23 @@ class SegmentRecurrence(SequenceModel):
     @nn.compact
     def __call__(
         self,
-        x,
-        mask,
+        inputs: Array,
+        mask: Optional[Array] = None,
         initial_carry: Optional[Carry] = None,
         **kwargs,
-    ):
+    ) -> tuple[Carry, Array]:
         if initial_carry is None:
-            input_shape = get_input_shape(x)
+            input_shape = get_input_shape(inputs)
             initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
+
+        if mask is None:
+            batch_size, seq_len, *_ = inputs.shape
+            mask = jnp.zeros((batch_size, seq_len), dtype=jnp.int32)
 
         memory, carry = initial_carry
 
         carry, y = self.sequence_model(
-            x,
+            inputs,
             mask,
             initial_carry=carry,
             memory=memory.state,

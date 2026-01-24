@@ -14,11 +14,15 @@ from .memoroid import Algebra
 class LinearAttention(Algebra):
     """Linear attention as a memoroid algebra.
 
-    Uses kernel feature maps (ReLU) to linearize attention, enabling
+    Uses kernel feature maps (ELU+1) to linearize attention, enabling
     efficient parallel computation via associative scan.
 
-    Element: (decay, state) where state is the outer product of value and key
-    Combine: (decay_j * decay_i, decay_j * state_i + state_j)
+    Based on "Transformers are RNNs" (Katharopoulos et al., 2020).
+
+    Element: (state, normalizer) where:
+        - state: outer product Σ φ(k) ⊗ v
+        - normalizer: sum of keys Σ φ(k)
+    Combine: element-wise addition of states and normalizers
     """
 
     head_dim: int
@@ -27,6 +31,11 @@ class LinearAttention(Algebra):
     bias_init: Initializer
     param_dtype: Dtype
     dtype: Optional[Dtype] = None
+    eps: float = 1e-6
+
+    def _feature_map(self, x: Array) -> Array:
+        """ELU+1 feature map as in the original paper."""
+        return nn.elu(x) + 1
 
     @nn.compact
     def __call__(self, x: Array, **kwargs) -> Carry:
@@ -36,9 +45,9 @@ class LinearAttention(Algebra):
             x: Input of shape (B, T, D)
 
         Returns:
-            Carry tuple of (decay, state) where:
-                - decay: scalar 1.0 broadcast to (B, T, H, 1, 1)
+            Carry tuple of (state, normalizer) where:
                 - state: outer product (B, T, H, head_dim, head_dim)
+                - normalizer: sum of keys (B, T, H, head_dim)
         """
         batch_size, sequence_length, _ = x.shape
 
@@ -55,26 +64,29 @@ class LinearAttention(Algebra):
         key = projection(name="key")(x)
         value = projection(name="value")(x)
 
-        key = nn.relu(key)
+        # Apply feature map to keys
+        key = self._feature_map(key)
 
+        # State: outer product v ⊗ φ(k)
         state = jnp.einsum("bthi,bthj->bthij", value, key)
 
-        decay = jnp.ones((batch_size, sequence_length, self.num_heads, 1, 1))
+        # Normalizer: sum of φ(k) for proper normalization
+        normalizer = key
 
-        return (decay, state)
+        return (state, normalizer)
 
     def combine(self, a: Carry, b: Carry) -> Carry:
-        """Combine two elements via decay-weighted accumulation."""
-        decay_i, state_i = a
-        decay_j, state_j = b
-        return (decay_j * decay_i, decay_j * state_i + state_j)
+        """Combine two elements via addition."""
+        state_i, norm_i = a
+        state_j, norm_j = b
+        return (state_i + state_j, norm_i + norm_j)
 
     @nn.compact
     def read(self, h: Carry, x: Array, **kwargs) -> Array:
         """Query accumulated memory to produce output.
 
         Args:
-            h: Accumulated state (decay, state)
+            h: Accumulated state (state, normalizer)
             x: Original input of shape (B, T, D)
 
         Returns:
@@ -93,14 +105,22 @@ class LinearAttention(Algebra):
         )
 
         query = projection(name="query")(x)
-        query = nn.relu(query)
+        query = self._feature_map(query)
 
-        _, state = h
+        state, normalizer = h
+
+        # Numerator: φ(q) @ S = φ(q) @ (Σ v ⊗ φ(k))
+        numerator = jnp.einsum("bthij,bthj->bthi", state, query)
+
+        # Denominator: φ(q) @ z = φ(q) @ (Σ φ(k))
+        denominator = jnp.einsum("bthi,bthi->bth", query, normalizer)
+        denominator = jnp.maximum(denominator, self.eps)[:, :, :, None]
+
+        # Normalized output
+        output = numerator / denominator
 
         hidden_dim = self.num_heads * self.head_dim
-        output = jnp.einsum("bthij,bthj->bthi", state, query).reshape(
-            batch_size, sequence_length, hidden_dim
-        )
+        output = output.reshape(batch_size, sequence_length, hidden_dim)
 
         output = nn.RMSNorm(dtype=self.dtype)(output)
         output = nn.Dense(
@@ -112,10 +132,10 @@ class LinearAttention(Algebra):
         return output
 
     def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
-        """Initialize carry with identity decay and zero state."""
+        """Initialize carry with zero state and normalizer."""
         batch_size, *_ = input_shape
-        decay = jnp.ones((batch_size, 1, self.num_heads, 1, 1))
         state = jnp.zeros(
             (batch_size, 1, self.num_heads, self.head_dim, self.head_dim)
         )
-        return (decay, state)
+        normalizer = jnp.zeros((batch_size, 1, self.num_heads, self.head_dim))
+        return (state, normalizer)

@@ -5,67 +5,55 @@ Reinforcement learning algorithms for training agents.
 
 .. currentmodule:: memorax.algorithms
 
-Overview
---------
-
-Memorax provides several RL algorithms, each with a Config, State, and Algorithm class.
-
 PPO
 ---
 
-Proximal Policy Optimization for discrete and continuous action spaces.
+:class:`PPO` - Proximal Policy Optimization for discrete and continuous action spaces.
 
-.. autoclass:: PPO
-   :members:
-   :special-members: __init__
+:class:`PPOConfig` - Configuration dataclass for PPO.
 
-.. autoclass:: PPOConfig
-   :members:
-
-.. autoclass:: PPOState
-   :members:
+:class:`PPOState` - Training state for PPO.
 
 DQN
 ---
 
-Deep Q-Network with double and dueling variants.
+:class:`DQN` - Deep Q-Network with double and dueling variants.
 
-.. autoclass:: DQN
-   :members:
-   :special-members: __init__
+:class:`DQNConfig` - Configuration dataclass for DQN.
 
-.. autoclass:: DQNConfig
-   :members:
-
-.. autoclass:: DQNState
-   :members:
+:class:`DQNState` - Training state for DQN.
 
 SAC
 ---
 
-Soft Actor-Critic for continuous control.
+:class:`SAC` - Soft Actor-Critic for continuous control.
 
-.. autoclass:: SAC
-   :members:
-   :special-members: __init__
+:class:`SACConfig` - Configuration dataclass for SAC.
 
-.. autoclass:: SACConfig
-   :members:
-
-.. autoclass:: SACState
-   :members:
+:class:`SACState` - Training state for SAC.
 
 PQN
 ---
 
-Policy Q-Network (on-policy Q-learning).
+:class:`PQN` - Parallelised Q-Network (on-policy Q-learning).
 
-.. autoclass:: PQN
-   :members:
-   :special-members: __init__
+:class:`PQNConfig` - Configuration dataclass for PQN.
 
-.. autoclass:: PQNConfig
-   :members:
+:class:`PQNState` - Training state for PQN.
 
-.. autoclass:: PQNState
-   :members:
+.. autosummary::
+   :toctree: generated
+   :hidden:
+
+   PPO
+   PPOConfig
+   PPOState
+   DQN
+   DQNConfig
+   DQNState
+   SAC
+   SACConfig
+   SACState
+   PQN
+   PQNConfig
+   PQNState

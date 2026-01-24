@@ -1,65 +1,41 @@
 memorax.loggers
 ===============
 
-Logging utilities for experiment tracking.
+Logging utilities for tracking training progress.
 
 .. currentmodule:: memorax.loggers
 
-Logger
-------
+Core
+----
 
-.. autoclass:: Logger
-   :members:
-   :special-members: __init__
+:class:`Logger` - Composite logger that dispatches to multiple backends.
 
-.. autoclass:: LoggerState
-   :members:
+:class:`LoggerState` - State container for logger.
 
-Logger Implementations
-----------------------
+Backends
+--------
 
-.. autoclass:: ConsoleLogger
-   :members:
-   :special-members: __init__
+:class:`ConsoleLogger` - Logs to console/stdout.
 
-.. autoclass:: DashboardLogger
-   :members:
-   :special-members: __init__
+:class:`DashboardLogger` - Rich terminal dashboard.
 
-.. autoclass:: WandbLogger
-   :members:
-   :special-members: __init__
+:class:`FileLogger` - Logs to file.
 
-.. autoclass:: TensorBoardLogger
-   :members:
-   :special-members: __init__
+:class:`WandbLogger` - Weights & Biases integration.
 
-.. autoclass:: NeptuneLogger
-   :members:
-   :special-members: __init__
+:class:`TensorBoardLogger` - TensorBoard integration.
 
-.. autoclass:: FileLogger
-   :members:
-   :special-members: __init__
+:class:`NeptuneLogger` - Neptune.ai integration.
 
-Example
--------
+.. autosummary::
+   :toctree: generated
+   :hidden:
 
-.. code-block:: python
-
-   from memorax.loggers import Logger, WandbLogger, ConsoleLogger
-
-   # Create composite logger
-   logger = Logger([WandbLogger(), ConsoleLogger()])
-
-   # Initialize
-   logger_state = logger.init(cfg=config)
-
-   # Log metrics
-   logger_state = logger.log(logger_state, {"loss": 0.5}, step=100)
-
-   # Emit buffered metrics
-   logger.emit(logger_state)
-
-   # Cleanup
-   logger.finish(logger_state)
+   Logger
+   LoggerState
+   ConsoleLogger
+   DashboardLogger
+   FileLogger
+   WandbLogger
+   TensorBoardLogger
+   NeptuneLogger

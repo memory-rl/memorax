@@ -5,42 +5,37 @@ Output heads for different RL objectives.
 
 .. currentmodule:: memorax.networks.heads
 
-Q-Networks
-----------
-
-.. autoclass:: DiscreteQNetwork
-   :members:
-   :special-members: __init__, __call__
-
-.. autoclass:: ContinuousQNetwork
-   :members:
-   :special-members: __init__, __call__
-
-Value Networks
---------------
-
-.. autoclass:: VNetwork
-   :members:
-   :special-members: __init__, __call__
-
 Policy Heads
 ------------
 
-.. autoclass:: Categorical
-   :members:
-   :special-members: __init__, __call__
+:class:`Categorical` - Categorical policy for discrete actions.
 
-.. autoclass:: Gaussian
-   :members:
-   :special-members: __init__, __call__
+:class:`Gaussian` - Gaussian policy for continuous actions.
 
-.. autoclass:: SquashedGaussian
-   :members:
-   :special-members: __init__, __call__
+:class:`SquashedGaussian` - Squashed Gaussian policy (tanh-bounded).
+
+Value Heads
+-----------
+
+:class:`VNetwork` - State value function head.
+
+:class:`DiscreteQNetwork` - Q-network for discrete actions.
+
+:class:`ContinuousQNetwork` - Q-network for continuous actions.
 
 Temperature
 -----------
 
-.. autoclass:: Alpha
-   :members:
-   :special-members: __init__, __call__
+:class:`Alpha` - Learnable temperature parameter for SAC.
+
+.. autosummary::
+   :toctree: generated
+   :hidden:
+
+   Categorical
+   Gaussian
+   SquashedGaussian
+   VNetwork
+   DiscreteQNetwork
+   ContinuousQNetwork
+   Alpha

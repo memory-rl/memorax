@@ -1,88 +1,68 @@
 memorax.networks.sequence_models
 ================================
 
-Sequence models for temporal processing in RL.
+Sequence models for temporal processing.
 
-.. currentmodule:: memorax.networks.sequence_models
+.. currentmodule:: memorax.networks
 
-Base Class
+RNN Models
 ----------
 
-.. autoclass:: SequenceModel
-   :members:
-   :special-members: __init__, __call__
+:class:`RNN` - Wrapper for Flax RNN cells (LSTM, GRU, etc.).
 
-Wrappers
---------
+:class:`sLSTMCell` - Scalar LSTM cell with enhanced gating.
 
-.. autoclass:: SequenceModelWrapper
-   :members:
-   :special-members: __init__, __call__
+:class:`SHMCell` - Stable Hadamard Memory cell.
 
-.. autoclass:: MetaMaskWrapper
-   :members:
-   :special-members: __init__, __call__
+Memoroid Models
+---------------
 
-RNNs
-----
+:class:`Memoroid` - Wrapper for parallel-scannable sequence models.
 
-.. autoclass:: RNN
-   :members:
-   :special-members: __init__, __call__
+:class:`MemoroidCellBase` - Base class for memoroid cells.
 
-.. autoclass:: sLSTMCell
-   :members:
-   :special-members: __init__, __call__
+:class:`MambaCell` - Selective State Space Model cell.
 
-.. autoclass:: mLSTMCell
-   :members:
-   :special-members: __init__, __call__
+:class:`S5Cell` - Simplified Structured State Space cell.
 
-State Space Models
-------------------
+:class:`LRUCell` - Linear Recurrent Unit cell.
 
-.. autoclass:: LRUCell
-   :members:
-   :special-members: __init__, __call__
+:class:`MinGRUCell` - Minimal GRU cell.
 
-.. autoclass:: S5Cell
-   :members:
-   :special-members: __init__, __call__
+:class:`mLSTMCell` - Matrix LSTM cell.
 
-.. autoclass:: MambaCell
-   :members:
-   :special-members: __init__, __call__
+:class:`FFMCell` - Fast and Forgetful Memory cell.
 
-.. autoclass:: MinGRUCell
-   :members:
-   :special-members: __init__, __call__
-
-Memory Models
--------------
-
-.. autoclass:: FFMCell
-   :members:
-   :special-members: __init__, __call__
-
-.. autoclass:: SHMCell
-   :members:
-   :special-members: __init__, __call__
-
-.. autoclass:: Memoroid
-   :members:
-   :special-members: __init__, __call__
-
-.. autoclass:: MemoroidCellBase
-   :members:
-   :special-members: __init__, __call__
+:class:`LinearAttentionCell` - Linear attention cell.
 
 Attention
 ---------
 
-.. autoclass:: SelfAttention
-   :members:
-   :special-members: __init__, __call__
+:class:`SelfAttention` - Multi-head self-attention.
 
-.. autoclass:: LinearAttentionCell
-   :members:
-   :special-members: __init__, __call__
+Wrappers
+--------
+
+:class:`SequenceModelWrapper` - Wraps non-recurrent models.
+
+:class:`MetaMaskWrapper` - Wrapper for meta-learning with episode boundaries.
+
+.. autosummary::
+   :toctree: generated
+   :hidden:
+
+   RNN
+   sLSTMCell
+   SHMCell
+   Memoroid
+   MemoroidCellBase
+   MambaCell
+   S5Cell
+   LRUCell
+   MinGRUCell
+   mLSTMCell
+   FFMCell
+   LinearAttentionCell
+   SelfAttention
+   SequenceModelWrapper
+   MetaMaskWrapper

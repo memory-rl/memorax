@@ -1,26 +1,25 @@
 # Quick Start
 
-This guide demonstrates how to train a PPO agent with LSTM memory on CartPole.
-
-## Basic Training Loop
+This guide demonstrates how to train a PPO agent with GRU memory on CartPole.
 
 ```python
+from dataclasses import asdict
+
+import flax.linen as nn
 import jax
 import optax
-from flax import nnx
+
 from memorax.algorithms import PPO, PPOConfig
-from memorax.environments import make
-from memorax.networks import (
-    MLP, RNN, FeatureExtractor, Network, SequenceModelWrapper, heads
-)
+from memorax.environments import environment
+from memorax.loggers import DashboardLogger, Logger
+from memorax.networks import MLP, FeatureExtractor, Network, RNN, heads
 
 # Create environment
-env, env_params = make("gymnax::CartPole-v1")
-action_dim = env.action_space(env_params).n
+env, env_params = environment.make("gymnax::CartPole-v1")
 
 # Configure PPO
 cfg = PPOConfig(
-    name="PPO-LSTM",
+    name="PPO-GRU",
     num_envs=8,
     num_eval_envs=16,
     num_steps=128,
@@ -35,56 +34,56 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# Build actor network
-feature_extractor = FeatureExtractor(
-    observation_extractor=MLP(features=(64,))
-)
-torso = SequenceModelWrapper(RNN(nnx.LSTMCell(64, 64, rngs=nnx.Rngs(0))))
-actor = Network(feature_extractor, torso, heads.Categorical(action_dim))
+# Build networks
+d_model = 64
 
-# Build critic network (can share torso or use separate)
-critic = Network(feature_extractor, torso, heads.VNetwork())
+feature_extractor = FeatureExtractor(
+    observation_extractor=MLP(
+        features=(d_model,), kernel_init=nn.initializers.orthogonal(scale=1.414)
+    ),
+)
+torso = RNN(cell=nn.GRUCell(features=d_model))
+actor_network = Network(
+    feature_extractor=feature_extractor,
+    torso=torso,
+    head=heads.Categorical(
+        action_dim=env.action_space(env_params).n,
+        kernel_init=nn.initializers.orthogonal(scale=0.01),
+    ),
+)
+critic_network = Network(
+    feature_extractor=feature_extractor,
+    torso=torso,
+    head=heads.VNetwork(kernel_init=nn.initializers.orthogonal(scale=1.0)),
+)
 
 # Create optimizer
 optimizer = optax.chain(
     optax.clip_by_global_norm(1.0),
-    optax.adam(3e-4)
+    optax.adam(learning_rate=3e-4, eps=1e-5),
 )
 
-# Initialize agent
-agent = PPO(cfg, env, env_params, actor, critic, optimizer, optimizer)
-key, state = agent.init(jax.random.key(0))
+# Initialize agent and logger
+agent = PPO(
+    cfg=cfg,
+    env=env,
+    env_params=env_params,
+    actor=actor_network,
+    critic=critic_network,
+    actor_optimizer=optimizer,
+    critic_optimizer=optimizer,
+)
+logger = Logger([DashboardLogger(title="PPO-GRU CartPole", total_timesteps=500_000)])
+logger_state = logger.init(cfg=asdict(cfg))
 
 # Train
-key, state, transitions = agent.train(key, state, num_steps=100_000)
-```
+key = jax.random.key(0)
+key, state = agent.init(key)
 
-## Evaluation
-
-```python
-# Evaluate the trained agent
-key, eval_returns = agent.evaluate(key, state, num_episodes=10)
-print(f"Mean evaluation return: {eval_returns.mean()}")
-```
-
-## Adding Logging
-
-```python
-from memorax.loggers import Logger, WandbLogger, ConsoleLogger
-
-# Create logger
-logger = Logger([WandbLogger(), ConsoleLogger()])
-logger_state = logger.init(cfg=cfg)
-
-# Training loop with logging
-for step in range(0, 100_000, cfg.num_steps * cfg.num_envs):
-    key, state, transitions = agent.train(key, state, num_steps=cfg.num_steps)
-
-    # Log metrics
-    logger_state = logger.log(logger_state, {
-        "return": transitions.info["return"].mean(),
-        "step": step,
-    }, step=step)
+for i in range(0, 500_000, 10_000):
+    key, state, transitions = agent.train(key, state, num_steps=10_000)
+    training_statistics = Logger.get_episode_statistics(transitions, "training")
+    logger_state = logger.log(logger_state, training_statistics, step=state.step.item())
     logger.emit(logger_state)
 
 logger.finish(logger_state)

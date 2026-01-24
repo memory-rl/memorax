@@ -324,9 +324,6 @@ class TestXMinigridEnvironments:
             ruleset_key=jax.random.key(0),
         )
 
-    @pytest.mark.xfail(
-        reason="XMinigrid wrapper reset returns state without observation attribute"
-    )
     def test_reset(self, xminigrid_env):
         env, env_params = xminigrid_env
         key = jax.random.key(0)
@@ -334,9 +331,6 @@ class TestXMinigridEnvironments:
         assert obs is not None
         assert state is not None
 
-    @pytest.mark.xfail(
-        reason="XMinigrid wrapper reset returns state without observation attribute"
-    )
     def test_step(self, xminigrid_env):
         env, env_params = xminigrid_env
         key = jax.random.key(0)
@@ -360,7 +354,7 @@ class TestPopGymArcadeEnvironments:
         pytest.importorskip("popgym_arcade")
         from memorax.environments import popgym_arcade
 
-        return popgym_arcade.make("RepeatFirst-easy")
+        return popgym_arcade.make("RepeatFirstEasy")
 
     def test_reset(self, popgym_env):
         env, env_params = popgym_env
@@ -420,9 +414,6 @@ class TestGxmEnvironments:
         action_space = env.action_space(env_params)
         assert action_space is not None
 
-    @pytest.mark.xfail(
-        reason="GXM GymnaxEnvironment wrapper lacks observation_space attribute"
-    )
     def test_observation_space(self, gxm_env):
         env, env_params = gxm_env
         obs_space = env.observation_space(env_params)
@@ -439,9 +430,6 @@ class TestMujocoEnvironments:
 
         return mujoco.make("CheetahRun")
 
-    @pytest.mark.xfail(
-        reason="MuJoCo AutoResetWrapper expects pipeline_state attribute not present in State"
-    )
     def test_reset(self, mujoco_env):
         env, env_params = mujoco_env
         key = jax.random.key(0)
@@ -449,9 +437,6 @@ class TestMujocoEnvironments:
         assert obs is not None
         assert state is not None
 
-    @pytest.mark.xfail(
-        reason="MuJoCo AutoResetWrapper expects pipeline_state attribute not present in State"
-    )
     def test_step(self, mujoco_env):
         env, env_params = mujoco_env
         key = jax.random.key(0)

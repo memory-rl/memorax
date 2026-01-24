@@ -70,7 +70,7 @@ feature_extractor = FeatureExtractor(
 moe = Residual(
     module=PreNorm(
         module=MoE(
-            experts=[
+            experts=tuple(
                 RNN(
                     cell=nn.GRUCell(
                         features=d_model,
@@ -79,7 +79,7 @@ moe = Residual(
                     )
                 )
                 for _ in range(num_experts)
-            ],
+            ),
             router=TopKRouter(num_experts=num_experts, k=top_k),
         )
     )

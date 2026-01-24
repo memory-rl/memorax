@@ -1,57 +1,47 @@
 memorax.networks.blocks
 =======================
 
-Building blocks for neural network architectures.
+Building blocks for constructing network architectures.
 
-.. currentmodule:: memorax.networks.blocks
+.. currentmodule:: memorax.networks
 
 Feed-Forward
 ------------
 
-.. autoclass:: FFN
-   :members:
-   :special-members: __init__, __call__
-
-Mixture of Experts
-------------------
-
-.. autoclass:: MoE
-   :members:
-   :special-members: __init__, __call__
-
-.. autoclass:: TopKRouter
-   :members:
-   :special-members: __init__, __call__
+:class:`FFN` - Feed-forward network block with expansion.
 
 Normalization
 -------------
 
-.. autoclass:: PreNorm
-   :members:
-   :special-members: __init__, __call__
+:class:`PreNorm` - Pre-normalization wrapper.
 
-.. autoclass:: PostNorm
-   :members:
-   :special-members: __init__, __call__
+:class:`PostNorm` - Post-normalization wrapper.
 
-Residual Connections
---------------------
+Residual
+--------
 
-.. autoclass:: Residual
-   :members:
-   :special-members: __init__, __call__
-
-.. autoclass:: GatedResidual
-   :members:
-   :special-members: __init__, __call__
+:class:`Residual` - Residual connection wrapper.
 
 Composition
 -----------
 
-.. autoclass:: Stack
-   :members:
-   :special-members: __init__, __call__
+:class:`Stack` - Stacks multiple blocks sequentially.
 
-.. autoclass:: SegmentRecurrence
-   :members:
-   :special-members: __init__, __call__
+Mixture of Experts
+------------------
+
+:class:`MoE` - Mixture of Experts layer.
+
+:class:`TopKRouter` - Top-K routing for MoE.
+
+.. autosummary::
+   :toctree: generated
+   :hidden:
+
+   FFN
+   PreNorm
+   PostNorm
+   Residual
+   Stack
+   MoE
+   TopKRouter

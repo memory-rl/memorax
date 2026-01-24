@@ -5,43 +5,37 @@ Neural network components for building RL agents.
 
 .. currentmodule:: memorax.networks
 
-Network
--------
+Core
+----
 
-The main network class that composes feature extractors, torsos, and heads.
+:class:`Network` - Main network class composing feature extractors, torsos, and heads.
 
-.. autoclass:: Network
-   :members:
-   :special-members: __init__, __call__
+:class:`FeatureExtractor` - Extracts features from observations, actions, rewards, and done flags.
 
-Feature Extraction
-------------------
-
-.. autoclass:: FeatureExtractor
-   :members:
-   :special-members: __init__, __call__
-
-.. autoclass:: Identity
-   :members:
+:class:`Identity` - Identity module that passes input through unchanged.
 
 Architectures
 -------------
 
-.. autoclass:: MLP
-   :members:
-   :special-members: __init__, __call__
+:class:`MLP` - Multi-layer perceptron.
 
-.. autoclass:: CNN
-   :members:
-   :special-members: __init__, __call__
+:class:`CNN` - Convolutional neural network.
 
-.. autoclass:: ViT
-   :members:
-   :special-members: __init__, __call__
+:class:`ViT` - Vision Transformer.
 
-Sequence Model Wrapper
-----------------------
+Wrappers
+--------
 
-.. autoclass:: SequenceModelWrapper
-   :members:
-   :special-members: __init__, __call__
+:class:`SequenceModelWrapper` - Wraps non-recurrent models for use as sequence models.
+
+.. autosummary::
+   :toctree: generated
+   :hidden:
+
+   Network
+   FeatureExtractor
+   Identity
+   MLP
+   CNN
+   ViT
+   SequenceModelWrapper

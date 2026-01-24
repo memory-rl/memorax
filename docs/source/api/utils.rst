@@ -8,25 +8,28 @@ Utility functions and data structures.
 Data Structures
 ---------------
 
-.. autoclass:: Timestep
-   :members:
+:class:`Timestep` - Environment timestep container.
 
-.. autoclass:: Transition
-   :members:
+:class:`Transition` - Transition data for training.
 
-Advantage Estimation
---------------------
+Functions
+---------
 
-.. autofunction:: generalized_advantage_estimatation
+:func:`generalized_advantage_estimatation` - Compute GAE advantages.
 
-Parameter Updates
------------------
+:func:`periodic_incremental_update` - Polyak averaging for target networks.
 
-.. autofunction:: periodic_incremental_update
+:func:`delayed_update` - Delayed parameter updates.
 
-.. autofunction:: delayed_update
+:func:`callback` - Decorator for debug callbacks.
 
-Decorators
-----------
+.. autosummary::
+   :toctree: generated
+   :hidden:
 
-.. autofunction:: callback
+   Timestep
+   Transition
+   generalized_advantage_estimatation
+   periodic_incremental_update
+   delayed_update
+   callback

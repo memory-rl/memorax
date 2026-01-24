@@ -51,6 +51,11 @@ source_suffix = {
 # Autosummary configuration
 autosummary_generate = True
 autosummary_generate_overwrite = True
+autosummary_imported_members = False
+templates_path = ["_templates"]
+
+# Don't show full signature in autosummary tables
+numpydoc_show_class_members = False
 
 # Autodoc configuration
 autodoc_default_options = {

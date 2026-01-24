@@ -59,14 +59,17 @@ feature_extractor = FeatureExtractor(
 Processes temporal sequences using RNNs, SSMs, or attention:
 
 ```python
-from memorax.networks import SequenceModelWrapper, RNN
-from memorax.networks.sequence_models import Mamba
+import flax.linen as nn
+from memorax.networks import SequenceModelWrapper, RNN, MLP, Memoroid, MambaCell
 
-# LSTM torso
-torso = SequenceModelWrapper(RNN(nnx.LSTMCell(64, 64, rngs=nnx.Rngs(0))))
+# GRU torso (recurrent models don't need wrapper)
+torso = RNN(cell=nn.GRUCell(features=64))
 
-# Mamba torso
-torso = SequenceModelWrapper(Mamba(hidden_dim=64))
+# Mamba torso (MambaCell is used inside Memoroid)
+torso = Memoroid(cell=MambaCell(features=64))
+
+# MLP torso (non-recurrent models need SequenceModelWrapper)
+torso = SequenceModelWrapper(MLP(features=(64,)))
 ```
 
 ### Head

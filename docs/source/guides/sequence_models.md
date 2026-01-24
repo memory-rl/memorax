@@ -8,8 +8,8 @@ Memorax supports three families of sequence models:
 
 | Family | Models | Strengths |
 |--------|--------|-----------|
-| RNNs | LSTM, GRU, sLSTM, mLSTM, xLSTM | Simple, well-understood |
-| State Space Models | S5, LRU, Mamba, MinGRU | Efficient long sequences |
+| RNNs | LSTM, GRU, sLSTM, SHM | Simple, well-understood |
+| State Space Models | S5, LRU, Mamba, MinGRU, mLSTM, FFM | Efficient long sequences |
 | Attention | SelfAttention, LinearAttention | Flexible, parallel training |
 
 ## RNNs
@@ -19,43 +19,46 @@ Memorax supports three families of sequence models:
 Standard recurrent networks using Flax cells:
 
 ```python
-from flax import nnx
-from memorax.networks import SequenceModelWrapper, RNN
+import flax.linen as nn
+from memorax.networks import RNN
 
 # LSTM
-lstm_torso = SequenceModelWrapper(RNN(nnx.LSTMCell(64, 64, rngs=nnx.Rngs(0))))
+lstm_torso = RNN(cell=nn.LSTMCell(features=64))
 
 # GRU
-gru_torso = SequenceModelWrapper(RNN(nnx.GRUCell(64, 64, rngs=nnx.Rngs(0))))
+gru_torso = RNN(cell=nn.GRUCell(features=64))
 ```
 
-### xLSTM Variants
+### sLSTM
 
-Extended LSTM architectures:
+Scalar LSTM with enhanced gating:
 
 ```python
-from memorax.networks.sequence_models import sLSTM, mLSTM, xLSTM
+from memorax.networks import RNN, sLSTMCell
 
-# sLSTM (scalar LSTM)
-slstm = sLSTM(hidden_dim=64)
+slstm = RNN(cell=sLSTMCell(features=64))
+```
 
-# mLSTM (matrix LSTM)
-mlstm = mLSTM(hidden_dim=64, head_dim=16, num_heads=4)
+### SHM (Stable Hadamard Memory)
 
-# xLSTM (combines sLSTM and mLSTM)
-xlstm = xLSTM(hidden_dim=64)
+```python
+from memorax.networks import RNN, SHMCell
+
+shm = RNN(cell=SHMCell(features=64, memory_size=32))
 ```
 
 ## State Space Models
+
+All state space models use the `Memoroid` wrapper with their respective cells.
 
 ### LRU (Linear Recurrent Unit)
 
 Efficient linear recurrence:
 
 ```python
-from memorax.networks.sequence_models import LRU
+from memorax.networks import Memoroid, LRUCell
 
-lru = LRU(hidden_dim=64, state_dim=64)
+lru = Memoroid(cell=LRUCell(features=64, hidden_dim=64))
 ```
 
 ### S5
@@ -63,9 +66,9 @@ lru = LRU(hidden_dim=64, state_dim=64)
 Simplified Structured State Space:
 
 ```python
-from memorax.networks.sequence_models import S5
+from memorax.networks import Memoroid, S5Cell
 
-s5 = S5(hidden_dim=64, state_dim=64)
+s5 = Memoroid(cell=S5Cell(features=64, state_dim=64))
 ```
 
 ### Mamba
@@ -73,9 +76,9 @@ s5 = S5(hidden_dim=64, state_dim=64)
 Selective State Space Model:
 
 ```python
-from memorax.networks.sequence_models import Mamba
+from memorax.networks import Memoroid, MambaCell
 
-mamba = Mamba(hidden_dim=64, state_dim=16, expand=2)
+mamba = Memoroid(cell=MambaCell(features=64, num_heads=4, head_dim=16))
 ```
 
 ### MinGRU
@@ -83,24 +86,40 @@ mamba = Mamba(hidden_dim=64, state_dim=16, expand=2)
 Minimal GRU variant:
 
 ```python
-from memorax.networks.sequence_models import MinGRU
+from memorax.networks import Memoroid, MinGRUCell
 
-mingru = MinGRU(hidden_dim=64)
+mingru = Memoroid(cell=MinGRUCell(features=64))
+```
+
+### mLSTM (Matrix LSTM)
+
+```python
+from memorax.networks import Memoroid, mLSTMCell
+
+mlstm = Memoroid(cell=mLSTMCell(features=64, num_heads=4, head_dim=16))
+```
+
+### FFM (Fast and Forgetful Memory)
+
+```python
+from memorax.networks import Memoroid, FFMCell
+
+ffm = Memoroid(cell=FFMCell(features=64, memory_size=32))
 ```
 
 ## Attention
 
 ### Self-Attention
 
-Standard multi-head attention:
+Standard multi-head attention (used directly, no wrapper needed):
 
 ```python
-from memorax.networks.sequence_models import SelfAttention
+from memorax.networks import SelfAttention
 
 attention = SelfAttention(
+    features=64,
     num_heads=4,
     head_dim=16,
-    use_rotary=True,  # Rotary position embeddings
 )
 ```
 
@@ -109,31 +128,9 @@ attention = SelfAttention(
 Efficient linear-complexity attention:
 
 ```python
-from memorax.networks.sequence_models import LinearAttention
+from memorax.networks import Memoroid, LinearAttentionCell
 
-linear_attention = LinearAttention(
-    num_heads=4,
-    head_dim=16,
-    feature_map="elu",
-)
-```
-
-## Memory Models
-
-### FFM (Fast and Forgetful Memory)
-
-```python
-from memorax.networks.sequence_models import FFM
-
-ffm = FFM(hidden_dim=64, memory_size=32)
-```
-
-### SHM (Stable Hadamard Memory)
-
-```python
-from memorax.networks.sequence_models import SHM
-
-shm = SHM(hidden_dim=64, memory_size=32)
+linear_attention = Memoroid(cell=LinearAttentionCell(features=64, num_heads=4, head_dim=16))
 ```
 
 ## Choosing a Model
@@ -158,22 +155,21 @@ shm = SHM(hidden_dim=64, memory_size=32)
 
 ```python
 from memorax.algorithms import PPO, PPOConfig
-from memorax.networks import Network, FeatureExtractor, MLP, SequenceModelWrapper, heads
-from memorax.networks.sequence_models import Mamba
+from memorax.networks import Network, FeatureExtractor, MLP, Memoroid, MambaCell, heads
 
 # Mamba-based actor
-actor = Network(
+actor_network = Network(
     feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(64,))),
-    torso=SequenceModelWrapper(Mamba(hidden_dim=64)),
+    torso=Memoroid(cell=MambaCell(features=64, num_heads=4, head_dim=16)),
     head=heads.Categorical(action_dim=4),
 )
 
 # Mamba-based critic
-critic = Network(
+critic_network = Network(
     feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(64,))),
-    torso=SequenceModelWrapper(Mamba(hidden_dim=64)),
+    torso=Memoroid(cell=MambaCell(features=64, num_heads=4, head_dim=16)),
     head=heads.VNetwork(),
 )
 
-agent = PPO(cfg, env, env_params, actor, critic, optimizer, optimizer)
+agent = PPO(cfg, env, env_params, actor_network, critic_network, optimizer, optimizer)
 ```

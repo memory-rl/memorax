@@ -1,11 +1,12 @@
 from functools import partial
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
 from flax import struct
 
+from memorax.networks.positional_embeddings import RelativePositionalEmbedding
 from memorax.networks.sequence_models.utils import (
     get_attention_implementation,
     get_attention_mask,
@@ -31,7 +32,7 @@ class SelfAttention(SequenceModel):
     param_dtype: Any
     kernel_init: Any
     bias_init: Any
-    positional_embedding: Callable = lambda query, key, query_pos, key_pos: (
+    positional_embedding: RelativePositionalEmbedding = lambda query, key, query_pos, key_pos: (
         query,
         key,
         None,
@@ -113,7 +114,7 @@ class SelfAttention(SequenceModel):
             bias=bias,
             mask=attention_mask,
             implementation=get_attention_implementation(),
-        )
+        ).astype(self.dtype)
 
         y = nn.DenseGeneral(
             self.features,

@@ -87,7 +87,7 @@ retention = Residual(
 )
 ffn = Residual(module=PreNorm(module=FFN(features=d_model, expansion_factor=4)))
 
-torso = Stack(blocks=[retention, ffn] * num_layers)
+torso = Stack(blocks=(retention, ffn) * num_layers)
 
 actor_network = Network(
     feature_extractor=feature_extractor,

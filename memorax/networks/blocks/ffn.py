@@ -47,7 +47,7 @@ class FFN(nn.Module, Block):
 
     @nn.nowrap
     def initialize_carry(self, key, input_shape):
-        return self.module.initialize_carry(key, input_shape)
+        return None
 
 
 class GatedFFN(nn.Module, Block):
@@ -92,4 +92,4 @@ class GatedFFN(nn.Module, Block):
 
     @nn.nowrap
     def initialize_carry(self, key, input_shape):
-        return self.module.initialize_carry(key, input_shape)
+        return None

@@ -68,7 +68,11 @@ feature_extractor = FeatureExtractor(
     ),
 )
 
-# GPT-2 style transformer: PreNorm -> Attention -> Residual, PreNorm -> FFN -> Residual
+# GPT-2 style transformer: positional embedding + (PreNorm -> Attention -> Residual, PreNorm -> FFN -> Residual) * num_layers
+positional_embedding = LearnablePositionalEmbedding(
+    num_embeddings=context_length,
+    features=d_model,
+)
 attention = Residual(
     module=PreNorm(
         module=SelfAttention(
@@ -79,16 +83,12 @@ attention = Residual(
             param_dtype=jnp.float32,
             kernel_init=nn.initializers.xavier_uniform(),
             bias_init=nn.initializers.zeros_init(),
-            positional_embedding=LearnablePositionalEmbedding(
-                max_length=context_length,
-                features=d_model // num_heads,
-            ),
         )
     )
 )
 ffn = Residual(module=PreNorm(module=FFN(features=d_model, expansion_factor=4)))
 
-torso = Stack(blocks=[attention, ffn] * num_layers)
+torso = Stack(blocks=(positional_embedding,) + (attention, ffn) * num_layers)
 
 actor_network = Network(
     feature_extractor=feature_extractor,

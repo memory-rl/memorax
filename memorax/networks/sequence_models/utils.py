@@ -5,7 +5,6 @@ import jax.numpy as jnp
 from flax import linen as nn
 from flax.linen.dtypes import promote_dtype
 from flax.typing import Dtype, Initializer
-from jax.lib import xla_bridge
 from jax.nn.initializers import lecun_normal
 
 from memorax.utils.typing import Array
@@ -14,14 +13,9 @@ Implementation = Literal["xla", "cudnn"]
 
 
 def get_attention_implementation() -> tuple[Implementation, jnp.dtype]:
-    backend = xla_bridge.get_backend()
-    platform = getattr(backend, "platform", "")
-    if platform == "gpu":
-        version = getattr(backend, "platform_version", "")
-        if "cuda" in version.lower():
-            return "cudnn", jnp.bfloat16
-
-        # Fallback detection using device kinds for NVIDIA GPUs.
+    backend = jax.default_backend()
+    if backend == "gpu":
+        # Check if it's an NVIDIA GPU (for cudnn support)
         try:
             if any(
                 "nvidia" in device.device_kind.lower() for device in jax.local_devices()

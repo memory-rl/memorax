@@ -13,24 +13,24 @@ from memorax.utils.typing import Array
 Implementation = Literal["xla", "cudnn"]
 
 
-def get_attention_implementation() -> Implementation:
+def get_attention_implementation() -> tuple[Implementation, jnp.dtype]:
     backend = xla_bridge.get_backend()
     platform = getattr(backend, "platform", "")
     if platform == "gpu":
         version = getattr(backend, "platform_version", "")
         if "cuda" in version.lower():
-            return "cudnn"
+            return "cudnn", jnp.bfloat16
 
         # Fallback detection using device kinds for NVIDIA GPUs.
         try:
             if any(
                 "nvidia" in device.device_kind.lower() for device in jax.local_devices()
             ):
-                return "cudnn"
+                return "cudnn", jnp.bfloat16
         except Exception:  # pragma: no cover - best effort hardware detection
             pass
 
-    return "xla"
+    return "xla", jnp.float32
 
 
 def get_attention_mask(mask, initial_carry, memory_mask, context_length, num_heads):

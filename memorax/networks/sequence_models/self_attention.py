@@ -107,13 +107,14 @@ class SelfAttention(SequenceModel):
 
         query, key, bias = self.positional_embedding(query, key, query_input, key_input)
 
+        implementation, attention_dtype = get_attention_implementation()
         x = jax.nn.dot_product_attention(
-            query.astype(jnp.bfloat16),
-            key.astype(jnp.bfloat16),
-            value.astype(jnp.bfloat16),
+            query.astype(attention_dtype),
+            key.astype(attention_dtype),
+            value.astype(attention_dtype),
             bias=bias,
             mask=attention_mask,
-            implementation=get_attention_implementation(),
+            implementation=implementation,
         ).astype(self.dtype)
 
         y = nn.DenseGeneral(

@@ -1,6 +1,5 @@
 from .ffm import FFM
-from .gpt2 import GPT2
-from .gtrxl import GTrXL
+from .linear_attention import LinearAttention
 from .lru import LRU
 from .mamba import Mamba
 from .memoroid import Algebra, Memoroid

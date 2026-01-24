@@ -25,11 +25,11 @@ from flax.typing import Dtype
 
 from memorax.utils.typing import Array, Carry
 
-from .memoroid import Algebra
+from .memoroid import MemoroidCellBase
 from .utils import wang_init
 
 
-class mLSTM(Algebra):
+class mLSTMCell(MemoroidCellBase):
     """Matrix LSTM as a Memoroid algebra.
 
     Uses gated linear attention with matrix memory, computed efficiently
@@ -160,7 +160,7 @@ class mLSTM(Algebra):
 
         return (log_f, C, n, m)
 
-    def combine(self, a: Carry, b: Carry) -> Carry:
+    def binary_operator(self, a: Carry, b: Carry) -> Carry:
         """Combine two elements with decay-weighted accumulation.
 
         When combining element a (earlier positions) with element b

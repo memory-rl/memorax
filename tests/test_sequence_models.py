@@ -21,10 +21,10 @@ class TestLRU:
 
     @pytest.fixture
     def lru(self):
-        from memorax.networks.sequence_models import LRU
+        from memorax.networks.sequence_models import LRUCell
         from memorax.networks.sequence_models.memoroid import Memoroid
 
-        algebra = LRU(
+        algebra = LRUCell(
             features=16,
             hidden_dim=32,
         )
@@ -65,10 +65,10 @@ class TestMinGRU:
 
     @pytest.fixture
     def min_gru(self):
-        from memorax.networks.sequence_models import MinGRU
+        from memorax.networks.sequence_models import MinGRUCell
         from memorax.networks.sequence_models.memoroid import Memoroid
 
-        algebra = MinGRU(
+        algebra = MinGRUCell(
             features=32,
         )
         return Memoroid(algebra=algebra)
@@ -97,10 +97,10 @@ class TestFFM:
 
     @pytest.fixture
     def ffm(self):
-        from memorax.networks.sequence_models import FFM
+        from memorax.networks.sequence_models import FFMCell
         from memorax.networks.sequence_models.memoroid import Memoroid
 
-        algebra = FFM(
+        algebra = FFMCell(
             features=16,
             memory_size=16,
             context_size=8,
@@ -130,10 +130,10 @@ class TestS5:
 
     @pytest.fixture
     def s5(self):
-        from memorax.networks.sequence_models import S5
+        from memorax.networks.sequence_models import S5Cell
         from memorax.networks.sequence_models.memoroid import Memoroid
 
-        algebra = S5(
+        algebra = S5Cell(
             features=16,
             state_size=32,
         )
@@ -162,10 +162,10 @@ class TestLinearAttention:
 
     @pytest.fixture
     def linear_attention(self):
-        from memorax.networks.sequence_models import LinearAttention
+        from memorax.networks.sequence_models import LinearAttentionCell
         from memorax.networks.sequence_models.memoroid import Memoroid
 
-        algebra = LinearAttention(
+        algebra = LinearAttentionCell(
             head_dim=8,
             num_heads=4,
             kernel_init=initializers.lecun_normal(),
@@ -203,9 +203,9 @@ class TestMamba:
 
     @pytest.fixture
     def mamba_algebra(self):
-        from memorax.networks.sequence_models import Mamba
+        from memorax.networks.sequence_models import MambaCell
 
-        return Mamba(
+        return MambaCell(
             num_heads=4,
             head_dim=8,
             hidden_dim=16,
@@ -396,10 +396,10 @@ class TestMLSTM:
 
     @pytest.fixture
     def mlstm(self):
-        from memorax.networks.sequence_models import mLSTM
+        from memorax.networks.sequence_models import mLSTMCell
         from memorax.networks.sequence_models.memoroid import Memoroid
 
-        algebra = mLSTM(
+        algebra = mLSTMCell(
             features=16,
             hidden_dim=32,
             num_heads=4,
@@ -439,9 +439,9 @@ class TestMLSTM:
 
     def test_combine_associativity(self, mlstm):
         """Test that combine operation is associative."""
-        from memorax.networks.sequence_models import mLSTM
+        from memorax.networks.sequence_models import mLSTMCell
 
-        algebra = mLSTM(
+        algebra = mLSTMCell(
             features=16,
             hidden_dim=32,
             num_heads=4,
@@ -537,9 +537,9 @@ class TestAlgebraCombine:
     """Test the combine operation for Algebra subclasses."""
 
     def test_lru_combine(self):
-        from memorax.networks.sequence_models import LRU
+        from memorax.networks.sequence_models import LRUCell
 
-        algebra = LRU(
+        algebra = LRUCell(
             features=16,
             hidden_dim=32,
         )
@@ -558,9 +558,9 @@ class TestAlgebraCombine:
         assert combined is not None
 
     def test_ffm_combine(self):
-        from memorax.networks.sequence_models import FFM
+        from memorax.networks.sequence_models import FFMCell
 
-        algebra = FFM(
+        algebra = FFMCell(
             features=16,
             memory_size=16,
             context_size=8,
@@ -579,9 +579,9 @@ class TestAlgebraCombine:
         assert combined is not None
 
     def test_s5_combine(self):
-        from memorax.networks.sequence_models import S5
+        from memorax.networks.sequence_models import S5Cell
 
-        algebra = S5(
+        algebra = S5Cell(
             features=16,
             state_size=32,
         )
@@ -598,9 +598,9 @@ class TestAlgebraCombine:
         assert combined is not None
 
     def test_min_gru_combine(self):
-        from memorax.networks.sequence_models import MinGRU
+        from memorax.networks.sequence_models import MinGRUCell
 
-        algebra = MinGRU(
+        algebra = MinGRUCell(
             features=32,
         )
 
@@ -620,10 +620,10 @@ class TestVmapCompatibility:
     """Test that sequence models work with JAX vmap."""
 
     def test_lru_vmap(self):
-        from memorax.networks.sequence_models import LRU
+        from memorax.networks.sequence_models import LRUCell
         from memorax.networks.sequence_models.memoroid import Memoroid
 
-        algebra = LRU(
+        algebra = LRUCell(
             features=16,
             hidden_dim=32,
         )
@@ -668,10 +668,10 @@ class TestJitCompatibility:
     """Test that sequence models work with JAX jit compilation."""
 
     def test_memoroid_jit(self):
-        from memorax.networks.sequence_models import LRU
+        from memorax.networks.sequence_models import LRUCell
         from memorax.networks.sequence_models.memoroid import Memoroid
 
-        algebra = LRU(
+        algebra = LRUCell(
             features=16,
             hidden_dim=32,
         )
@@ -720,10 +720,10 @@ class TestMaskingBehavior:
     """Test that masking properly resets state."""
 
     def test_mask_resets_lru(self):
-        from memorax.networks.sequence_models import LRU
+        from memorax.networks.sequence_models import LRUCell
         from memorax.networks.sequence_models.memoroid import Memoroid
 
-        algebra = LRU(
+        algebra = LRUCell(
             features=16,
             hidden_dim=32,
         )

@@ -10,10 +10,10 @@ from flax.linen.normalization import LayerNorm
 from flax.typing import Dtype, Initializer
 from memorax.utils.typing import Array, Carry
 
-from .memoroid import Algebra
+from .memoroid import MemoroidCellBase
 
 
-class FFM(Algebra):
+class FFMCell(MemoroidCellBase):
     """Fast and Forgetful Memory algebra.
 
     Uses position-relative decay with complex exponential basis functions
@@ -104,7 +104,7 @@ class FFM(Algebra):
 
         return (state, timestep)
 
-    def combine(self, a: Carry, b: Carry) -> Carry:
+    def binary_operator(self, a: Carry, b: Carry) -> Carry:
         """Position-relative combine: state_i * γ(t_j - t_i) + state_j"""
         state_i, t_i = a
         state_j, t_j = b

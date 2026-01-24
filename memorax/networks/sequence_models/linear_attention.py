@@ -8,10 +8,10 @@ from flax.typing import Dtype, Initializer
 
 from memorax.utils.typing import Array, Carry
 
-from .memoroid import Algebra
+from .memoroid import MemoroidCellBase
 
 
-class LinearAttention(Algebra):
+class LinearAttentionCell(MemoroidCellBase):
     """Linear attention as a memoroid algebra.
 
     Uses kernel feature maps (ELU+1) to linearize attention, enabling
@@ -75,7 +75,7 @@ class LinearAttention(Algebra):
 
         return (state, normalizer)
 
-    def combine(self, a: Carry, b: Carry) -> Carry:
+    def binary_operator(self, a: Carry, b: Carry) -> Carry:
         """Combine two elements via addition."""
         state_i, norm_i = a
         state_j, norm_j = b

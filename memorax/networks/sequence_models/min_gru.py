@@ -7,7 +7,7 @@ from flax import linen as nn
 from flax.linen import initializers
 from memorax.utils.typing import Array, Carry
 
-from .memoroid import Algebra
+from .memoroid import MemoroidCellBase
 
 PRNGKey = Any
 Shape = Tuple[int, ...]
@@ -15,7 +15,7 @@ Dtype = Any
 Initializer = Callable[[PRNGKey, Shape, Dtype], Array]
 
 
-class MinGRU(Algebra):
+class MinGRUCell(MemoroidCellBase):
     """Minimal GRU algebra using log-space computation.
 
     Operates in log-space to avoid numerical overflow for long sequences.
@@ -58,7 +58,7 @@ class MinGRU(Algebra):
 
         return (log_state, decay)
 
-    def combine(self, a: Carry, b: Carry) -> Carry:
+    def binary_operator(self, a: Carry, b: Carry) -> Carry:
         """Log-space combine: logaddexp for numerically stable addition."""
         log_state_i, decay_i = a
         log_state_j, decay_j = b

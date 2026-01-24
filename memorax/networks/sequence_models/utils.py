@@ -33,6 +33,46 @@ def get_attention_implementation() -> Implementation:
     return "xla"
 
 
+def get_attention_mask(mask, initial_carry, memory_mask, context_length, num_heads):
+    B, T = mask.shape
+    _, M, *_ = memory_mask.shape
+
+    query_mask = (
+        jnp.cumsum(mask.astype(jnp.int32), axis=1)
+        + jnp.max(
+            jnp.cumsum(
+                jnp.concatenate([memory_mask, initial_carry.mask], axis=1), axis=1
+            ),
+            axis=1,
+        )[..., None]
+    )
+
+    key_mask = jnp.concatenate(
+        [memory_mask, initial_carry.mask, mask], axis=1, dtype=jnp.int32
+    )
+    key_mask = jnp.cumsum(key_mask, axis=1)
+    key_mask = key_mask[:, -(M + context_length) :]
+
+    attention_mask = nn.make_attention_mask(query_mask, key_mask, pairwise_fn=jnp.equal)
+
+    query_input = jnp.arange(T) + M + context_length
+    query_input = jnp.broadcast_to(query_input, (B, T))
+    key_input = jnp.arange(M + context_length + T)
+    key_input = jnp.broadcast_to(key_input, (B, M + context_length + T))
+    key_input = key_input[:, -(M + context_length) :]
+    causal_mask = nn.make_attention_mask(
+        query_input, key_input, pairwise_fn=jnp.greater_equal
+    )
+
+    B, _, T, S = attention_mask.shape
+    attention_mask = jnp.broadcast_to(attention_mask, (B, num_heads, T, S))
+
+    B, _, T, S = causal_mask.shape
+    causal_mask = jnp.broadcast_to(causal_mask, (B, num_heads, T, S))
+
+    return nn.combine_masks(attention_mask, causal_mask, dtype=jnp.bool)
+
+
 def add_time_axis(x: jax.Array):
     return x[:, None, ...]
 
@@ -199,7 +239,9 @@ class MultiHeadLayerNorm(nn.Module):
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-        )(x)
+        )(
+            x
+        )
 
         if self.use_scale:
             gamma = self.param(

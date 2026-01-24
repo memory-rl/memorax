@@ -8,6 +8,7 @@ from flax import struct
 
 from memorax.networks.sequence_models.utils import (
     get_attention_implementation,
+    get_attention_mask,
     get_input_shape,
 )
 from memorax.utils.typing import Array
@@ -30,7 +31,6 @@ class SelfAttention(SequenceModel):
     param_dtype: Any
     kernel_init: Any
     bias_init: Any
-    dropout: float = 0.0
     positional_embedding: Callable = lambda query, key, query_pos, key_pos: (
         query,
         key,
@@ -100,40 +100,9 @@ class SelfAttention(SequenceModel):
         )
         value = value[:, -(M + self.context_length) :]
 
-        query_mask = (
-            jnp.cumsum(mask.astype(jnp.int32), axis=1)
-            + jnp.max(
-                jnp.cumsum(
-                    jnp.concatenate([memory_mask, initial_carry.mask], axis=1), axis=1
-                ),
-                axis=1,
-            )[..., None]
+        attention_mask = get_attention_mask(
+            mask, initial_carry, memory_mask, self.context_length, self.num_heads
         )
-
-        key_mask = jnp.concatenate(
-            [memory_mask, initial_carry.mask, mask], axis=1, dtype=jnp.int32
-        )
-        key_mask = jnp.cumsum(key_mask, axis=1)
-        key_mask = key_mask[:, -(M + self.context_length) :]
-
-        attention_mask = nn.make_attention_mask(
-            query_mask, key_mask, pairwise_fn=jnp.equal
-        )
-
-        query_input = jnp.arange(T) + M + self.context_length
-        query_input = jnp.broadcast_to(query_input, (B, T))
-        key_input = jnp.arange(M + self.context_length + T)
-        key_input = jnp.broadcast_to(key_input, (B, M + self.context_length + T))
-        key_input = key_input[:, -(M + self.context_length) :]
-        causal_mask = nn.make_attention_mask(
-            query_input, key_input, pairwise_fn=jnp.greater_equal
-        )
-
-        B, _, T, S = attention_mask.shape
-        attention_mask = jnp.broadcast_to(attention_mask, (B, self.num_heads, T, S))
-
-        B, _, T, S = causal_mask.shape
-        causal_mask = jnp.broadcast_to(causal_mask, (B, self.num_heads, T, S))
 
         query, key, bias = self.positional_embedding(query, key, query_input, key_input)
 
@@ -155,8 +124,6 @@ class SelfAttention(SequenceModel):
             bias_init=self.bias_init,
             name="out",
         )(x)
-
-        y = nn.Dropout(rate=self.dropout)(y, deterministic=not self.has_rng("dropout"))
 
         mask = jnp.concatenate([initial_carry.mask, mask], axis=1)[
             :, -self.context_length :

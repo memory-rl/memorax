@@ -7,7 +7,7 @@ from flax.typing import Dtype
 from jax.nn.initializers import lecun_normal, normal
 from memorax.utils.typing import Array, Carry
 
-from .memoroid import Algebra
+from .memoroid import MemoroidCellBase
 from .utils import (
     discretize_bilinear,
     discretize_zoh,
@@ -19,7 +19,7 @@ from .utils import (
 )
 
 
-class S5(Algebra):
+class S5Cell(MemoroidCellBase):
     """S5 (Structured State Space for Sequences) algebra.
 
     Uses HIPPO matrix initialization and discretization for stable
@@ -144,7 +144,7 @@ class S5(Algebra):
 
         return (decay, state)
 
-    def combine(self, a: Carry, b: Carry) -> Carry:
+    def binary_operator(self, a: Carry, b: Carry) -> Carry:
         """Diagonal SSM combine: (a_j * a_i, a_j * s_i + s_j)"""
         decay_i, state_i = a
         decay_j, state_j = b

@@ -7,7 +7,7 @@ from flax import linen as nn
 from flax.typing import Dtype
 from memorax.utils.typing import Array, Carry
 
-from .memoroid import Algebra
+from .memoroid import MemoroidCellBase
 
 
 def _nu_init(key, shape, r_min, r_max, dtype=jnp.float32):
@@ -30,7 +30,7 @@ def _matrix_init(key, shape, dtype=jnp.float32, normalization=1):
     return jax.random.normal(key=key, shape=shape, dtype=dtype) / normalization
 
 
-class LRU(Algebra):
+class LRUCell(MemoroidCellBase):
     """Linear Recurrent Unit algebra.
 
     Uses exponential parameterization of eigenvalues for stable training.
@@ -99,7 +99,7 @@ class LRU(Algebra):
 
         return (decay, state)
 
-    def combine(self, a: Carry, b: Carry) -> Carry:
+    def binary_operator(self, a: Carry, b: Carry) -> Carry:
         """Diagonal SSM combine: (a_j * a_i, a_j * s_i + s_j)"""
         decay_i, state_i = a
         decay_j, state_j = b

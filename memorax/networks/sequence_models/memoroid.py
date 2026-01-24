@@ -10,12 +10,12 @@ from .sequence_model import SequenceModel
 from .utils import broadcast_mask, get_input_shape
 
 
-class Algebra(nn.Module):
+class MemoroidCellBase(nn.Module):
     @abstractmethod
     def __call__(self, x: Array, **kwargs) -> Carry: ...
 
     @abstractmethod
-    def combine(self, a: Carry, b: Carry) -> Carry: ...
+    def binary_operator(self, a: Carry, b: Carry) -> Carry: ...
 
     @abstractmethod
     def read(self, h: Carry, x: Array, **kwargs) -> Array: ...
@@ -27,7 +27,7 @@ class Algebra(nn.Module):
 
 
 class Memoroid(SequenceModel):
-    algebra: Algebra
+    algebra: MemoroidCellBase
 
     @nn.compact
     def __call__(
@@ -59,7 +59,7 @@ class Memoroid(SequenceModel):
             lhs_i, rhs_i = lhs
             lhs_j, rhs_j = rhs
 
-            combined = self.algebra.combine(lhs_i, lhs_j)
+            combined = self.algebra.binary_operator(lhs_i, lhs_j)
 
             out = jax.tree.map(
                 lambda lj, c: jnp.where(broadcast_mask(rhs_j, lj), lj, c),

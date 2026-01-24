@@ -5,10 +5,10 @@ from flax import linen as nn
 from flax.typing import Dtype
 from memorax.utils.typing import Array, Carry
 
-from .memoroid import Algebra
+from .memoroid import MemoroidCellBase
 
 
-class Mamba(Algebra):
+class MambaCell(MemoroidCellBase):
     """Mamba selective SSM algebra.
 
     Uses input-dependent dynamics (dt, B, C) for content-aware state updates.
@@ -55,7 +55,7 @@ class Mamba(Algebra):
 
         return (decay, state)
 
-    def combine(self, a: Carry, b: Carry) -> Carry:
+    def binary_operator(self, a: Carry, b: Carry) -> Carry:
         """Diagonal SSM combine: (a_j * a_i, a_j * s_i + s_j)"""
         decay_i, state_i = a
         decay_j, state_j = b

@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from flax import linen as nn
 from flax import struct
 
-from memorax.networks.blocks import Block
+from .base import Block
 from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import get_input_shape
 from memorax.utils.typing import Array, Carry
@@ -30,7 +30,7 @@ class SegmentRecurrence(nn.Module, Block):
         dtype: Data type for memory storage.
     """
 
-    sequence_model: SequenceModel
+    module: SequenceModel
     memory_length: int
     features: int
     dtype: Any = None
@@ -38,11 +38,13 @@ class SegmentRecurrence(nn.Module, Block):
     @nn.nowrap
     def initialize_carry(self, key, input_shape) -> Carry:
         batch_size, *_ = input_shape
-        state = jnp.zeros((batch_size, self.memory_length, self.features), dtype=self.dtype)
+        state = jnp.zeros(
+            (batch_size, self.memory_length, self.features), dtype=self.dtype
+        )
         mask = jnp.zeros((batch_size, self.memory_length), dtype=jnp.int32)
         memory = Memory(state=state, mask=mask)
 
-        carry = self.sequence_model.initialize_carry(key, input_shape)
+        carry = self.module.initialize_carry(key, input_shape)
         return (memory, carry)
 
     @nn.compact
@@ -63,7 +65,7 @@ class SegmentRecurrence(nn.Module, Block):
 
         memory, carry = initial_carry
 
-        carry, y = self.sequence_model(
+        carry, y = self.module(
             inputs,
             mask,
             initial_carry=carry,

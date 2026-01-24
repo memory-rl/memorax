@@ -7,6 +7,7 @@ from memorax.networks.blocks import (
     PreNorm,
     Residual,
     SegmentRecurrence,
+    Stack,
 )
 from memorax.networks.cnn import CNN
 from memorax.networks.embedding import Embedding
@@ -20,8 +21,11 @@ from memorax.networks.sequence_models import (
     LinearAttentionCell,
     LRUCell,
     MambaCell,
+    Memoroid,
+    MemoroidCellBase,
     MetaMaskWrapper,
     MinGRUCell,
+    RetentionCell,
     S5Cell,
     SelfAttention,
     SequenceModel,
@@ -29,5 +33,10 @@ from memorax.networks.sequence_models import (
     SHMCell,
     mLSTMCell,
     sLSTMCell,
+)
+from memorax.networks.positional_embeddings import (
+    ALiBi,
+    LearnablePositionalEmbedding,
+    RoPE,
 )
 from memorax.networks.vit import PatchEmbedding, ViT

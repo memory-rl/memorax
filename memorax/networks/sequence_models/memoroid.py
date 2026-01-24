@@ -27,7 +27,7 @@ class MemoroidCellBase(nn.Module):
 
 
 class Memoroid(SequenceModel):
-    algebra: MemoroidCellBase
+    cell: MemoroidCellBase
 
     @nn.compact
     def __call__(
@@ -39,11 +39,11 @@ class Memoroid(SequenceModel):
     ) -> Tuple[Carry, Array]:
         if initial_carry is None:
             input_shape = get_input_shape(inputs)
-            initial_carry = self.algebra.initialize_carry(
+            initial_carry = self.cell.initialize_carry(
                 jax.random.key(0), input_shape
             )
 
-        z = self.algebra(inputs, **kwargs)
+        z = self.cell(inputs, **kwargs)
 
         z = jax.tree.map(
             lambda c, e: jnp.concatenate([c, e], axis=1),
@@ -59,7 +59,7 @@ class Memoroid(SequenceModel):
             lhs_i, rhs_i = lhs
             lhs_j, rhs_j = rhs
 
-            combined = self.algebra.binary_operator(lhs_i, lhs_j)
+            combined = self.cell.binary_operator(lhs_i, lhs_j)
 
             out = jax.tree.map(
                 lambda lj, c: jnp.where(broadcast_mask(rhs_j, lj), lj, c),
@@ -74,9 +74,9 @@ class Memoroid(SequenceModel):
         next_carry = jax.tree.map(lambda s: s[:, -1:], h)
         h = jax.tree.map(lambda s: s[:, 1:], h)
 
-        y = self.algebra.read(h, inputs, **kwargs)
+        y = self.cell.read(h, inputs, **kwargs)
 
         return next_carry, y
 
     def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
-        return self.algebra.initialize_carry(key, input_shape)
+        return self.cell.initialize_carry(key, input_shape)

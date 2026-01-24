@@ -404,7 +404,7 @@ class SAC:
         eval_obs, eval_env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        eval_done = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.float32)
+        eval_done = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.bool_)
         eval_hidden_state = self.actor_network.initialize_carry(eval_obs.shape)
 
         eval_state = state.replace(

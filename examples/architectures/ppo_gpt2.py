@@ -70,7 +70,7 @@ feature_extractor = FeatureExtractor(
 
 # GPT-2 style transformer: positional embedding + (PreNorm -> Attention -> Residual, PreNorm -> FFN -> Residual) * num_layers
 positional_embedding = LearnablePositionalEmbedding(
-    num_embeddings=context_length,
+    num_embeddings=512,
     features=d_model,
 )
 attention = Residual(

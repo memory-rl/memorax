@@ -4,6 +4,15 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
+
+def _check_positions(positions, num_embeddings):
+    if not jnp.all(positions < num_embeddings):
+        raise ValueError(
+            f"Position indices exceed num_embeddings ({num_embeddings}). "
+            f"Max position: {jnp.max(positions)}. "
+            "Ensure num_embeddings >= context_length or that episode resets occur frequently enough."
+        )
+
 from memorax.utils.typing import Array, Carry
 
 from .base import AbsolutePositionalEmbedding
@@ -41,11 +50,7 @@ class LearnablePositionalEmbedding(AbsolutePositionalEmbedding, nn.Module):
 
         positions, carry = jax.vmap(compute_positions)(mask, initial_carry)
 
-        assert jnp.all(positions < self.num_embeddings), (
-            f"Position indices exceed num_embeddings ({self.num_embeddings}). "
-            f"Max position: {jnp.max(positions)}. "
-            f"Ensure num_embeddings >= context_length or that episode resets occur frequently enough."
-        )
+        jax.debug.callback(_check_positions, positions, self.num_embeddings)
 
         position_embeddings = nn.Embed(
             num_embeddings=self.num_embeddings, features=self.features

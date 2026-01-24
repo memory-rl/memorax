@@ -13,7 +13,9 @@ class LearnablePositionalEmbedding(AbsolutePositionalEmbedding, nn.Module):
     num_embeddings: int
     features: int
 
-    def initialize_carry(self, batch_size: int) -> Carry:
+    @nn.nowrap
+    def initialize_carry(self, key, input_shape) -> Carry:
+        batch_size, *_ = input_shape
         return jnp.zeros((batch_size,), dtype=jnp.int32)
 
     @nn.compact
@@ -27,7 +29,7 @@ class LearnablePositionalEmbedding(AbsolutePositionalEmbedding, nn.Module):
         batch_size = inputs.shape[0]
 
         if initial_carry is None:
-            initial_carry = self.initialize_carry(batch_size)
+            initial_carry = self.initialize_carry(None, (batch_size,))
 
         def step(position: Array, mask: Array) -> tuple[Array, Array]:
             next_position = jnp.where(mask, 0, position + 1)
@@ -39,8 +41,14 @@ class LearnablePositionalEmbedding(AbsolutePositionalEmbedding, nn.Module):
 
         positions, carry = jax.vmap(compute_positions)(mask, initial_carry)
 
+        assert jnp.all(positions < self.num_embeddings), (
+            f"Position indices exceed num_embeddings ({self.num_embeddings}). "
+            f"Max position: {jnp.max(positions)}. "
+            f"Ensure num_embeddings >= context_length or that episode resets occur frequently enough."
+        )
+
         position_embeddings = nn.Embed(
             num_embeddings=self.num_embeddings, features=self.features
         )(positions)
 
-        return inputs + position_embeddings, carry
+        return carry, inputs + position_embeddings

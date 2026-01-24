@@ -18,12 +18,12 @@ class Stack(nn.Module, Block):
         blocks: Sequence of blocks to stack. Each must implement the Block protocol.
 
     Example:
-        stack = Stack(blocks=[
+        stack = Stack(blocks=(
             Residual(module=PreNorm(module=SelfAttention(...))),
             Residual(module=PreNorm(module=FFN(...))),
             Residual(module=PreNorm(module=SelfAttention(...))),
             Residual(module=PreNorm(module=FFN(...))),
-        ])
+        ))
         carry, output = stack(inputs, mask, initial_carry)
     """
 

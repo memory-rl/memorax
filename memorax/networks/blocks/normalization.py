@@ -30,6 +30,10 @@ class PreNorm(nn.Module, Block):
         x = self.norm()(inputs)
         return self.module(x, mask=mask, initial_carry=initial_carry, **kwargs)
 
+    @nn.nowrap
+    def initialize_carry(self, key, input_shape):
+        return self.module.initialize_carry(key, input_shape)
+
 
 class PostNorm(nn.Module, Block):
     """Applies normalization after the module: output = norm(module(x)).
@@ -55,3 +59,7 @@ class PostNorm(nn.Module, Block):
             inputs, mask=mask, initial_carry=initial_carry, **kwargs
         )
         return carry, self.norm()(output)
+
+    @nn.nowrap
+    def initialize_carry(self, key, input_shape):
+        return self.module.initialize_carry(key, input_shape)

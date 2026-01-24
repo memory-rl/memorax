@@ -25,6 +25,10 @@ class Residual(nn.Module, Block):
         )
         return carry, inputs + output
 
+    @nn.nowrap
+    def initialize_carry(self, key, input_shape):
+        return self.module.initialize_carry(key, input_shape)
+
 
 class GatedResidual(nn.Module, Block):
     """Residual connection with a learned gate: output = x + gate * module(x)."""
@@ -53,3 +57,7 @@ class GatedResidual(nn.Module, Block):
         gate = self.gate(gate)
 
         return carry, inputs + gate * output
+
+    @nn.nowrap
+    def initialize_carry(self, key, input_shape):
+        return self.module.initialize_carry(key, input_shape)

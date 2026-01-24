@@ -5,6 +5,7 @@ from .mamba import MambaCell
 from .memoroid import MemoroidCellBase, Memoroid
 from .min_gru import MinGRUCell
 from .mlstm import mLSTMCell
+from .retention import RetentionCell
 from .rnn import RNN
 from .s5 import S5Cell
 from .self_attention import SelfAttention

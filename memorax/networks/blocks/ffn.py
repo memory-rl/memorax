@@ -45,6 +45,10 @@ class FFN(nn.Module, Block):
 
         return None, x
 
+    @nn.nowrap
+    def initialize_carry(self, key, input_shape):
+        return self.module.initialize_carry(key, input_shape)
+
 
 class GatedFFN(nn.Module, Block):
     """Gated feed-forward network (SwiGLU-style): Dense -> split -> act(gate) * value -> Dense."""
@@ -85,3 +89,7 @@ class GatedFFN(nn.Module, Block):
         )(x)
 
         return None, x
+
+    @nn.nowrap
+    def initialize_carry(self, key, input_shape):
+        return self.module.initialize_carry(key, input_shape)

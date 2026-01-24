@@ -28,7 +28,7 @@ class TestLRU:
             features=16,
             hidden_dim=32,
         )
-        return Memoroid(algebra=algebra)
+        return Memoroid(cell=algebra)
 
     def test_initialize_carry(self, lru):
         key = jax.random.key(0)
@@ -71,7 +71,7 @@ class TestMinGRU:
         algebra = MinGRUCell(
             features=32,
         )
-        return Memoroid(algebra=algebra)
+        return Memoroid(cell=algebra)
 
     def test_initialize_carry(self, min_gru):
         key = jax.random.key(0)
@@ -105,7 +105,7 @@ class TestFFM:
             memory_size=16,
             context_size=8,
         )
-        return Memoroid(algebra=algebra)
+        return Memoroid(cell=algebra)
 
     def test_initialize_carry(self, ffm):
         key = jax.random.key(0)
@@ -137,7 +137,7 @@ class TestS5:
             features=16,
             state_size=32,
         )
-        return Memoroid(algebra=algebra)
+        return Memoroid(cell=algebra)
 
     def test_initialize_carry(self, s5):
         key = jax.random.key(0)
@@ -172,7 +172,7 @@ class TestLinearAttention:
             bias_init=initializers.zeros_init(),
             param_dtype=jnp.float32,
         )
-        return Memoroid(algebra=algebra)
+        return Memoroid(cell=algebra)
 
     def test_initialize_carry(self, linear_attention):
         key = jax.random.key(0)
@@ -404,7 +404,7 @@ class TestMLSTM:
             hidden_dim=32,
             num_heads=4,
         )
-        return Memoroid(algebra=algebra)
+        return Memoroid(cell=algebra)
 
     def test_initialize_carry(self, mlstm):
         key = jax.random.key(0)
@@ -627,7 +627,7 @@ class TestVmapCompatibility:
             features=16,
             hidden_dim=32,
         )
-        model = Memoroid(algebra=algebra)
+        model = Memoroid(cell=algebra)
 
         key = jax.random.key(0)
         batch_size, seq_len, features = 4, 8, 16
@@ -675,7 +675,7 @@ class TestJitCompatibility:
             features=16,
             hidden_dim=32,
         )
-        model = Memoroid(algebra=algebra)
+        model = Memoroid(cell=algebra)
 
         key = jax.random.key(0)
         batch_size, seq_len, features = 4, 8, 16
@@ -716,6 +716,152 @@ class TestJitCompatibility:
         assert jnp.allclose(outputs, outputs2)
 
 
+class TestRetention:
+    """Test Retention (RetNet) memoroid with multi-scale decay."""
+
+    @pytest.fixture
+    def retention(self):
+        from memorax.networks.sequence_models import RetentionCell
+        from memorax.networks.sequence_models.memoroid import Memoroid
+
+        algebra = RetentionCell(
+            head_dim=8,
+            num_heads=4,
+            kernel_init=initializers.lecun_normal(),
+            bias_init=initializers.zeros_init(),
+            param_dtype=jnp.float32,
+            gamma_min=0.9,
+            gamma_max=0.99,
+        )
+        return Memoroid(cell=algebra)
+
+    @pytest.fixture
+    def retention_algebra(self):
+        from memorax.networks.sequence_models import RetentionCell
+
+        return RetentionCell(
+            head_dim=8,
+            num_heads=4,
+            kernel_init=initializers.lecun_normal(),
+            bias_init=initializers.zeros_init(),
+            param_dtype=jnp.float32,
+            gamma_min=0.9,
+            gamma_max=0.99,
+        )
+
+    def test_initialize_carry(self, retention):
+        key = jax.random.key(0)
+        input_shape = (4, 16)
+        carry = retention.initialize_carry(key, input_shape)
+        assert carry is not None
+        # Retention carry is (state, decay)
+        assert len(carry) == 2
+        state, decay = carry
+        # state: (batch, 1, num_heads, head_dim, head_dim)
+        assert state.shape == (4, 1, 4, 8, 8)
+        # decay: (batch, 1, num_heads, 1, 1)
+        assert decay.shape == (4, 1, 4, 1, 1)
+
+    def test_call(self, retention):
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 4, 8, 16
+        inputs = jnp.ones((batch_size, seq_len, features))
+        mask = jnp.zeros((batch_size, seq_len))
+
+        params = retention.init(key, inputs, mask)
+        carry, outputs = retention.apply(params, inputs, mask)
+
+        assert outputs.shape == (batch_size, seq_len, features)
+
+    def test_with_initial_carry(self, retention):
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 4, 8, 16
+        inputs = jnp.ones((batch_size, seq_len, features))
+        mask = jnp.zeros((batch_size, seq_len))
+
+        params = retention.init(key, inputs, mask)
+        initial_carry = retention.initialize_carry(key, (batch_size, features))
+
+        carry, outputs = retention.apply(params, inputs, mask, initial_carry)
+        assert outputs.shape == (batch_size, seq_len, features)
+
+    def test_multi_scale_decay(self, retention_algebra):
+        """Test that different heads have different decay rates."""
+        # Check that gammas are properly set
+        gammas = retention_algebra.gammas
+        assert len(gammas) == 4  # num_heads
+        # Should be linearly spaced from gamma_max to gamma_min
+        assert jnp.isclose(gammas[0], 0.99)  # First head: longest memory
+        assert jnp.isclose(gammas[-1], 0.9)  # Last head: shortest memory
+        # Should be monotonically decreasing
+        assert jnp.all(jnp.diff(gammas) < 0)
+
+    def test_combine_associativity(self, retention_algebra):
+        """Test that the combine operation is associative."""
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 2, 1, 16
+        inputs = jax.random.normal(key, (batch_size, seq_len, features))
+
+        params = retention_algebra.init(key, inputs)
+
+        # Create three elements
+        a = retention_algebra.apply(params, inputs * 1.0)
+        b = retention_algebra.apply(params, inputs * 2.0)
+        c = retention_algebra.apply(params, inputs * 3.0)
+
+        # Test associativity: (a ⊕ b) ⊕ c == a ⊕ (b ⊕ c)
+        ab = retention_algebra.binary_operator(a, b)
+        ab_c = retention_algebra.binary_operator(ab, c)
+
+        bc = retention_algebra.binary_operator(b, c)
+        a_bc = retention_algebra.binary_operator(a, bc)
+
+        # Check both components (state, decay) are close
+        assert jnp.allclose(ab_c[0], a_bc[0], atol=1e-5), "State not associative"
+        assert jnp.allclose(ab_c[1], a_bc[1], atol=1e-5), "Decay not associative"
+
+    def test_decay_accumulation(self, retention_algebra):
+        """Test that decay properly accumulates over sequence."""
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 2, 1, 16
+        inputs = jax.random.normal(key, (batch_size, seq_len, features))
+
+        params = retention_algebra.init(key, inputs)
+
+        # Get single element
+        state, decay = retention_algebra.apply(params, inputs)
+
+        # Combine with itself
+        combined = retention_algebra.binary_operator((state, decay), (state, decay))
+        combined_state, combined_decay = combined
+
+        # Decay should be squared
+        expected_decay = decay * decay
+        assert jnp.allclose(combined_decay, expected_decay, atol=1e-5)
+
+    def test_state_decay_on_combine(self, retention_algebra):
+        """Test that earlier states are properly decayed when combined."""
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 2, 1, 16
+
+        params = retention_algebra.init(key, jnp.ones((batch_size, seq_len, features)))
+
+        # Create two elements with known inputs
+        inputs_a = jnp.ones((batch_size, seq_len, features))
+        inputs_b = jnp.ones((batch_size, seq_len, features)) * 2
+
+        state_a, decay_a = retention_algebra.apply(params, inputs_a)
+        state_b, decay_b = retention_algebra.apply(params, inputs_b)
+
+        combined_state, combined_decay = retention_algebra.binary_operator(
+            (state_a, decay_a), (state_b, decay_b)
+        )
+
+        # Combined state should be: state_a * decay_b + state_b
+        expected_state = state_a * decay_b + state_b
+        assert jnp.allclose(combined_state, expected_state, atol=1e-5)
+
+
 class TestMaskingBehavior:
     """Test that masking properly resets state."""
 
@@ -727,7 +873,7 @@ class TestMaskingBehavior:
             features=16,
             hidden_dim=32,
         )
-        model = Memoroid(algebra=algebra)
+        model = Memoroid(cell=algebra)
 
         key = jax.random.key(0)
         batch_size, seq_len, features = 2, 8, 16

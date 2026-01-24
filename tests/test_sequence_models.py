@@ -113,7 +113,6 @@ class TestFFM:
         carry = ffm.initialize_carry(key, input_shape)
         assert carry is not None
 
-    @pytest.mark.xfail(reason="Shape broadcasting issue in FFM Memoroid")
     def test_call(self, ffm):
         key = jax.random.key(0)
         batch_size, seq_len, features = 4, 8, 16
@@ -183,7 +182,6 @@ class TestLinearAttention:
         # Check carry structure: (decay, state)
         assert len(carry) == 2
 
-    @pytest.mark.xfail(reason="Shape broadcasting issue in LinearAttention Memoroid")
     def test_call(self, linear_attention):
         key = jax.random.key(0)
         batch_size, seq_len, features = 4, 8, 16
@@ -345,42 +343,131 @@ class TestSHMCell:
         assert outputs.shape == (batch_size, 16)  # output_features
 
 
-class TestXLSTMCell:
-    """Test Extended LSTM cell."""
+class TestSLSTMCell:
+    """Test sLSTM cell with RNN wrapper."""
 
     @pytest.fixture
-    def xlstm_cell(self):
-        from memorax.networks.sequence_models import xLSTMCell
+    def slstm_rnn(self):
+        from memorax.networks.sequence_models import RNN, sLSTMCell
 
-        return xLSTMCell(
+        cell = sLSTMCell(
             features=16,
-            hidden_dim=(32, 32),
-            pattern=("s", "m"),  # sLSTM then mLSTM
+            hidden_dim=32,
+            num_heads=4,
         )
+        return RNN(cell=cell)
 
-    def test_initialize_carry(self, xlstm_cell):
+    def test_initialize_carry(self, slstm_rnn):
         key = jax.random.key(0)
-        input_shape = (4, 16)  # (batch_size, features)
-        carry = xlstm_cell.initialize_carry(key, input_shape)
+        input_shape = (4, 16)
+        carry = slstm_rnn.initialize_carry(key, input_shape)
         assert carry is not None
-        # xLSTM carry is a tuple of carries for each layer
-        assert len(carry) == 2
+        # sLSTM carry is (cell_state, conv_state)
+        cell_state, conv_state = carry
+        # cell_state is (c, n, m, h)
+        assert len(cell_state) == 4
 
-    @pytest.mark.xfail(reason="sLSTMLayer signature mismatch in xLSTMBlock")
-    def test_call(self, xlstm_cell):
+    def test_call(self, slstm_rnn):
         key = jax.random.key(0)
         batch_size, seq_len, features = 4, 8, 16
         inputs = jnp.ones((batch_size, seq_len, features))
         mask = jnp.zeros((batch_size, seq_len))
 
-        # Initialize carry
-        carry = xlstm_cell.initialize_carry(key, (batch_size, features))
+        params = slstm_rnn.init(key, inputs, mask)
+        carry, outputs = slstm_rnn.apply(params, inputs, mask)
 
-        params = xlstm_cell.init(key, inputs, mask, carry)
-        new_carry, outputs = xlstm_cell.apply(params, inputs, mask, carry)
-
-        assert len(new_carry) == 2
         assert outputs.shape == (batch_size, seq_len, features)
+
+    def test_with_initial_carry(self, slstm_rnn):
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 4, 8, 16
+        inputs = jnp.ones((batch_size, seq_len, features))
+        mask = jnp.zeros((batch_size, seq_len))
+
+        params = slstm_rnn.init(key, inputs, mask)
+        initial_carry = slstm_rnn.initialize_carry(key, (batch_size, features))
+
+        carry, outputs = slstm_rnn.apply(params, inputs, mask, initial_carry)
+        assert outputs.shape == (batch_size, seq_len, features)
+
+
+class TestMLSTM:
+    """Test mLSTM as a Memoroid algebra (parallel scan)."""
+
+    @pytest.fixture
+    def mlstm(self):
+        from memorax.networks.sequence_models import mLSTM
+        from memorax.networks.sequence_models.memoroid import Memoroid
+
+        algebra = mLSTM(
+            features=16,
+            hidden_dim=32,
+            num_heads=4,
+        )
+        return Memoroid(algebra=algebra)
+
+    def test_initialize_carry(self, mlstm):
+        key = jax.random.key(0)
+        input_shape = (4, 16)
+        carry = mlstm.initialize_carry(key, input_shape)
+        assert carry is not None
+        # mLSTM carry is (log_f, C, n, m)
+        assert len(carry) == 4
+
+    def test_call(self, mlstm):
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 4, 8, 16
+        inputs = jnp.ones((batch_size, seq_len, features))
+        mask = jnp.zeros((batch_size, seq_len))
+
+        params = mlstm.init(key, inputs, mask)
+        carry, outputs = mlstm.apply(params, inputs, mask)
+
+        assert outputs.shape == (batch_size, seq_len, features)
+
+    def test_with_initial_carry(self, mlstm):
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 4, 8, 16
+        inputs = jnp.ones((batch_size, seq_len, features))
+        mask = jnp.zeros((batch_size, seq_len))
+
+        params = mlstm.init(key, inputs, mask)
+        initial_carry = mlstm.initialize_carry(key, (batch_size, features))
+
+        carry, outputs = mlstm.apply(params, inputs, mask, initial_carry)
+        assert outputs.shape == (batch_size, seq_len, features)
+
+    def test_combine_associativity(self, mlstm):
+        """Test that combine operation is associative."""
+        from memorax.networks.sequence_models import mLSTM
+
+        algebra = mLSTM(
+            features=16,
+            hidden_dim=32,
+            num_heads=4,
+        )
+
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 2, 1, 16
+        inputs = jax.random.normal(key, (batch_size, seq_len, features))
+
+        params = algebra.init(key, inputs)
+
+        # Create three elements
+        a = algebra.apply(params, inputs * 1.0)
+        b = algebra.apply(params, inputs * 2.0)
+        c = algebra.apply(params, inputs * 3.0)
+
+        # Test associativity: (a ⊕ b) ⊕ c == a ⊕ (b ⊕ c)
+        ab = algebra.combine(a, b)
+        ab_c = algebra.combine(ab, c)
+
+        bc = algebra.combine(b, c)
+        a_bc = algebra.combine(a, bc)
+
+        # Check all components are close
+        for i in range(4):
+            assert jnp.allclose(ab_c[i], a_bc[i], atol=1e-5), f"Component {i} not associative"
 
 
 class TestSequenceModelWrapper:
@@ -432,7 +519,6 @@ class TestMetaMaskWrapper:
         assert hasattr(carry, "carry")
         assert hasattr(carry, "step")
 
-    @pytest.mark.xfail(reason="Shape broadcasting issue in MetaMaskWrapper with RNN")
     def test_call(self, meta_masked_rnn):
         key = jax.random.key(0)
         batch_size, seq_len, features = 4, 8, 16
@@ -471,7 +557,6 @@ class TestAlgebraCombine:
         combined = algebra.combine(carry_a, carry_b)
         assert combined is not None
 
-    @pytest.mark.xfail(reason="FFM combine accesses setup params outside apply")
     def test_ffm_combine(self):
         from memorax.networks.sequence_models import FFM
 
@@ -489,7 +574,8 @@ class TestAlgebraCombine:
         carry_a = algebra.apply(params, inputs)
         carry_b = algebra.apply(params, inputs * 2)
 
-        combined = algebra.combine(carry_a, carry_b)
+        # combine() needs access to setup params, so call it within apply context
+        combined = algebra.apply(params, carry_a, carry_b, method="combine")
         assert combined is not None
 
     def test_s5_combine(self):

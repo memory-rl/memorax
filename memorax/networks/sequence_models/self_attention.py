@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 from flax import struct
+
 from memorax.networks.sequence_models.utils import (
     get_attention_implementation,
     get_attention_mask,
@@ -74,9 +75,9 @@ class SelfAttention(SequenceModel):
 
         _, M, *_ = memory.shape
 
-        assert T <= self.context_length, (
-            f"T must be less than or equal to context_length, but was T: {T}, context_length: {self.context_length}"
-        )
+        assert (
+            T <= self.context_length
+        ), f"T must be less than or equal to context_length, but was T: {T}, context_length: {self.context_length}"
 
         projection = partial(
             nn.DenseGeneral,
@@ -99,7 +100,7 @@ class SelfAttention(SequenceModel):
         )
         value = value[:, -(M + self.context_length) :]
 
-        attention_mask = get_attention_mask(
+        attention_mask, query_input, key_input = get_attention_mask(
             mask, initial_carry, memory_mask, self.context_length, self.num_heads
         )
 
@@ -110,7 +111,7 @@ class SelfAttention(SequenceModel):
             key.astype(jnp.bfloat16),
             value.astype(jnp.bfloat16),
             bias=bias,
-            mask=nn.combine_masks(attention_mask, causal_mask, dtype=jnp.bool),
+            mask=attention_mask,
             implementation=get_attention_implementation(),
         )
 

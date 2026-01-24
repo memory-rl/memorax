@@ -7,6 +7,7 @@ from flax.linen.dtypes import promote_dtype
 from flax.typing import Dtype, Initializer
 from jax.lib import xla_bridge
 from jax.nn.initializers import lecun_normal
+
 from memorax.utils.typing import Array
 
 Implementation = Literal["xla", "cudnn"]
@@ -33,6 +34,14 @@ def get_attention_implementation() -> Implementation:
 
 
 def get_attention_mask(mask, initial_carry, memory_mask, context_length, num_heads):
+    """Compute attention mask with position information for positional embeddings.
+
+    Returns:
+        Tuple of (combined_mask, query_input, key_input) where:
+            - combined_mask: combined attention and causal mask (B, NH, T, S)
+            - query_input: query positions (B, T)
+            - key_input: key positions (B, M + context_length)
+    """
     B, T = mask.shape
     _, M, *_ = memory_mask.shape
 
@@ -69,7 +78,8 @@ def get_attention_mask(mask, initial_carry, memory_mask, context_length, num_hea
     B, _, T, S = causal_mask.shape
     causal_mask = jnp.broadcast_to(causal_mask, (B, num_heads, T, S))
 
-    return nn.combine_masks(attention_mask, causal_mask, dtype=jnp.bool)
+    combined_mask = nn.combine_masks(attention_mask, causal_mask, dtype=jnp.bool)
+    return combined_mask, query_input, key_input
 
 
 def add_time_axis(x: jax.Array):
@@ -238,7 +248,9 @@ class MultiHeadLayerNorm(nn.Module):
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-        )(x)
+        )(
+            x
+        )
 
         if self.use_scale:
             gamma = self.param(

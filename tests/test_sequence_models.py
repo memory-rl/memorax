@@ -195,65 +195,93 @@ class TestLinearAttention:
 
 
 class TestMamba:
-    """Test Mamba selective SSM.
-
-    Mamba requires additional kwargs (dt, B, C) for its __call__ method,
-    making it harder to test directly with Memoroid.
-    """
+    """Test Mamba selective SSM as a Memoroid algebra."""
 
     @pytest.fixture
     def mamba_algebra(self):
         from memorax.networks.sequence_models import MambaCell
 
         return MambaCell(
+            features=16,
             num_heads=4,
             head_dim=8,
             hidden_dim=16,
         )
+
+    @pytest.fixture
+    def mamba(self):
+        from memorax.networks.sequence_models import MambaCell
+        from memorax.networks.sequence_models.memoroid import Memoroid
+
+        algebra = MambaCell(
+            features=16,
+            num_heads=4,
+            head_dim=8,
+            hidden_dim=16,
+        )
+        return Memoroid(cell=algebra)
 
     def test_initialize_carry(self, mamba_algebra):
         key = jax.random.key(0)
         batch_size, features = 4, 16
         input_shape = (batch_size, features)
 
-        # Need to init params first since initialize_carry may need them
         carry = mamba_algebra.initialize_carry(key, input_shape)
         assert carry is not None
-        assert len(carry) == 2  # (decay, state)
+        assert len(carry) == 4  # (decay, state, gate, x_inner)
 
     def test_algebra_call(self, mamba_algebra):
-        """Test the algebra's __call__ directly with required kwargs."""
+        """Test the algebra's __call__ directly."""
         key = jax.random.key(0)
-        batch_size, seq_len = 4, 8
-        num_heads, head_dim, hidden_dim = 4, 8, 16
+        batch_size, seq_len, features = 4, 8, 16
 
-        # Mamba expects specific input shapes
-        x = jnp.ones((batch_size, seq_len, num_heads, head_dim))
-        dt = jnp.ones((batch_size, seq_len, num_heads)) * 0.1
-        B = jnp.ones((batch_size, seq_len, num_heads, hidden_dim))
+        x = jnp.ones((batch_size, seq_len, features))
 
-        params = mamba_algebra.init(key, x, dt=dt, B=B)
-        carry = mamba_algebra.apply(params, x, dt=dt, B=B)
+        params = mamba_algebra.init(key, x)
+        carry = mamba_algebra.apply(params, x)
 
         assert carry is not None
-        assert len(carry) == 2
+        assert len(carry) == 4  # (decay, state, gate, x_inner)
 
-    def test_combine(self, mamba_algebra):
-        """Test the combine operation."""
+    def test_binary_operator(self, mamba_algebra):
+        """Test the binary_operator operation."""
         key = jax.random.key(0)
-        batch_size, seq_len = 4, 1
-        num_heads, head_dim, hidden_dim = 4, 8, 16
+        batch_size, seq_len, features = 4, 1, 16
 
-        x = jnp.ones((batch_size, seq_len, num_heads, head_dim))
-        dt = jnp.ones((batch_size, seq_len, num_heads)) * 0.1
-        B = jnp.ones((batch_size, seq_len, num_heads, hidden_dim))
+        x = jnp.ones((batch_size, seq_len, features))
 
-        params = mamba_algebra.init(key, x, dt=dt, B=B)
-        carry_a = mamba_algebra.apply(params, x, dt=dt, B=B)
-        carry_b = mamba_algebra.apply(params, x * 2, dt=dt, B=B)
+        params = mamba_algebra.init(key, x)
+        carry_a = mamba_algebra.apply(params, x)
+        carry_b = mamba_algebra.apply(params, x * 2)
 
-        combined = mamba_algebra.combine(carry_a, carry_b)
+        combined = mamba_algebra.binary_operator(carry_a, carry_b)
         assert combined is not None
+        assert len(combined) == 4
+
+    def test_memoroid_call(self, mamba):
+        """Test Mamba through the Memoroid wrapper."""
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 4, 8, 16
+        inputs = jnp.ones((batch_size, seq_len, features))
+        mask = jnp.zeros((batch_size, seq_len))
+
+        params = mamba.init(key, inputs, mask)
+        carry, outputs = mamba.apply(params, inputs, mask)
+
+        assert outputs.shape == (batch_size, seq_len, features)
+
+    def test_with_initial_carry(self, mamba):
+        """Test Mamba with initial carry."""
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 4, 8, 16
+        inputs = jnp.ones((batch_size, seq_len, features))
+        mask = jnp.zeros((batch_size, seq_len))
+
+        params = mamba.init(key, inputs, mask)
+        initial_carry = mamba.initialize_carry(key, (batch_size, features))
+
+        carry, outputs = mamba.apply(params, inputs, mask, initial_carry)
+        assert outputs.shape == (batch_size, seq_len, features)
 
 
 class TestRNN:
@@ -437,8 +465,8 @@ class TestMLSTM:
         carry, outputs = mlstm.apply(params, inputs, mask, initial_carry)
         assert outputs.shape == (batch_size, seq_len, features)
 
-    def test_combine_associativity(self, mlstm):
-        """Test that combine operation is associative."""
+    def test_binary_operator_associativity(self, mlstm):
+        """Test that binary_operator operation is associative."""
         from memorax.networks.sequence_models import mLSTMCell
 
         algebra = mLSTMCell(
@@ -459,11 +487,11 @@ class TestMLSTM:
         c = algebra.apply(params, inputs * 3.0)
 
         # Test associativity: (a ⊕ b) ⊕ c == a ⊕ (b ⊕ c)
-        ab = algebra.combine(a, b)
-        ab_c = algebra.combine(ab, c)
+        ab = algebra.binary_operator(a, b)
+        ab_c = algebra.binary_operator(ab, c)
 
-        bc = algebra.combine(b, c)
-        a_bc = algebra.combine(a, bc)
+        bc = algebra.binary_operator(b, c)
+        a_bc = algebra.binary_operator(a, bc)
 
         # Check all components are close
         for i in range(4):
@@ -484,8 +512,8 @@ class TestSequenceModelWrapper:
         key = jax.random.key(0)
         input_shape = (4, 16)
         carry = wrapped_mlp.initialize_carry(key, input_shape)
-        assert carry is not None
-        assert carry.shape == (4, 1)
+        # SequenceModelWrapper returns None for carry since it has no state
+        assert carry is None
 
     def test_call(self, wrapped_mlp):
         key = jax.random.key(0)
@@ -496,6 +524,8 @@ class TestSequenceModelWrapper:
         params = wrapped_mlp.init(key, inputs, mask)
         carry, outputs = wrapped_mlp.apply(params, inputs, mask)
 
+        # Carry should be None for wrapped non-recurrent networks
+        assert carry is None
         assert outputs.shape == (batch_size, seq_len, 32)
 
 
@@ -533,10 +563,10 @@ class TestMetaMaskWrapper:
         assert jnp.all(carry.step == seq_len)
 
 
-class TestAlgebraCombine:
-    """Test the combine operation for Algebra subclasses."""
+class TestAlgebraBinaryOperator:
+    """Test the binary_operator operation for Algebra subclasses."""
 
-    def test_lru_combine(self):
+    def test_lru_binary_operator(self):
         from memorax.networks.sequence_models import LRUCell
 
         algebra = LRUCell(
@@ -553,11 +583,11 @@ class TestAlgebraCombine:
         carry_a = algebra.apply(params, inputs)
         carry_b = algebra.apply(params, inputs * 2)
 
-        # Test combine is associative
-        combined = algebra.combine(carry_a, carry_b)
+        # Test binary_operator
+        combined = algebra.binary_operator(carry_a, carry_b)
         assert combined is not None
 
-    def test_ffm_combine(self):
+    def test_ffm_binary_operator(self):
         from memorax.networks.sequence_models import FFMCell
 
         algebra = FFMCell(
@@ -574,11 +604,11 @@ class TestAlgebraCombine:
         carry_a = algebra.apply(params, inputs)
         carry_b = algebra.apply(params, inputs * 2)
 
-        # combine() needs access to setup params, so call it within apply context
-        combined = algebra.apply(params, carry_a, carry_b, method="combine")
+        # binary_operator needs access to setup params, so call it within apply context
+        combined = algebra.apply(params, carry_a, carry_b, method="binary_operator")
         assert combined is not None
 
-    def test_s5_combine(self):
+    def test_s5_binary_operator(self):
         from memorax.networks.sequence_models import S5Cell
 
         algebra = S5Cell(
@@ -594,10 +624,10 @@ class TestAlgebraCombine:
         carry_a = algebra.apply(params, inputs)
         carry_b = algebra.apply(params, inputs * 2)
 
-        combined = algebra.combine(carry_a, carry_b)
+        combined = algebra.binary_operator(carry_a, carry_b)
         assert combined is not None
 
-    def test_min_gru_combine(self):
+    def test_min_gru_binary_operator(self):
         from memorax.networks.sequence_models import MinGRUCell
 
         algebra = MinGRUCell(
@@ -612,8 +642,74 @@ class TestAlgebraCombine:
         carry_a = algebra.apply(params, inputs)
         carry_b = algebra.apply(params, inputs * 2)
 
-        combined = algebra.combine(carry_a, carry_b)
+        combined = algebra.binary_operator(carry_a, carry_b)
         assert combined is not None
+
+    def test_mlstm_binary_operator(self):
+        from memorax.networks.sequence_models import mLSTMCell
+
+        algebra = mLSTMCell(
+            features=16,
+            hidden_dim=32,
+            num_heads=4,
+        )
+
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 4, 1, 16
+        inputs = jnp.ones((batch_size, seq_len, features))
+
+        params = algebra.init(key, inputs)
+        carry_a = algebra.apply(params, inputs)
+        carry_b = algebra.apply(params, inputs * 2)
+
+        combined = algebra.binary_operator(carry_a, carry_b)
+        assert combined is not None
+        assert len(combined) == 4  # (log_f, C, n, m)
+
+    def test_mamba_binary_operator(self):
+        from memorax.networks.sequence_models import MambaCell
+
+        algebra = MambaCell(
+            features=16,
+            num_heads=4,
+            head_dim=8,
+            hidden_dim=16,
+        )
+
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 4, 1, 16
+        inputs = jnp.ones((batch_size, seq_len, features))
+
+        params = algebra.init(key, inputs)
+        carry_a = algebra.apply(params, inputs)
+        carry_b = algebra.apply(params, inputs * 2)
+
+        combined = algebra.binary_operator(carry_a, carry_b)
+        assert combined is not None
+        assert len(combined) == 4  # (decay, state, gate, x_inner)
+
+    def test_linear_attention_binary_operator(self):
+        from memorax.networks.sequence_models import LinearAttentionCell
+
+        algebra = LinearAttentionCell(
+            head_dim=8,
+            num_heads=4,
+            kernel_init=initializers.lecun_normal(),
+            bias_init=initializers.zeros_init(),
+            param_dtype=jnp.float32,
+        )
+
+        key = jax.random.key(0)
+        batch_size, seq_len, features = 4, 1, 16
+        inputs = jnp.ones((batch_size, seq_len, features))
+
+        params = algebra.init(key, inputs)
+        carry_a = algebra.apply(params, inputs)
+        carry_b = algebra.apply(params, inputs * 2)
+
+        combined = algebra.binary_operator(carry_a, carry_b)
+        assert combined is not None
+        assert len(combined) == 2  # (decay, state)
 
 
 class TestVmapCompatibility:

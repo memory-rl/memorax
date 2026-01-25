@@ -24,8 +24,8 @@ class LearnablePositionalEmbedding(AbsolutePositionalEmbedding, nn.Module):
 
     @nn.nowrap
     def initialize_carry(self, key, input_shape) -> Carry:
-        batch_size, *_ = input_shape
-        return jnp.zeros((batch_size,), dtype=jnp.int32)
+        *batch_dims, _ = input_shape
+        return jnp.zeros(batch_dims, dtype=jnp.int32)
 
     @nn.compact
     def __call__(
@@ -38,7 +38,7 @@ class LearnablePositionalEmbedding(AbsolutePositionalEmbedding, nn.Module):
         batch_size = inputs.shape[0]
 
         if initial_carry is None:
-            initial_carry = self.initialize_carry(None, (batch_size,))
+            initial_carry = self.initialize_carry(None, (batch_size, inputs.shape[-1]))
 
         def step(position: Array, mask: Array) -> tuple[Array, Array]:
             next_position = jnp.where(mask, 0, position + 1)

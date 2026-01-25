@@ -169,22 +169,22 @@ class MambaCell(MemoroidCellBase):
         return output
 
     def initialize_carry(self, key, input_shape: Tuple[int, ...]) -> Carry:
-        batch_size, *_ = input_shape
+        *batch_dims, _ = input_shape
         inner_dim = self.num_heads * self.head_dim
         decay = jnp.ones(
-            (batch_size, 1, self.num_heads, 1, 1),
+            (*batch_dims, 1, self.num_heads, 1, 1),
             dtype=self.dtype,
         )
         state = jnp.zeros(
-            (batch_size, 1, self.num_heads, self.hidden_dim, self.head_dim),
+            (*batch_dims, 1, self.num_heads, self.hidden_dim, self.head_dim),
             dtype=self.dtype,
         )
         gate = jnp.ones(
-            (batch_size, 1, inner_dim),
+            (*batch_dims, 1, inner_dim),
             dtype=self.dtype,
         )
         x_inner = jnp.zeros(
-            (batch_size, 1, self.num_heads, self.head_dim),
+            (*batch_dims, 1, self.num_heads, self.head_dim),
             dtype=self.dtype,
         )
         return (decay, state, gate, x_inner)

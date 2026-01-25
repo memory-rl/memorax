@@ -53,22 +53,28 @@ class DualCriticNetwork(nn.Module):
     head2: nn.Module = Identity()
 
     @nn.compact
-    def __call__(self, observation, mask, *, action=None, initial_carry=None, **kwargs):
-        x = observation
-        x = self.feature_extractor(observation, **kwargs)
-        carry, x = self.torso(x, mask=mask, initial_carry=initial_carry, **kwargs)
+    def __call__(
+        self,
+        observation,
+        mask,
+        action,
+        reward,
+        done,
+        initial_carry=None,
+        **kwargs,
+    ):
+        x = self.feature_extractor(observation, action=action, reward=reward, done=done)
+        carry, x = self.torso(
+            x,
+            mask=mask,
+            action=action,
+            reward=reward,
+            done=done,
+            initial_carry=initial_carry,
+        )
 
-        if action is not None:
-            # Expand action to match x dimensions if needed
-            # x is (batch, time, features), action might be (batch, action_dim)
-            if action.ndim < x.ndim:
-                # Add time dimension to action
-                action = jnp.expand_dims(action, 1)
-            q1 = self.head1(x, action=action, **kwargs)
-            q2 = self.head2(x, action=action, **kwargs)
-        else:
-            q1 = self.head1(x, **kwargs)
-            q2 = self.head2(x, **kwargs)
+        q1 = self.head1(x, action=action, reward=reward, done=done)
+        q2 = self.head2(x, action=action, reward=reward, done=done)
 
         return carry, (q1, q2)
 

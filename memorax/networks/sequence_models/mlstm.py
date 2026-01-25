@@ -269,22 +269,22 @@ class mLSTMCell(MemoroidCellBase):
 
         Args:
             key: Random key (unused).
-            input_shape: Shape of input (batch_size, features).
+            input_shape: Shape of input (*batch_dims, features).
 
         Returns:
             Initial carry tuple (log_f, C, n, m).
         """
-        batch_size, *_ = input_shape
+        *batch_dims, _ = input_shape
         head_dim = self.hidden_dim // self.num_heads
 
         # Initial cumulative log decay is 0 (no decay yet)
-        log_f = jnp.zeros((batch_size, 1, self.num_heads, 1, 1))
+        log_f = jnp.zeros((*batch_dims, 1, self.num_heads, 1, 1))
 
         # Initial state is zero
-        C = jnp.zeros((batch_size, 1, self.num_heads, head_dim, head_dim))
-        n = jnp.zeros((batch_size, 1, self.num_heads, head_dim, 1))
+        C = jnp.zeros((*batch_dims, 1, self.num_heads, head_dim, head_dim))
+        n = jnp.zeros((*batch_dims, 1, self.num_heads, head_dim, 1))
 
         # Initial max is -inf (will be overwritten on first combine)
-        m = jnp.full((batch_size, 1, self.num_heads, 1, 1), -1e9)
+        m = jnp.full((*batch_dims, 1, self.num_heads, 1, 1), -1e9)
 
         return (log_f, C, n, m)

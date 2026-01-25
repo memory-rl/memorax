@@ -133,9 +133,9 @@ class LinearAttentionCell(MemoroidCellBase):
 
     def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
         """Initialize carry with zero state and normalizer."""
-        batch_size, *_ = input_shape
+        *batch_dims, _ = input_shape
         state = jnp.zeros(
-            (batch_size, 1, self.num_heads, self.head_dim, self.head_dim)
+            (*batch_dims, 1, self.num_heads, self.head_dim, self.head_dim)
         )
-        normalizer = jnp.zeros((batch_size, 1, self.num_heads, self.head_dim))
+        normalizer = jnp.zeros((*batch_dims, 1, self.num_heads, self.head_dim))
         return (state, normalizer)

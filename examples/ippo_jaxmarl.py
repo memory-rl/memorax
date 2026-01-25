@@ -21,11 +21,6 @@ from memorax.environments.jaxmarl import JaxMarlWrapper
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import MLP, FeatureExtractor, Network, SequenceModelWrapper, heads
 
-# # JAXMarl compatibility fix for JAX 0.6.0+ (jax.tree_map was removed)
-# if not hasattr(jax, "tree_map"):
-#     jax.tree_map = jax.tree.map
-
-
 total_timesteps = 1_000_000
 num_train_steps = 10_000
 num_eval_steps = 10_000
@@ -33,7 +28,6 @@ num_eval_steps = 10_000
 seed = 0
 num_seeds = 1
 
-# Create JAXMarl environment and wrap it
 base_env = jaxmarl.make("MPE_simple_spread_v3")
 env = JaxMarlWrapper(base_env)
 
@@ -53,7 +47,6 @@ cfg = IPPOConfig(
     vf_coef=0.5,
 )
 
-# Network configuration
 d_model = 128
 
 feature_extractor = FeatureExtractor(
@@ -65,10 +58,17 @@ torso = SequenceModelWrapper(
     MLP(features=(d_model,), kernel_init=nn.initializers.orthogonal(scale=1.414))
 )
 
-# Get action space from first agent (all agents have same action space in MPE)
 action_space = env.action_spaces[env.agents[0]]
 
-actor_network = Network(
+VmappedNetwork = nn.vmap(
+    Network,
+    variable_axes={"params": None},
+    split_rngs={"params": False, "memory": True, "dropout": True},
+    in_axes=(0, 0, 0, 0, 0, 0),
+    out_axes=(0, 0),
+)
+
+actor_network = VmappedNetwork(
     feature_extractor=feature_extractor,
     torso=torso,
     head=heads.Categorical(
@@ -77,7 +77,7 @@ actor_network = Network(
     ),
 )
 
-critic_network = Network(
+critic_network = VmappedNetwork(
     feature_extractor=feature_extractor,
     torso=torso,
     head=heads.VNetwork(

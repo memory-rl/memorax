@@ -36,7 +36,7 @@ popjym    = ["popjym"]
 xminigrid = ["xminigrid"]
 jaxmarl   = ["jaxmarl", "brax"]
 
-all = [
+environments = [
     "brax>=0.12.4",
     "gymnax>=0.0.9",
     "jumanji>=1.1.1",

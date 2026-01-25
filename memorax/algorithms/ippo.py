@@ -74,12 +74,12 @@ class IPPO:
 
         actor_carry, probs = self.actor_network.apply(
             state.actor_params,
-            observation=timestep.obs,
-            mask=timestep.done,
-            action=timestep.action,
-            reward=add_feature_axis(timestep.reward),
-            done=timestep.done,
-            initial_carry=state.actor_carry,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            state.actor_carry,
         )
 
         action = jnp.argmax(probs.logits, axis=-1)
@@ -99,12 +99,12 @@ class IPPO:
 
         actor_carry, probs = self.actor_network.apply(
             state.actor_params,
-            observation=timestep.obs,
-            mask=timestep.done,
-            action=timestep.action,
-            reward=add_feature_axis(timestep.reward),
-            done=timestep.done,
-            initial_carry=state.actor_carry,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            state.actor_carry,
             rngs={"memory": actor_memory_key},
         )
 
@@ -115,12 +115,12 @@ class IPPO:
 
         critic_carry, value = self.critic_network.apply(
             state.critic_params,
-            observation=timestep.obs,
-            mask=timestep.done,
-            action=timestep.action,
-            reward=add_feature_axis(timestep.reward),
-            done=timestep.done,
-            initial_carry=state.critic_carry,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            state.critic_carry,
             rngs={"memory": critic_memory_key},
         )
 
@@ -138,7 +138,6 @@ class IPPO:
         key, action_key, step_key = jax.random.split(key, 3)
         key, state, action, log_prob, value = policy(action_key, state)
 
-        # Derive num_envs from state (supports both training and evaluation)
         _, num_envs, *_ = state.timestep.obs.shape
         step_keys = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
@@ -187,12 +186,12 @@ class IPPO:
 
             initial_actor_carry, _ = self.actor_network.apply(
                 jax.lax.stop_gradient(state.actor_params),
-                observation=burn_in.obs,
-                mask=burn_in.prev_done,
-                action=burn_in.prev_action,
-                reward=add_feature_axis(burn_in.prev_reward),
-                done=burn_in.prev_done,
-                initial_carry=initial_actor_carry,
+                burn_in.obs,
+                burn_in.prev_done,
+                burn_in.prev_action,
+                add_feature_axis(burn_in.prev_reward),
+                burn_in.prev_done,
+                initial_actor_carry,
             )
             initial_actor_carry = jax.lax.stop_gradient(initial_actor_carry)
             transitions = jax.tree.map(
@@ -203,12 +202,12 @@ class IPPO:
         def actor_loss_fn(params):
             _, probs = self.actor_network.apply(
                 params,
-                observation=transitions.obs,
-                mask=transitions.prev_done,
-                action=transitions.prev_action,
-                reward=add_feature_axis(transitions.prev_reward),
-                done=transitions.prev_done,
-                initial_carry=initial_actor_carry,
+                transitions.obs,
+                transitions.prev_done,
+                transitions.prev_action,
+                add_feature_axis(transitions.prev_reward),
+                transitions.prev_done,
+                initial_actor_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
 
@@ -257,12 +256,12 @@ class IPPO:
 
             initial_critic_carry, _ = self.critic_network.apply(
                 jax.lax.stop_gradient(state.critic_params),
-                observation=burn_in.obs,
-                mask=burn_in.prev_done,
-                action=burn_in.prev_action,
-                reward=add_feature_axis(burn_in.prev_reward),
-                done=burn_in.prev_done,
-                initial_carry=initial_critic_carry,
+                burn_in.obs,
+                burn_in.prev_done,
+                burn_in.prev_action,
+                add_feature_axis(burn_in.prev_reward),
+                burn_in.prev_done,
+                initial_critic_carry,
             )
             initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
             transitions = jax.tree.map(
@@ -273,12 +272,12 @@ class IPPO:
         def critic_loss_fn(params):
             _, values = self.critic_network.apply(
                 params,
-                observation=transitions.obs,
-                mask=transitions.prev_done,
-                action=transitions.prev_action,
-                reward=add_feature_axis(transitions.prev_reward),
-                done=transitions.prev_done,
-                initial_carry=initial_critic_carry,
+                transitions.obs,
+                transitions.prev_done,
+                transitions.prev_action,
+                add_feature_axis(transitions.prev_reward),
+                transitions.prev_done,
+                initial_critic_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
             values = remove_feature_axis(values)
@@ -425,17 +424,16 @@ class IPPO:
 
         _, value = self.critic_network.apply(
             state.critic_params,
-            observation=timestep.obs,
-            mask=timestep.done,
-            action=timestep.action,
-            reward=add_feature_axis(timestep.reward),
-            done=timestep.done,
-            initial_carry=state.critic_carry,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            state.critic_carry,
         )
         value = jax.vmap(remove_time_axis)(value)
         value = remove_feature_axis(value)
 
-        # GAE
         advantages, returns = generalized_advantage_estimatation(
             self.cfg.gamma,
             self.cfg.gae_lambda,
@@ -443,7 +441,6 @@ class IPPO:
             transitions,
         )
 
-        # Swap time and batch axes: (num_steps, num_agents, num_envs, ...) -> (num_agents, num_envs, num_steps, ...)
         transitions = jax.tree.map(lambda x: jnp.moveaxis(x, 0, 2), transitions)
         advantages = jnp.moveaxis(advantages, 0, 2)
         returns = jnp.moveaxis(returns, 0, 2)
@@ -516,19 +513,16 @@ class IPPO:
         reward = jnp.zeros((num_agents, self.cfg.num_envs), dtype=jnp.float32)
         done = jnp.ones((num_agents, self.cfg.num_envs), dtype=jnp.bool)
 
-        timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
-        timestep_seq = to_sequence(timestep)
+        timestep = Timestep(
+            obs=obs, action=action, reward=reward, done=done
+        ).to_sequence()
 
-        actor_carry = self.actor_network.initialize_carry((self.cfg.num_envs, None))
-        critic_carry = self.critic_network.initialize_carry((self.cfg.num_envs, None))
-        if actor_carry is not None:
-            actor_carry = jnp.broadcast_to(
-                actor_carry, (num_agents, *actor_carry.shape)
-            )
-        if critic_carry is not None:
-            critic_carry = jnp.broadcast_to(
-                critic_carry, (num_agents, *critic_carry.shape)
-            )
+        actor_carry = self.actor_network.initialize_carry(
+            (num_agents, self.cfg.num_envs, None)
+        )
+        critic_carry = self.critic_network.initialize_carry(
+            (num_agents, self.cfg.num_envs, None)
+        )
 
         actor_params = self.actor_network.init(
             {
@@ -536,12 +530,12 @@ class IPPO:
                 "memory": actor_memory_key,
                 "dropout": actor_dropout_key,
             },
-            observation=timestep_seq.obs[0],
-            mask=timestep_seq.done[0],
-            action=timestep_seq.action[0],
-            reward=add_feature_axis(timestep_seq.reward[0]),
-            done=timestep_seq.done[0],
-            initial_carry=actor_carry[0] if actor_carry is not None else None,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            actor_carry,
         )
         critic_params = self.critic_network.init(
             {
@@ -549,19 +543,19 @@ class IPPO:
                 "memory": critic_memory_key,
                 "dropout": critic_dropout_key,
             },
-            observation=timestep_seq.obs[0],
-            mask=timestep_seq.done[0],
-            action=timestep_seq.action[0],
-            reward=add_feature_axis(timestep_seq.reward[0]),
-            done=timestep_seq.done[0],
-            initial_carry=critic_carry[0] if critic_carry is not None else None,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            critic_carry,
         )
 
         return (
             key,
             IPPOState(
                 step=0,
-                timestep=timestep,
+                timestep=timestep.from_sequence(),
                 env_state=env_state,
                 actor_params=actor_params,
                 critic_params=critic_params,
@@ -606,21 +600,13 @@ class IPPO:
         done = jnp.ones((num_agents, self.cfg.num_eval_envs), dtype=jnp.bool)
 
         actor_carry = self.actor_network.initialize_carry(
-            (self.cfg.num_eval_envs, None)
+            (num_agents, self.cfg.num_eval_envs, None)
         )
         critic_carry = self.critic_network.initialize_carry(
-            (self.cfg.num_eval_envs, None)
+            (num_agents, self.cfg.num_eval_envs, None)
         )
-        if actor_carry is not None:
-            actor_carry = jnp.broadcast_to(
-                actor_carry, (num_agents, *actor_carry.shape)
-            )
-        if critic_carry is not None:
-            critic_carry = jnp.broadcast_to(
-                critic_carry, (num_agents, *critic_carry.shape)
-            )
 
-        eval_state = state.replace(
+        state = state.replace(
             timestep=Timestep(obs=obs, action=action, reward=reward, done=done),
             env_state=env_state,
             actor_carry=actor_carry,
@@ -632,7 +618,7 @@ class IPPO:
         )
         (key, *_), transitions = jax.lax.scan(
             partial(self._step, policy=policy),
-            (key, eval_state),
+            (key, state),
             length=num_steps,
         )
         return key, transitions.replace(obs=None, next_obs=None)

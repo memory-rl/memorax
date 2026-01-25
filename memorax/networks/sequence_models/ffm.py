@@ -139,11 +139,11 @@ class FFMCell(MemoroidCellBase):
         return y
 
     def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
-        batch_size, *_ = input_shape
+        *batch_dims, _ = input_shape
         state = jnp.zeros(
-            (batch_size, 1, self.memory_size, self.context_size),
+            (*batch_dims, 1, self.memory_size, self.context_size),
             dtype=self._complex_dtype(),
         )
         # Start at timestep -1 so first real timestep is 0
-        timestep = jnp.full((batch_size, 1), -1, dtype=self._complex_dtype())
+        timestep = jnp.full((*batch_dims, 1), -1, dtype=self._complex_dtype())
         return (state, timestep)

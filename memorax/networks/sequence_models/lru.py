@@ -114,7 +114,7 @@ class LRUCell(MemoroidCellBase):
         return y
 
     def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
-        batch_size, *_ = input_shape
-        decay = jnp.ones((batch_size, 1, self.hidden_dim), dtype=jnp.complex64)
-        state = jnp.zeros((batch_size, 1, self.hidden_dim), dtype=jnp.complex64)
+        *batch_dims, _ = input_shape
+        decay = jnp.ones((*batch_dims, 1, self.hidden_dim), dtype=jnp.complex64)
+        state = jnp.zeros((*batch_dims, 1, self.hidden_dim), dtype=jnp.complex64)
         return (decay, state)

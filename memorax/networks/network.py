@@ -18,15 +18,25 @@ class Network(nn.Module):
         self,
         observation: Array,
         mask: Array,
-        **kwargs,
+        action: Array,
+        reward: Array,
+        done: Array,
+        initial_carry: Optional[Array] = None,
     ):
-        x = observation
+        x = self.feature_extractor(
+            observation, action=action, reward=reward, done=done
+        )
 
-        x = self.feature_extractor(observation, **kwargs)
+        carry, x = self.torso(
+            x,
+            mask=mask,
+            action=action,
+            reward=reward,
+            done=done,
+            initial_carry=initial_carry,
+        )
 
-        carry, x = self.torso(x, mask=mask, **kwargs)
-
-        x = self.head(x, **kwargs)
+        x = self.head(x, action=action, reward=reward, done=done)
         return carry, x
 
     @nn.nowrap

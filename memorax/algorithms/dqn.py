@@ -7,7 +7,8 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 
-from memorax.utils import Transition, periodic_incremental_update
+from memorax.networks.sequence_models.utils import add_feature_axis
+from memorax.utils import Timestep, Transition, periodic_incremental_update
 from memorax.utils.typing import (
     Array,
     Buffer,
@@ -43,8 +44,7 @@ class DQNConfig:
 @struct.dataclass(frozen=True)
 class DQNState:
     step: int
-    obs: Array
-    done: Array
+    timestep: Timestep
     hidden_state: tuple
     env_state: EnvState
     params: core.FrozenDict[str, Any]
@@ -65,11 +65,15 @@ class DQN:
 
     def _greedy_action(self, key: Key, state: DQNState) -> tuple[Key, DQNState, Array]:
         key, memory_key = jax.random.split(key)
+        timestep = state.timestep.to_sequence()
         hidden_state, q_values = self.q_network.apply(
             state.params,
-            jnp.expand_dims(state.obs, 1),
-            mask=jnp.expand_dims(state.done, 1),
-            initial_carry=state.hidden_state,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            state.hidden_state,
             rngs={"memory": memory_key},
         )
         action = jnp.argmax(q_values, axis=-1).squeeze(-1)
@@ -105,20 +109,20 @@ class DQN:
 
         key, action_key, step_key = jax.random.split(key, 3)
         key, state, action = policy(action_key, state)
-        num_envs = state.obs.shape[0]
+        num_envs = state.timestep.obs.shape[0]
         step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
 
         transition = Transition(
-            obs=state.obs,  # type: ignore
+            obs=state.timestep.obs,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             next_obs=next_obs,  # type: ignore
             done=done,  # type: ignore
             info=info,  # type: ignore
-            prev_done=state.done,  # type: ignore
+            prev_done=state.timestep.done,  # type: ignore
         )
 
         buffer_state = state.buffer_state
@@ -128,8 +132,7 @@ class DQN:
 
         state = state.replace(
             step=state.step + self.cfg.num_envs,
-            obs=next_obs,  # type: ignore
-            done=done,  # type: ignore
+            timestep=Timestep(obs=next_obs, action=action, reward=reward, done=done),
             env_state=env_state,  # type: ignore
             buffer_state=buffer_state,
         )
@@ -151,13 +154,19 @@ class DQN:
             initial_carry, _ = self.q_network.apply(
                 jax.lax.stop_gradient(state.params),
                 burn_in.obs,
-                mask=burn_in.prev_done,
+                burn_in.prev_done,
+                burn_in.action,
+                add_feature_axis(burn_in.reward),
+                burn_in.prev_done,
             )
             initial_carry = jax.lax.stop_gradient(initial_carry)
             initial_target_carry, _ = self.q_network.apply(
                 jax.lax.stop_gradient(state.target_params),
                 burn_in.next_obs,
-                mask=burn_in.done,
+                burn_in.done,
+                burn_in.action,
+                add_feature_axis(burn_in.reward),
+                burn_in.done,
             )
             initial_target_carry = jax.lax.stop_gradient(initial_target_carry)
             experience = jax.tree.map(
@@ -168,8 +177,11 @@ class DQN:
             _, next_target_q_values = self.q_network.apply(
                 state.target_params,
                 experience.next_obs,
-                mask=experience.done,
-                initial_carry=initial_target_carry,
+                experience.done,
+                experience.action,
+                add_feature_axis(experience.reward),
+                experience.done,
+                initial_target_carry,
                 rngs={"memory": next_memory_key},
             )
             return jnp.max(next_target_q_values, axis=-1)
@@ -178,8 +190,11 @@ class DQN:
             _, next_q_values = self.q_network.apply(
                 state.target_params,
                 experience.next_obs,
-                mask=experience.done,
-                initial_carry=initial_target_carry,
+                experience.done,
+                experience.action,
+                add_feature_axis(experience.reward),
+                experience.done,
+                initial_target_carry,
                 rngs={"memory": next_memory_key},
             )
             next_action = jnp.argmax(next_q_values, axis=-1)
@@ -207,8 +222,11 @@ class DQN:
             hidden_state, q_value = self.q_network.apply(
                 params,
                 experience.obs,
-                mask=experience.prev_done,
-                initial_carry=initial_carry,
+                experience.prev_done,
+                experience.action,
+                add_feature_axis(experience.reward),
+                experience.prev_done,
+                initial_carry,
                 rngs={"memory": memory_key},
             )
             action = jnp.expand_dims(experience.action, axis=-1)
@@ -266,24 +284,35 @@ class DQN:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        action = jax.vmap(self.env.action_space(self.env_params).sample)(env_keys)
-        _, _, reward, _, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
+        action_space = self.env.action_space(self.env_params)
+        action = jnp.zeros((self.cfg.num_envs,), dtype=action_space.dtype)
+        reward = jnp.zeros((self.cfg.num_envs,), dtype=jnp.float32)
+        done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
+        *_, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
-        done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
         carry = self.q_network.initialize_carry(obs.shape)
 
+        timestep = Timestep(
+            obs=obs, action=action, reward=reward, done=done
+        ).to_sequence()
         params = self.q_network.init(
             {"params": q_key, "memory": memory_key},
-            observation=jnp.expand_dims(obs, 1),
-            mask=jnp.expand_dims(done, 1),
-            initial_carry=carry,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            carry,
         )
         target_params = self.q_network.init(
             {"params": q_key, "memory": memory_key},
-            observation=jnp.expand_dims(obs, 1),
-            mask=jnp.expand_dims(done, 1),
-            initial_carry=carry,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            carry,
         )
         optimizer_state = self.optimizer.init(params)
 
@@ -302,8 +331,7 @@ class DQN:
             key,
             DQNState(
                 step=0,  # type: ignore
-                obs=obs,  # type: ignore
-                done=done,  # type: ignore
+                timestep=timestep.from_sequence(),  # type: ignore
                 hidden_state=carry,  # type: ignore
                 env_state=env_state,  # type: ignore
                 params=params,  # type: ignore
@@ -349,11 +377,15 @@ class DQN:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
+        action_space = self.env.action_space(self.env_params)
+        action = jnp.zeros((self.cfg.num_eval_envs,), dtype=action_space.dtype)
+        reward = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.float32)
         done = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.bool_)
+        timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
         hidden_state = self.q_network.initialize_carry(obs.shape)
 
         state = state.replace(
-            obs=obs, done=done, hidden_state=hidden_state, env_state=env_state
+            timestep=timestep, hidden_state=hidden_state, env_state=env_state
         )  # type: ignore
 
         (key, _), transitions = jax.lax.scan(

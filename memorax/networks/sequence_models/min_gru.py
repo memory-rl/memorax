@@ -72,14 +72,14 @@ class MinGRUCell(MemoroidCellBase):
         return jnp.exp(log_state)
 
     def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
-        batch_size, *_ = input_shape
+        *batch_dims, _ = input_shape
         # Identity for logaddexp is -inf, identity for + is 0
         log_state = jnp.full(
-            (batch_size, 1, self.features),
+            (*batch_dims, 1, self.features),
             -jnp.inf,
             dtype=self.dtype or self.param_dtype,
         )
         decay = jnp.zeros(
-            (batch_size, 1, self.features), dtype=self.dtype or self.param_dtype
+            (*batch_dims, 1, self.features), dtype=self.dtype or self.param_dtype
         )
         return (log_state, decay)

@@ -37,11 +37,11 @@ class SegmentRecurrence(nn.Module, Block):
 
     @nn.nowrap
     def initialize_carry(self, key, input_shape) -> Carry:
-        batch_size, *_ = input_shape
+        *batch_dims, _ = input_shape
         state = jnp.zeros(
-            (batch_size, self.memory_length, self.features), dtype=self.dtype
+            (*batch_dims, self.memory_length, self.features), dtype=self.dtype
         )
-        mask = jnp.zeros((batch_size, self.memory_length), dtype=jnp.int32)
+        mask = jnp.zeros((*batch_dims, self.memory_length), dtype=jnp.int32)
         memory = Memory(state=state, mask=mask)
 
         carry = self.module.initialize_carry(key, input_shape)

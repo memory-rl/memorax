@@ -241,6 +241,10 @@ class TestCraftaxEnvironments:
     @pytest.fixture
     def craftax_env(self):
         pytest.importorskip("craftax")
+        try:
+            from craftax import craftax_env as _  # noqa: F401
+        except ImportError:
+            pytest.skip("craftax.craftax_env not available")
         from memorax.environments import craftax
 
         return craftax.make("Craftax-Symbolic-v1", auto_reset=True)
@@ -426,6 +430,10 @@ class TestMujocoEnvironments:
     @pytest.fixture
     def mujoco_env(self):
         pytest.importorskip("mujoco_playground")
+        try:
+            from mujoco_playground import registry as _  # noqa: F401
+        except ImportError:
+            pytest.skip("mujoco_playground.registry not available")
         from memorax.environments import mujoco
 
         return mujoco.make("CheetahRun")

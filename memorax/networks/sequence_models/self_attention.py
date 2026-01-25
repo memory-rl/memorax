@@ -40,15 +40,15 @@ class SelfAttention(SequenceModel):
 
     @nn.nowrap
     def initialize_carry(self, key, input_shape):
-        batch_size, *_ = input_shape
+        *batch_dims, _ = input_shape
         head_dim = self.features // self.num_heads
-        mask = jnp.ones((batch_size, self.context_length), dtype=jnp.int32)
+        mask = jnp.ones((*batch_dims, self.context_length), dtype=jnp.int32)
         key = jnp.zeros(
-            (batch_size,) + (self.context_length, self.num_heads, head_dim),
+            (*batch_dims, self.context_length, self.num_heads, head_dim),
             dtype=self.dtype,
         )
         value = jnp.zeros(
-            (batch_size,) + (self.context_length, self.num_heads, head_dim),
+            (*batch_dims, self.context_length, self.num_heads, head_dim),
             dtype=self.dtype,
         )
         return Carry(mask, key, value)

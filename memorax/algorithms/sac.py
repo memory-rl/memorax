@@ -7,27 +7,17 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 
-from memorax.utils import Transition, periodic_incremental_update
-from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
-                                  EnvParams, EnvState, Key)
-
-
-@struct.dataclass
-class Batch:
-    """Data structure for a batch of transitions sampled from the replay buffer."""
-
-    obs: Array
-    """Batch of obs with shape [batch_size, obs_dim]"""
-    prev_done: Array
-    """Batch of prev done flags with shape [batch_size]"""
-    action: Array
-    """Batch of actions with shape [batch_size, action_dim]"""
-    reward: Array
-    """Batch of rewards with shape [batch_size]"""
-    next_obs: Array
-    """Batch of next obs with shape [batch_size, obs_dim]"""
-    done: Array
-    """Batch of done flags with shape [batch_size]"""
+from memorax.networks.sequence_models.utils import add_feature_axis
+from memorax.utils import Timestep, Transition, periodic_incremental_update
+from memorax.utils.typing import (
+    Array,
+    Buffer,
+    BufferState,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
 
 
 @struct.dataclass(frozen=True)
@@ -56,6 +46,7 @@ class SACConfig:
 @struct.dataclass(frozen=True)
 class SACState:
     step: int
+    timestep: Timestep
     env_state: EnvState
     buffer_state: BufferState
     actor_params: core.FrozenDict[str, Any]
@@ -65,8 +56,6 @@ class SACState:
     actor_optimizer_state: optax.OptState
     critic_optimizer_state: optax.OptState
     alpha_optimizer_state: optax.OptState
-    obs: Array
-    done: Array
     actor_hidden_state: Array
 
 
@@ -85,23 +74,30 @@ class SAC:
 
     def _deterministic_action(self, key, state: SACState):
         key, sample_key = jax.random.split(key)
+        timestep = state.timestep.to_sequence()
         next_hidden_state, dist = self.actor_network.apply(
             state.actor_params,
-            jnp.expand_dims(state.obs, 1),
-            mask=jnp.expand_dims(state.done, 1),
-            initial_carry=state.actor_hidden_state,
-            temperature=0.0,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            state.actor_hidden_state,
         )
         action = dist.sample(seed=sample_key).squeeze(1)
         return key, (action, next_hidden_state)
 
     def _stochastic_action(self, key, state: SACState):
         key, sample_key = jax.random.split(key)
+        timestep = state.timestep.to_sequence()
         next_hidden_state, dist = self.actor_network.apply(
             state.actor_params,
-            jnp.expand_dims(state.obs, 1),
-            mask=jnp.expand_dims(state.done, 1),
-            initial_carry=state.actor_hidden_state,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            state.actor_hidden_state,
         )
         action = dist.sample(seed=sample_key).squeeze(1)
         return key, (action, next_hidden_state)
@@ -125,15 +121,15 @@ class SAC:
 
         key, (action, next_actor_hidden_state) = policy(policy_key, state)
 
-        num_envs = state.obs.shape[0]
+        num_envs = state.timestep.obs.shape[0]
         env_keys = jax.random.split(env_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(env_keys, state.env_state, action, self.env_params)
 
         transition = Transition(
-            obs=state.obs,  # type: ignore
-            prev_done=state.done,  # type: ignore
+            obs=state.timestep.obs,  # type: ignore
+            prev_done=state.timestep.done,  # type: ignore
             action=action,  # type: ignore
             reward=reward,  # type: ignore
             next_obs=next_obs,  # type: ignore
@@ -148,8 +144,7 @@ class SAC:
 
         state = state.replace(
             step=state.step + self.cfg.num_envs,
-            obs=next_obs,
-            done=done,
+            timestep=Timestep(obs=next_obs, action=action, reward=reward, done=done),
             env_state=env_state,
             buffer_state=buffer_state,
             actor_hidden_state=next_actor_hidden_state,
@@ -164,18 +159,24 @@ class SAC:
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        env_keys = jax.random.split(env_key, self.cfg.num_envs)
-        action = jax.vmap(self.env.action_space(self.env_params).sample)(env_keys)
-        _, _, reward, done, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
-            env_keys, env_state, action, self.env_params
-        )
+        action_space = self.env.action_space(self.env_params)
+        action = jnp.zeros((self.cfg.num_envs,) + action_space.shape, dtype=jnp.float32)
+        reward = jnp.zeros((self.cfg.num_envs,), dtype=jnp.float32)
+        done = jnp.ones((self.cfg.num_envs,), dtype=jnp.bool_)
+
+        timestep = Timestep(
+            obs=obs, action=action, reward=reward, done=done
+        ).to_sequence()
 
         actor_carry = self.actor_network.initialize_carry(obs.shape)
         actor_params = self.actor_network.init(
             actor_key,
-            observation=jnp.expand_dims(obs, 1),
-            mask=jnp.expand_dims(done, 1),
-            initial_carry=actor_carry,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            actor_carry,
         )
         actor_optimizer_state = self.actor_optimizer.init(actor_params)
         actor_hidden_state = self.actor_network.initialize_carry(obs.shape)
@@ -183,23 +184,30 @@ class SAC:
         critic_carry = self.critic_network.initialize_carry(obs.shape)
         critic_params = self.critic_network.init(
             critic_key,
-            jnp.expand_dims(obs, 1),
-            jnp.expand_dims(done, 1),
-            initial_carry=critic_carry,
-            action=action,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            critic_carry,
         )
         critic_target_params = self.critic_network.init(
             critic_key,
-            jnp.expand_dims(obs, 1),
-            jnp.expand_dims(done, 1),
-            initial_carry=critic_carry,
-            action=action,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            critic_carry,
         )
         critic_optimizer_state = self.critic_optimizer.init(critic_params)
 
         alpha_params = self.alpha_network.init(alpha_key)
         alpha_optimizer_state = self.alpha_optimizer.init(alpha_params)
 
+        *_, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
+            env_keys, env_state, action, self.env_params
+        )
         transition = Transition(
             obs=obs,
             prev_done=done,
@@ -213,6 +221,7 @@ class SAC:
 
         return key, SACState(
             step=0,
+            timestep=timestep.from_sequence(),
             actor_hidden_state=actor_hidden_state,
             env_state=env_state,
             buffer_state=buffer_state,
@@ -223,8 +232,6 @@ class SAC:
             actor_optimizer_state=actor_optimizer_state,
             critic_optimizer_state=critic_optimizer_state,
             alpha_optimizer_state=alpha_optimizer_state,
-            obs=obs,
-            done=done,
         )
 
     @partial(jax.jit, static_argnames=["self"])
@@ -232,7 +239,15 @@ class SAC:
         action_dim = self.env.action_space(self.env_params).shape[0]
         target_entropy = -self.cfg.target_entropy_scale * action_dim
 
-        _, dist = self.actor_network.apply(state.actor_params, state.obs, state.done)
+        timestep = state.timestep
+        _, dist = self.actor_network.apply(
+            state.actor_params,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+        )
 
         key, sample_key = jax.random.split(key)
         actions = dist.sample(seed=sample_key)
@@ -258,7 +273,7 @@ class SAC:
         return state, info
 
     @partial(jax.jit, static_argnames=["self"])
-    def _update_actor(self, key, state: SACState, batch: Batch):
+    def _update_actor(self, key, state: SACState, batch):
         alpha = self.alpha_network.apply(state.alpha_params)
         mask = jnp.ones_like(batch.prev_done, dtype=bool)
         if self.cfg.mask:
@@ -267,10 +282,22 @@ class SAC:
             mask = (episode_idx == 0) | terminal
 
         def actor_loss_fn(actor_params):
-            _, dist = self.actor_network.apply(actor_params, batch.obs, batch.prev_done)
+            _, dist = self.actor_network.apply(
+                actor_params,
+                batch.obs,
+                batch.prev_done,
+                batch.action,
+                add_feature_axis(batch.reward),
+                batch.prev_done,
+            )
             actions, log_probs = dist.sample_and_log_prob(seed=key)
             _, (q1, q2) = self.critic_network.apply(
-                state.critic_params, batch.obs, batch.prev_done, action=actions
+                state.critic_params,
+                batch.obs,
+                batch.prev_done,
+                actions,
+                add_feature_axis(batch.reward),
+                batch.prev_done,
             )
             q = jnp.minimum(q1, q2)
             actor_loss = (log_probs * alpha - q.squeeze(-1)).mean(where=mask)
@@ -291,16 +318,24 @@ class SAC:
         return state, info
 
     @partial(jax.jit, static_argnames=["self"])
-    def _update_critic(self, key, state: SACState, batch: Batch):
+    def _update_critic(self, key, state: SACState, batch):
         _, dist = self.actor_network.apply(
             state.actor_params,
             batch.next_obs,
+            batch.done,
+            batch.action,
+            add_feature_axis(batch.reward),
             batch.done,
         )
         next_actions, next_log_probs = dist.sample_and_log_prob(seed=key)
 
         _, (next_q1, next_q2) = self.critic_network.apply(
-            state.critic_target_params, batch.next_obs, batch.done, action=next_actions
+            state.critic_target_params,
+            batch.next_obs,
+            batch.done,
+            next_actions,
+            add_feature_axis(batch.reward),
+            batch.done,
         )
         next_q = jnp.minimum(next_q1, next_q2)
 
@@ -317,7 +352,12 @@ class SAC:
 
         def critic_loss_fn(critic_params):
             _, (q1, q2) = self.critic_network.apply(
-                critic_params, batch.obs, batch.prev_done, action=batch.action
+                critic_params,
+                batch.obs,
+                batch.prev_done,
+                batch.action,
+                add_feature_axis(batch.reward),
+                batch.prev_done,
             )
             q1_error = q1.squeeze(-1) - target_q
             q2_error = q2.squeeze(-1) - target_q
@@ -401,17 +441,22 @@ class SAC:
         key, env_key = jax.random.split(key)
         env_keys = jax.random.split(env_key, self.cfg.num_eval_envs)
 
-        eval_obs, eval_env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
+        obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             env_keys, self.env_params
         )
-        eval_done = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.bool_)
-        eval_hidden_state = self.actor_network.initialize_carry(eval_obs.shape)
+        action_space = self.env.action_space(self.env_params)
+        action = jnp.zeros(
+            (self.cfg.num_eval_envs,) + action_space.shape, dtype=jnp.float32
+        )
+        reward = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.float32)
+        done = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.bool_)
+        timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
+        hidden_state = self.actor_network.initialize_carry(obs.shape)
 
         eval_state = state.replace(
-            obs=eval_obs,
-            done=eval_done,
-            env_state=eval_env_state,
-            actor_hidden_state=eval_hidden_state,
+            timestep=timestep,
+            env_state=env_state,
+            actor_hidden_state=hidden_state,
         )
 
         (key, eval_state), transitions = jax.lax.scan(

@@ -1,0 +1,120 @@
+"""R2D2 example on CartPole environment.
+
+This demonstrates R2D2 with a GRU-based recurrent Q-network.
+R2D2 is particularly suited for partially observable environments,
+but this example uses CartPole to verify the implementation works.
+"""
+
+import flax.linen as nn
+import jax
+import optax
+
+from memorax.algorithms.r2d2 import R2D2, R2D2Config
+from memorax.buffers import make_prioritised_episode_buffer
+from memorax.environments import environment
+from memorax.loggers import DashboardLogger, Logger
+from memorax.networks import MLP, FeatureExtractor, Network, heads
+from memorax.networks.sequence_models import RNN
+
+total_timesteps = 500_000
+num_train_steps = 50_000
+num_eval_steps = 5_000
+
+env, env_params = environment.make("gymnax::CartPole-v1")
+
+cfg = R2D2Config(
+    name="r2d2",
+    learning_rate=3e-4,
+    num_envs=10,
+    num_eval_envs=10,
+    buffer_size=50_000,
+    gamma=0.99,
+    tau=1.0,
+    target_network_frequency=500,
+    batch_size=32,
+    start_e=1.0,
+    end_e=0.05,
+    exploration_fraction=0.5,
+    learning_starts=10_000,
+    train_frequency=10,
+    burn_in_length=10,
+    sequence_length=40,
+    n_step=3,
+    priority_exponent=0.9,
+    importance_sampling_exponent=0.6,
+    double=True,
+)
+
+# Recurrent Q-network with GRU
+q_network = Network(
+    feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(64,))),
+    torso=RNN(cell=nn.GRUCell(features=64)),
+    head=heads.DiscreteQNetwork(
+        action_dim=env.action_space(env_params).n,
+    ),
+)
+
+optimizer = optax.chain(
+    optax.clip_by_global_norm(40.0),
+    optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
+)
+
+# Prioritized episode buffer for sequence replay
+buffer = make_prioritised_episode_buffer(
+    max_length=cfg.buffer_size,
+    min_length=cfg.batch_size * cfg.sequence_length,
+    sample_batch_size=cfg.batch_size,
+    sample_sequence_length=cfg.sequence_length,
+    add_batch_size=cfg.num_envs,
+    add_sequences=True,
+    priority_exponent=cfg.priority_exponent,
+)
+
+epsilon_schedule = optax.linear_schedule(
+    cfg.start_e,
+    cfg.end_e,
+    int(cfg.exploration_fraction * total_timesteps),
+    cfg.learning_starts,
+)
+
+# Beta anneals from initial value to 1.0 over training
+beta_schedule = optax.linear_schedule(
+    cfg.importance_sampling_exponent,
+    1.0,
+    total_timesteps,
+)
+
+key = jax.random.key(0)
+
+agent = R2D2(
+    cfg=cfg,
+    env=env,
+    env_params=env_params,
+    q_network=q_network,
+    optimizer=optimizer,
+    buffer=buffer,
+    epsilon_schedule=epsilon_schedule,
+    beta_schedule=beta_schedule,
+)
+
+logger = Logger([DashboardLogger(title="R2D2 Example", total_timesteps=total_timesteps)])
+logger_state = logger.init(cfg)
+
+key, state = agent.init(key)
+
+# Warmup: fill buffer before learning
+key, state = agent.warmup(key, state, num_steps=cfg.learning_starts)
+
+for i in range(0, total_timesteps, num_train_steps):
+    key, state, transitions = agent.train(key, state, num_steps=num_train_steps)
+
+    training_statistics = Logger.get_episode_statistics(transitions, "training")
+    data = {**training_statistics, **transitions.losses}
+    logger_state = logger.log(logger_state, data, step=state.step.item())
+
+    key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
+    evaluation_statistics = Logger.get_episode_statistics(transitions, "evaluation")
+    logger_state = logger.log(
+        logger_state, evaluation_statistics, step=state.step.item()
+    )
+    logger.emit(logger_state)

@@ -7,6 +7,7 @@ import pytest
 from memorax.networks.heads import (
     Alpha,
     Beta,
+    C51QNetwork,
     Categorical,
     ContinuousQNetwork,
     DiscreteQNetwork,
@@ -192,8 +193,69 @@ class TestHLGaussVNetwork:
         assert jnp.allclose(bound_head.bin_centers[-1], 5.0)
 
 
+class TestC51QNetwork:
+
+    @pytest.fixture
+    def head(self):
+        return C51QNetwork(action_dim=4, num_atoms=51, v_min=-5.0, v_max=5.0)
+
+    @pytest.fixture
+    def params(self, head, random_key):
+        x = jnp.ones((2, 8))
+        return head.init(random_key, x)
+
+    def test_output_shape(self, head, params):
+        x = jnp.ones((2, 8))
+        q_values, aux = head.apply(params, x)
+        assert q_values.shape == (2, 4)
+        assert "logits" in aux
+        assert "probs" in aux
+        assert aux["logits"].shape == (2, 4, 51)
+        assert aux["probs"].shape == (2, 4, 51)
+
+    def test_output_shape_batched(self, head, params):
+        x = jnp.ones((4, 16, 8))
+        q_values, aux = head.apply(params, x)
+        assert q_values.shape == (4, 16, 4)
+        assert aux["logits"].shape == (4, 16, 4, 51)
+        assert aux["probs"].shape == (4, 16, 4, 51)
+
+    def test_q_values_in_range(self, head, params):
+        x = jnp.ones((2, 8))
+        q_values, aux = head.apply(params, x)
+        assert jnp.all(q_values >= -5.0)
+        assert jnp.all(q_values <= 5.0)
+
+    def test_probs_sum_to_one(self, head, params):
+        x = jnp.ones((2, 8))
+        _, aux = head.apply(params, x)
+        prob_sums = aux["probs"].sum(axis=-1)
+        assert jnp.allclose(prob_sums, 1.0)
+
+    def test_loss(self, head, params):
+        x = jnp.ones((2, 8))
+        q_values, aux = head.apply(params, x)
+        targets = jnp.zeros((2, 4))
+        loss = head.loss(q_values, aux, targets)
+        assert loss.shape == ()
+        assert loss >= 0
+
+    def test_loss_clamps_targets(self, head, params):
+        x = jnp.ones((2, 8))
+        q_values, aux = head.apply(params, x)
+        targets = jnp.array([[100.0, -100.0, 0.0, 0.0], [0.0, 0.0, 100.0, -100.0]])
+        loss = head.loss(q_values, aux, targets)
+        assert loss.shape == ()
+        assert jnp.isfinite(loss)
+
+    def test_atoms(self, head, params):
+        bound_head = head.bind(params)
+        assert bound_head.atoms.shape == (51,)
+        assert jnp.allclose(bound_head.atoms[0], -5.0)
+        assert jnp.allclose(bound_head.atoms[-1], 5.0)
+
+
 class TestCategorical:
-    """Test Categorical distribution head."""
 
     @pytest.fixture
     def head(self):

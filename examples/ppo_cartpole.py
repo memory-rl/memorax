@@ -3,20 +3,12 @@ from dataclasses import asdict
 
 import flax.linen as nn
 import jax
-import jax.numpy as jnp
 import optax
 
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
-from memorax.loggers import DashboardLogger, Logger, WandbLogger
-from memorax.networks import (
-    MLP,
-    RNN,
-    FeatureExtractor,
-    Network,
-    SequenceModelWrapper,
-    heads,
-)
+from memorax.loggers import DashboardLogger, Logger
+from memorax.networks import MLP, FeatureExtractor, Network, SequenceModelWrapper, heads
 
 total_timesteps = 500_000
 num_train_steps = 10_000
@@ -121,7 +113,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"SPS": SPS, **training_statistics, **losses}
+    data = {"training/SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)

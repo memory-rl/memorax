@@ -10,8 +10,15 @@ from gymnax.wrappers import FlattenObservationWrapper
 from memorax.algorithms import PQN, PQNConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger, WandbLogger
-from memorax.networks import (CNN, MLP, RNN, FeatureExtractor, Network,
-                              SequenceModelWrapper, heads)
+from memorax.networks import (
+    CNN,
+    MLP,
+    RNN,
+    FeatureExtractor,
+    Network,
+    SequenceModelWrapper,
+    heads,
+)
 
 total_timesteps = 5_000_000
 num_train_steps = 100_000
@@ -21,7 +28,6 @@ seed = 0
 num_seeds = 5
 
 env, env_params = environment.make("gymnax::Breakout-MinAtar")
-# env = FlattenObservationWrapper(env)
 
 cfg = PQNConfig(
     name="PQN",
@@ -109,7 +115,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"SPS": SPS, **training_statistics, **losses}
+    data = {"traininig/SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)

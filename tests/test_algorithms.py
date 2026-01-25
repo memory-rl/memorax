@@ -9,6 +9,7 @@ from memorax.algorithms import (
     DQN,
     PPO,
     PQN,
+    R2D2,
     SAC,
     DQNConfig,
     DQNState,
@@ -16,9 +17,14 @@ from memorax.algorithms import (
     PPOState,
     PQNConfig,
     PQNState,
+    R2D2Config,
+    R2D2State,
     SACConfig,
     SACState,
 )
+from memorax.algorithms.r2d2 import compute_n_step_returns
+from memorax.buffers import make_prioritised_episode_buffer
+from memorax.networks.sequence_models import RNN
 from memorax.networks import MLP, Identity, Network, SequenceModelWrapper
 from memorax.networks.heads import (
     Alpha,
@@ -457,6 +463,156 @@ class TestSAC:
         key, state = agent.warmup(key, state, num_steps=64)
         key, state, transitions = agent.train(key, state, num_steps=64)
         assert transitions is not None
+
+    def test_evaluate(self, agent, random_key):
+        key, state = agent.init(random_key)
+        key, transitions = agent.evaluate(key, state, num_steps=32)
+        assert transitions is not None
+
+
+class TestNStepReturns:
+    """Tests for n-step return computation used by R2D2."""
+
+    def test_n_step_returns_shape(self):
+        """Output shape should be [batch, seq_len - n_step + 1]."""
+        batch_size, seq_len, n_step = 4, 10, 3
+        rewards = jnp.ones((batch_size, seq_len))
+        dones = jnp.zeros((batch_size, seq_len))
+        next_q = jnp.ones((batch_size, seq_len))
+
+        returns = compute_n_step_returns(rewards, dones, next_q, n_step, gamma=0.99)
+
+        expected_targets = seq_len - n_step + 1
+        assert returns.shape == (batch_size, expected_targets)
+
+    def test_n_step_returns_no_done(self):
+        """Without done flags, should accumulate full n-step return."""
+        rewards = jnp.array([[1.0, 1.0, 1.0, 1.0, 1.0]])
+        dones = jnp.zeros((1, 5))
+        next_q = jnp.array([[0.0, 0.0, 0.0, 0.0, 10.0]])
+        gamma = 0.9
+        n_step = 3
+
+        returns = compute_n_step_returns(rewards, dones, next_q, n_step, gamma)
+
+        # For position 0: r0 + gamma*r1 + gamma^2*r2 + gamma^3*Q[2]
+        expected_first = 1.0 + 0.9 * 1.0 + 0.81 * 1.0 + 0.729 * 0.0
+        assert jnp.isclose(returns[0, 0], expected_first, atol=1e-5)
+
+    def test_n_step_returns_with_done(self):
+        """Done flag should stop accumulation and bootstrapping."""
+        rewards = jnp.array([[1.0, 1.0, 1.0, 1.0, 1.0]])
+        dones = jnp.array([[0.0, 1.0, 0.0, 0.0, 0.0]])
+        next_q = jnp.array([[0.0, 0.0, 0.0, 0.0, 10.0]])
+        gamma = 0.9
+        n_step = 3
+
+        returns = compute_n_step_returns(rewards, dones, next_q, n_step, gamma)
+
+        # r0 + gamma*r1, then done stops further accumulation
+        expected_first = 1.0 + 0.9 * 1.0
+        assert jnp.isclose(returns[0, 0], expected_first, atol=1e-5)
+
+    def test_n_step_returns_single_step(self):
+        """With n_step=1, should be standard TD target."""
+        rewards = jnp.array([[1.0, 2.0, 3.0]])
+        dones = jnp.zeros((1, 3))
+        next_q = jnp.array([[5.0, 6.0, 7.0]])
+        gamma = 0.99
+
+        returns = compute_n_step_returns(rewards, dones, next_q, n_step=1, gamma=gamma)
+
+        expected = rewards + gamma * next_q
+        assert jnp.allclose(returns, expected, atol=1e-5)
+
+
+class TestR2D2:
+    """Test R2D2 algorithm with discrete action space (CartPole)."""
+
+    @pytest.fixture
+    def agent(self, cartpole_env):
+        env, env_params = cartpole_env
+        action_dim = env.action_space(env_params).n
+
+        cfg = R2D2Config(
+            name="test_r2d2",
+            learning_rate=1e-3,
+            num_envs=2,
+            num_eval_envs=2,
+            buffer_size=1000,
+            gamma=0.99,
+            tau=1.0,
+            target_network_frequency=10,
+            batch_size=4,
+            start_e=1.0,
+            end_e=0.01,
+            exploration_fraction=0.1,
+            learning_starts=50,
+            train_frequency=4,
+            burn_in_length=2,
+            sequence_length=8,
+            n_step=2,
+            priority_exponent=0.6,
+            importance_sampling_exponent=0.4,
+            double=True,
+        )
+
+        q_network = Network(
+            feature_extractor=MLP(features=32),
+            torso=RNN(cell=nn.GRUCell(features=32)),
+            head=DiscreteQNetwork(action_dim=action_dim),
+        )
+
+        optimizer = optax.adam(cfg.learning_rate)
+        epsilon_schedule = optax.linear_schedule(
+            init_value=cfg.start_e,
+            end_value=cfg.end_e,
+            transition_steps=1000,
+        )
+        beta_schedule = optax.linear_schedule(
+            init_value=cfg.importance_sampling_exponent,
+            end_value=1.0,
+            transition_steps=1000,
+        )
+
+        buffer = make_prioritised_episode_buffer(
+            max_length=cfg.buffer_size,
+            min_length=cfg.batch_size * cfg.sequence_length,
+            sample_batch_size=cfg.batch_size,
+            sample_sequence_length=cfg.sequence_length,
+            add_batch_size=cfg.num_envs,
+            add_sequences=True,
+            priority_exponent=cfg.priority_exponent,
+        )
+
+        return R2D2(
+            cfg=cfg,
+            env=env,
+            env_params=env_params,
+            q_network=q_network,
+            optimizer=optimizer,
+            buffer=buffer,
+            epsilon_schedule=epsilon_schedule,
+            beta_schedule=beta_schedule,
+        )
+
+    def test_init(self, agent, random_key):
+        key, state = agent.init(random_key)
+        assert isinstance(state, R2D2State)
+        assert state.step == 0
+        assert isinstance(key, jax.Array)
+
+    def test_warmup(self, agent, random_key):
+        key, state = agent.init(random_key)
+        key, state = agent.warmup(key, state, num_steps=100)
+        assert state.step > 0
+
+    def test_train(self, agent, random_key):
+        key, state = agent.init(random_key)
+        key, state = agent.warmup(key, state, num_steps=200)
+        key, state, transitions = agent.train(key, state, num_steps=16)
+        assert transitions is not None
+        assert "losses/loss" in transitions.info
 
     def test_evaluate(self, agent, random_key):
         key, state = agent.init(random_key)

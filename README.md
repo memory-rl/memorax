@@ -1,10 +1,10 @@
 # 🧠 Memorax
 
-A unified reinforcement learning framework featuring memory-augmented algorithms and POMDP environment implementations. This repository provides modular components for building, configuring, and running a variety of RL algorithms on classic and memory-intensive environments.
-
 <div align="center">
     <img src="https://github.com/memory-rl/memorax/blob/main/images/memorax_logo.png" height="170">
 </div>
+
+A unified reinforcement learning framework featuring memory-augmented algorithms and POMDP environment implementations. This repository provides modular components for building, configuring, and running a variety of RL algorithms on classic and memory-intensive environments.
 
 ## ✨ Features
 

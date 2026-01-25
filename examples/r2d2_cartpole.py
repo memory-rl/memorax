@@ -45,7 +45,6 @@ cfg = R2D2Config(
     double=True,
 )
 
-# Recurrent Q-network with GRU
 q_network = Network(
     feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(64,))),
     torso=RNN(cell=nn.GRUCell(features=64)),
@@ -59,7 +58,6 @@ optimizer = optax.chain(
     optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
 )
 
-# Prioritized episode buffer for sequence replay
 buffer = make_prioritised_episode_buffer(
     max_length=cfg.buffer_size,
     min_length=cfg.batch_size * cfg.sequence_length,
@@ -77,7 +75,6 @@ epsilon_schedule = optax.linear_schedule(
     cfg.learning_starts,
 )
 
-# Beta anneals from initial value to 1.0 over training
 beta_schedule = optax.linear_schedule(
     cfg.importance_sampling_exponent,
     1.0,
@@ -97,12 +94,13 @@ agent = R2D2(
     beta_schedule=beta_schedule,
 )
 
-logger = Logger([DashboardLogger(title="R2D2 Example", total_timesteps=total_timesteps)])
-logger_state = logger.init(cfg)
+logger = Logger(
+    [DashboardLogger(title="R2D2 Example", total_timesteps=total_timesteps)]
+)
+logger_state = logger.init(cfg=cfg)
 
 key, state = agent.init(key)
 
-# Warmup: fill buffer before learning
 key, state = agent.warmup(key, state, num_steps=cfg.learning_starts)
 
 for i in range(0, total_timesteps, num_train_steps):

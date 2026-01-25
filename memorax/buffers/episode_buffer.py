@@ -23,8 +23,7 @@ def get_full_start_flags(experience: Experience) -> jnp.ndarray:
 
 
 def get_start_flags_from_done(experience: Experience) -> jnp.ndarray:
-    start_flags = jnp.roll(experience.prev_done, shift=1, axis=1)
-    return start_flags
+    return experience.prev_done
 
 
 def validate_sample_batch_size(sample_batch_size: int, max_length: int):

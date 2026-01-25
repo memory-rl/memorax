@@ -127,3 +127,52 @@ Training produces `Transition` objects containing:
 - `reward`: Rewards received
 - `done`: Episode termination flags
 - `info`: Additional information (returns, etc.)
+
+## Buffers
+
+Memorax provides episode-aware replay buffers for off-policy algorithms:
+
+### Episode Buffer
+
+Samples complete sequences while respecting episode boundaries:
+
+```python
+from memorax.buffers import make_episode_buffer
+
+buffer = make_episode_buffer(
+    max_length=100_000,
+    min_length=1000,
+    sample_batch_size=32,
+    sample_sequence_length=16,
+    add_batch_size=8,
+)
+```
+
+### Prioritized Episode Buffer
+
+Combines episode-aware sampling with Prioritized Experience Replay (PER):
+
+```python
+from memorax.buffers import make_prioritised_episode_buffer, compute_importance_weights
+
+buffer = make_prioritised_episode_buffer(
+    max_length=100_000,
+    min_length=1000,
+    sample_batch_size=32,
+    sample_sequence_length=16,
+    add_batch_size=8,
+    priority_exponent=0.6,  # alpha: 0=uniform, 1=full prioritization
+)
+
+# Sampling returns indices and probabilities for importance weighting
+sample = buffer.sample(state, key)
+weights = compute_importance_weights(sample.probabilities, buffer_size, beta=0.4)
+
+# Update priorities after computing TD-errors
+state = buffer.set_priorities(state, sample.indices, jnp.abs(td_errors) + 1e-6)
+```
+
+Key features:
+- Only samples from valid episode start positions
+- Weights sampling proportionally to TD-error priorities
+- Provides importance sampling weights to correct for non-uniform sampling

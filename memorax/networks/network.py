@@ -22,6 +22,7 @@ class Network(nn.Module):
         reward: Array,
         done: Array,
         initial_carry: Optional[Array] = None,
+        **kwargs,
     ):
         x = self.feature_extractor(
             observation, action=action, reward=reward, done=done
@@ -36,7 +37,7 @@ class Network(nn.Module):
             initial_carry=initial_carry,
         )
 
-        x = self.head(x, action=action, reward=reward, done=done)
+        x = self.head(x, action=action, reward=reward, done=done, **kwargs)
         return carry, x
 
     @nn.nowrap

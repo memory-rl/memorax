@@ -58,7 +58,7 @@ class PQN:
         self, key: Key, state: PQNState
     ) -> tuple[Key, PQNState, Array, Array]:
         timestep = state.timestep.to_sequence()
-        hidden_state, q_values = self.q_network.apply(
+        hidden_state, (q_values, _) = self.q_network.apply(
             state.params,
             observation=timestep.obs,
             mask=timestep.done,
@@ -208,7 +208,7 @@ class PQN:
             burn_in = jax.tree.map(
                 lambda x: x[:, : self.cfg.burn_in_length], transitions
             )
-            hidden_state, _ = self.q_network.apply(
+            hidden_state, (_, _) = self.q_network.apply(
                 jax.lax.stop_gradient(state.params),
                 observation=burn_in.obs,
                 mask=burn_in.prev_done,
@@ -224,7 +224,7 @@ class PQN:
             target = target[:, self.cfg.burn_in_length :]
 
         def loss_fn(params):
-            _, q_values = self.q_network.apply(
+            _, (q_values, aux) = self.q_network.apply(
                 params,
                 observation=transitions.obs,
                 mask=transitions.prev_done,
@@ -269,7 +269,7 @@ class PQN:
         key, memory_key, dropout_key = jax.random.split(key, 3)
 
         timestep = state.timestep.to_sequence()
-        _, q_values = self.q_network.apply(
+        _, (q_values, _) = self.q_network.apply(
             state.params,
             observation=timestep.obs,
             mask=timestep.done,

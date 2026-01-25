@@ -41,8 +41,6 @@ def periodic_incremental_update(
 def delayed_update(
     new_tensors: base.Params,
     old_tensors: base.Params,
-    new_opt_state: base.OptState,
-    old_opt_state: base.OptState,
     steps: Array,
     start_step: int,
 ) -> base.Params:
@@ -61,9 +59,6 @@ def delayed_update(
     """
     return jax.lax.cond(
         steps >= start_step,
-        lambda _: new_tensors,
-        new_opt_state,
-        lambda _: old_tensors,
-        old_opt_state,
-        None,
+        lambda: new_tensors,
+        lambda: old_tensors,
     )

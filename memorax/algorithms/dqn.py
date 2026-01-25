@@ -7,7 +7,11 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 
-from memorax.networks.sequence_models.utils import add_feature_axis
+from memorax.networks.sequence_models.utils import (
+    add_feature_axis,
+    remove_feature_axis,
+    remove_time_axis,
+)
 from memorax.utils import Timestep, Transition, periodic_incremental_update
 from memorax.utils.typing import (
     Array,
@@ -64,7 +68,7 @@ class DQN:
     def _greedy_action(self, key: Key, state: DQNState) -> tuple[Key, DQNState, Array]:
         key, memory_key = jax.random.split(key)
         timestep = state.timestep.to_sequence()
-        hidden_state, q_values = self.q_network.apply(
+        hidden_state, (q_values, _) = self.q_network.apply(
             state.params,
             timestep.obs,
             timestep.done,
@@ -74,7 +78,8 @@ class DQN:
             state.hidden_state,
             rngs={"memory": memory_key},
         )
-        action = jnp.argmax(q_values, axis=-1).squeeze(-1)
+        action = jnp.argmax(q_values, axis=-1)
+        action = remove_time_axis(action)
         state = state.replace(hidden_state=hidden_state)
         return key, state, action
 
@@ -149,7 +154,7 @@ class DQN:
             burn_in = jax.tree.map(
                 lambda x: x[:, : self.cfg.burn_in_length], experience
             )
-            initial_carry, _ = self.q_network.apply(
+            initial_carry, (_, _) = self.q_network.apply(
                 jax.lax.stop_gradient(state.params),
                 burn_in.obs,
                 burn_in.prev_done,
@@ -158,7 +163,7 @@ class DQN:
                 burn_in.prev_done,
             )
             initial_carry = jax.lax.stop_gradient(initial_carry)
-            initial_target_carry, _ = self.q_network.apply(
+            initial_target_carry, (_, _) = self.q_network.apply(
                 jax.lax.stop_gradient(state.target_params),
                 burn_in.next_obs,
                 burn_in.done,
@@ -171,7 +176,7 @@ class DQN:
                 lambda x: x[:, self.cfg.burn_in_length :], experience
             )
 
-        _, next_target_q_values = self.q_network.apply(
+        _, (next_target_q_values, _) = self.q_network.apply(
             state.target_params,
             experience.next_obs,
             experience.done,
@@ -189,7 +194,7 @@ class DQN:
         )
 
         def loss_fn(params):
-            hidden_state, q_value = self.q_network.apply(
+            hidden_state, (q_values, aux) = self.q_network.apply(
                 params,
                 experience.obs,
                 experience.prev_done,
@@ -199,8 +204,9 @@ class DQN:
                 initial_carry,
                 rngs={"memory": memory_key},
             )
-            action = jnp.expand_dims(experience.action, axis=-1)
-            q_value = jnp.take_along_axis(q_value, action, axis=-1).squeeze(-1)
+            action = add_feature_axis(experience.action)
+            q_value = jnp.take_along_axis(q_values, action, axis=-1)
+            q_value = remove_feature_axis(q_value)
             td_error = q_value - td_target
             loss = (jnp.square(td_error)).mean()
             return loss, (q_value, td_error, hidden_state)

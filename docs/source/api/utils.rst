@@ -15,7 +15,7 @@ Data Structures
 Functions
 ---------
 
-:func:`generalized_advantage_estimatation` - Compute GAE advantages.
+:func:`generalized_advantage_estimation` - Compute GAE advantages.
 
 :func:`periodic_incremental_update` - Polyak averaging for target networks.
 
@@ -29,7 +29,7 @@ Functions
 
    Timestep
    Transition
-   generalized_advantage_estimatation
+   generalized_advantage_estimation
    periodic_incremental_update
    delayed_update
    callback

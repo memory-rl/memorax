@@ -7,7 +7,11 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 
-from memorax.networks.sequence_models.utils import add_feature_axis
+from memorax.networks.sequence_models.utils import (
+    add_feature_axis,
+    remove_feature_axis,
+    remove_time_axis,
+)
 from memorax.utils import Timestep, Transition, periodic_incremental_update
 from memorax.utils.typing import (
     Array,
@@ -76,7 +80,7 @@ class SAC:
     def _deterministic_action(self, key, state: SACState):
         key, sample_key = jax.random.split(key)
         timestep = state.timestep.to_sequence()
-        next_hidden_state, dist = self.actor_network.apply(
+        next_hidden_state, (dist, _) = self.actor_network.apply(
             state.actor_params,
             timestep.obs,
             timestep.done,
@@ -84,14 +88,16 @@ class SAC:
             add_feature_axis(timestep.reward),
             timestep.done,
             state.actor_hidden_state,
+            temperature=0.0,
         )
-        action = dist.sample(seed=sample_key).squeeze(1)
+        action = dist.sample(seed=sample_key)
+        action = remove_time_axis(action)
         return key, (action, next_hidden_state)
 
     def _stochastic_action(self, key, state: SACState):
         key, sample_key = jax.random.split(key)
         timestep = state.timestep.to_sequence()
-        next_hidden_state, dist = self.actor_network.apply(
+        next_hidden_state, (dist, _) = self.actor_network.apply(
             state.actor_params,
             timestep.obs,
             timestep.done,
@@ -100,7 +106,8 @@ class SAC:
             timestep.done,
             state.actor_hidden_state,
         )
-        action = dist.sample(seed=sample_key).squeeze(1)
+        action = dist.sample(seed=sample_key)
+        action = remove_time_axis(action)
         return key, (action, next_hidden_state)
 
     def _random_action(self, key, state: SACState):
@@ -244,7 +251,7 @@ class SAC:
         target_entropy = -self.cfg.target_entropy_scale * action_dim
 
         timestep = state.timestep
-        _, dist = self.actor_network.apply(
+        _, (dist, _) = self.actor_network.apply(
             state.actor_params,
             timestep.obs,
             timestep.done,
@@ -258,7 +265,8 @@ class SAC:
         entropy = (-dist.log_prob(actions)).mean()
 
         def alpha_loss_fn(alpha_params):
-            alpha = self.alpha_network.apply(alpha_params)
+            log_alpha = self.alpha_network.apply(alpha_params)
+            alpha = jnp.exp(log_alpha)
             alpha_loss = alpha * (entropy - target_entropy).mean()
             return alpha_loss, {"alpha": alpha, "alpha_loss": alpha_loss}
 
@@ -285,10 +293,11 @@ class SAC:
         initial_actor_carry=None,
         initial_critic_carry=None,
     ):
-        alpha = self.alpha_network.apply(state.alpha_params)
+        log_alpha = self.alpha_network.apply(state.alpha_params)
+        alpha = jnp.exp(log_alpha)
 
         def actor_loss_fn(actor_params):
-            _, dist = self.actor_network.apply(
+            _, (dist, _) = self.actor_network.apply(
                 actor_params,
                 batch.obs,
                 batch.prev_done,
@@ -298,7 +307,7 @@ class SAC:
                 initial_actor_carry,
             )
             actions, log_probs = dist.sample_and_log_prob(seed=key)
-            _, (q1, q2) = self.critic_network.apply(
+            _, ((q1, _), (q2, _)) = self.critic_network.apply(
                 state.critic_params,
                 batch.obs,
                 batch.prev_done,
@@ -308,7 +317,7 @@ class SAC:
                 initial_critic_carry,
             )
             q = jnp.minimum(q1, q2)
-            actor_loss = (log_probs * alpha - q.squeeze(-1)).mean()
+            actor_loss = (log_probs * alpha - remove_feature_axis(q)).mean()
             return actor_loss, {"actor_loss": actor_loss, "entropy": -log_probs.mean()}
 
         (_, info), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
@@ -335,7 +344,7 @@ class SAC:
         initial_critic_carry=None,
         initial_critic_target_carry=None,
     ):
-        _, dist = self.actor_network.apply(
+        _, (dist, _) = self.actor_network.apply(
             state.actor_params,
             batch.next_obs,
             batch.done,
@@ -346,7 +355,7 @@ class SAC:
         )
         next_actions, next_log_probs = dist.sample_and_log_prob(seed=key)
 
-        _, (next_q1, next_q2) = self.critic_network.apply(
+        _, ((next_q1, _), (next_q2, _)) = self.critic_network.apply(
             state.critic_target_params,
             batch.next_obs,
             batch.done,
@@ -357,13 +366,14 @@ class SAC:
         )
         next_q = jnp.minimum(next_q1, next_q2)
 
-        alpha = self.alpha_network.apply(state.alpha_params)
-        target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * next_q.squeeze(-1)
+        log_alpha = self.alpha_network.apply(state.alpha_params)
+        alpha = jnp.exp(log_alpha)
+        target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * (remove_feature_axis(next_q) - alpha * next_log_probs)
 
         target_q = jax.lax.stop_gradient(target_q)
 
         def critic_loss_fn(critic_params):
-            _, (q1, q2) = self.critic_network.apply(
+            _, ((q1, aux1), (q2, aux2)) = self.critic_network.apply(
                 critic_params,
                 batch.obs,
                 batch.prev_done,
@@ -372,9 +382,10 @@ class SAC:
                 batch.prev_done,
                 initial_critic_carry,
             )
-            q1_error = q1.squeeze(-1) - target_q
-            q2_error = q2.squeeze(-1) - target_q
-            critic_loss = (q1_error**2 + q2_error**2).mean()
+            critic_loss = (
+                self.critic_network.head1.loss(q1, aux1, target_q)
+                + self.critic_network.head2.loss(q2, aux2, target_q)
+            )
 
             return critic_loss, {
                 "critic_loss": critic_loss,
@@ -418,7 +429,7 @@ class SAC:
                 lambda x: x[:, : self.cfg.burn_in_length], batch
             )
             # Process burn-in through actor network
-            initial_actor_carry, _ = self.actor_network.apply(
+            initial_actor_carry, (_, _) = self.actor_network.apply(
                 jax.lax.stop_gradient(state.actor_params),
                 burn_in.obs,
                 burn_in.prev_done,
@@ -429,7 +440,7 @@ class SAC:
             initial_actor_carry = jax.lax.stop_gradient(initial_actor_carry)
 
             # Process burn-in through critic network
-            initial_critic_carry, _ = self.critic_network.apply(
+            initial_critic_carry, ((_, _), (_, _)) = self.critic_network.apply(
                 jax.lax.stop_gradient(state.critic_params),
                 burn_in.obs,
                 burn_in.prev_done,
@@ -440,7 +451,7 @@ class SAC:
             initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
 
             # Process burn-in through target critic network
-            initial_critic_target_carry, _ = self.critic_network.apply(
+            initial_critic_target_carry, ((_, _), (_, _)) = self.critic_network.apply(
                 jax.lax.stop_gradient(state.critic_target_params),
                 burn_in.next_obs,
                 burn_in.done,

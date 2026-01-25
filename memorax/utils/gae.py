@@ -3,7 +3,7 @@ import jax.numpy as jnp
 
 
 @jax.jit
-def generalized_advantage_estimatation(
+def generalized_advantage_estimation(
     gamma: float, gae_lambda: float, final_value: jax.Array, transitions
 ):
     """Compute Generalized Advantage Estimates (GAE) for a trajectory."""

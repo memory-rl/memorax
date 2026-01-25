@@ -14,7 +14,7 @@ from memorax.networks.sequence_models.utils import (
     remove_time_axis,
 )
 from memorax.networks.sequence_models.wrappers import SequenceModelWrapper
-from memorax.utils import Timestep, Transition, generalized_advantage_estimatation
+from memorax.utils import Timestep, Transition, generalized_advantage_estimation
 from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvState, Key
 
 
@@ -68,7 +68,7 @@ class PPO:
         self, key: Key, state: PPOState
     ) -> tuple[Key, PPOState, Array, Array]:
         timestep = state.timestep.to_sequence()
-        actor_carry, probs = self.actor_network.apply(
+        actor_carry, (probs, _) = self.actor_network.apply(
             state.actor_params,
             observation=timestep.obs,
             mask=timestep.done,
@@ -104,7 +104,7 @@ class PPO:
         ) = jax.random.split(key, 4)
 
         timestep = state.timestep.to_sequence()
-        actor_carry, probs = self.actor_network.apply(
+        actor_carry, (probs, _) = self.actor_network.apply(
             state.actor_params,
             observation=timestep.obs,
             mask=timestep.done,
@@ -116,7 +116,7 @@ class PPO:
         )
         action, log_prob = probs.sample_and_log_prob(seed=action_key)
 
-        critic_carry, value = self.critic_network.apply(
+        critic_carry, (value, _) = self.critic_network.apply(
             state.critic_params,
             observation=timestep.obs,
             mask=timestep.done,
@@ -188,7 +188,7 @@ class PPO:
             burn_in = jax.tree.map(
                 lambda x: x[:, : self.cfg.burn_in_length], transitions
             )
-            initial_actor_carry, _ = self.actor_network.apply(
+            initial_actor_carry, (_, _) = self.actor_network.apply(
                 jax.lax.stop_gradient(state.actor_params),
                 observation=burn_in.obs,
                 mask=burn_in.prev_done,
@@ -204,7 +204,7 @@ class PPO:
             advantages = advantages[:, self.cfg.burn_in_length :]
 
         def actor_loss_fn(params):
-            _, probs = self.actor_network.apply(
+            _, (probs, _) = self.actor_network.apply(
                 params,
                 observation=transitions.obs,
                 mask=transitions.prev_done,
@@ -260,7 +260,7 @@ class PPO:
             burn_in = jax.tree.map(
                 lambda x: x[:, : self.cfg.burn_in_length], transitions
             )
-            initial_critic_carry, _ = self.critic_network.apply(
+            initial_critic_carry, (_, _) = self.critic_network.apply(
                 jax.lax.stop_gradient(state.critic_params),
                 observation=burn_in.obs,
                 mask=burn_in.prev_done,
@@ -276,7 +276,7 @@ class PPO:
             returns = returns[:, self.cfg.burn_in_length :]
 
         def critic_loss_fn(params):
-            _, values = self.critic_network.apply(
+            _, (values, aux) = self.critic_network.apply(
                 params,
                 observation=transitions.obs,
                 mask=transitions.prev_done,
@@ -298,7 +298,7 @@ class PPO:
                 clipped_critic_loss = jnp.square(clipped_value - returns)
                 critic_loss = 0.5 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
             else:
-                critic_loss = 0.5 * jnp.square(values - returns).mean()
+                critic_loss = self.critic_network.head.loss(values, aux, returns)
 
             return critic_loss
 
@@ -420,7 +420,7 @@ class PPO:
         )
 
         timestep = state.timestep.to_sequence()
-        _, value = self.critic_network.apply(
+        _, (value, _) = self.critic_network.apply(
             state.critic_params,
             observation=timestep.obs,
             mask=timestep.done,
@@ -432,7 +432,7 @@ class PPO:
         value = remove_time_axis(value)
         value = remove_feature_axis(value)
 
-        advantages, returns = generalized_advantage_estimatation(
+        advantages, returns = generalized_advantage_estimation(
             self.cfg.gamma,
             self.cfg.gae_lambda,
             value,

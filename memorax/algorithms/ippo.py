@@ -14,7 +14,7 @@ from memorax.networks.sequence_models.utils import (
     remove_feature_axis,
     remove_time_axis,
 )
-from memorax.utils import Timestep, Transition, generalized_advantage_estimatation
+from memorax.utils import Timestep, Transition, generalized_advantage_estimation
 from memorax.utils.typing import Array, Key
 
 to_sequence = lambda timestep: jax.tree.map(
@@ -72,7 +72,7 @@ class IPPO:
     ) -> tuple[Key, IPPOState, Array, Array, None]:
         timestep = to_sequence(state.timestep)
 
-        actor_carry, probs = self.actor_network.apply(
+        actor_carry, (probs, _) = self.actor_network.apply(
             state.actor_params,
             timestep.obs,
             timestep.done,
@@ -97,7 +97,7 @@ class IPPO:
         key, action_key, actor_memory_key, critic_memory_key = jax.random.split(key, 4)
         timestep = to_sequence(state.timestep)
 
-        actor_carry, probs = self.actor_network.apply(
+        actor_carry, (probs, _) = self.actor_network.apply(
             state.actor_params,
             timestep.obs,
             timestep.done,
@@ -113,7 +113,7 @@ class IPPO:
             probs, action_keys
         )
 
-        critic_carry, value = self.critic_network.apply(
+        critic_carry, (value, _) = self.critic_network.apply(
             state.critic_params,
             timestep.obs,
             timestep.done,
@@ -184,7 +184,7 @@ class IPPO:
                 lambda x: x[:, :, : self.cfg.burn_in_length], transitions
             )
 
-            initial_actor_carry, _ = self.actor_network.apply(
+            initial_actor_carry, (_, _) = self.actor_network.apply(
                 jax.lax.stop_gradient(state.actor_params),
                 burn_in.obs,
                 burn_in.prev_done,
@@ -200,7 +200,7 @@ class IPPO:
             advantages = advantages[:, :, self.cfg.burn_in_length :]
 
         def actor_loss_fn(params):
-            _, probs = self.actor_network.apply(
+            _, (probs, _) = self.actor_network.apply(
                 params,
                 transitions.obs,
                 transitions.prev_done,
@@ -254,7 +254,7 @@ class IPPO:
                 lambda x: x[:, :, : self.cfg.burn_in_length], transitions
             )
 
-            initial_critic_carry, _ = self.critic_network.apply(
+            initial_critic_carry, (_, _) = self.critic_network.apply(
                 jax.lax.stop_gradient(state.critic_params),
                 burn_in.obs,
                 burn_in.prev_done,
@@ -270,7 +270,7 @@ class IPPO:
             returns = returns[:, :, self.cfg.burn_in_length :]
 
         def critic_loss_fn(params):
-            _, values = self.critic_network.apply(
+            _, (values, aux) = self.critic_network.apply(
                 params,
                 transitions.obs,
                 transitions.prev_done,
@@ -292,7 +292,7 @@ class IPPO:
                 clipped_critic_loss = jnp.square(clipped_value - returns)
                 critic_loss = 0.5 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
             else:
-                critic_loss = 0.5 * jnp.square(values - returns).mean()
+                critic_loss = self.critic_network.head.loss(values, aux, returns)
 
             return critic_loss
 
@@ -422,7 +422,7 @@ class IPPO:
 
         timestep = to_sequence(state.timestep)
 
-        _, value = self.critic_network.apply(
+        _, (value, _) = self.critic_network.apply(
             state.critic_params,
             timestep.obs,
             timestep.done,
@@ -434,7 +434,7 @@ class IPPO:
         value = jax.vmap(remove_time_axis)(value)
         value = remove_feature_axis(value)
 
-        advantages, returns = generalized_advantage_estimatation(
+        advantages, returns = generalized_advantage_estimation(
             self.cfg.gamma,
             self.cfg.gae_lambda,
             value,

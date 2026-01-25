@@ -1,4 +1,3 @@
-import distrax
 import flashbax as fbx
 import flax.linen as nn
 import jax
@@ -45,7 +44,7 @@ def make_trajectory_buffer(buffer_size, batch_size, sequence_length, num_envs):
 
 
 class DualCriticNetwork(nn.Module):
-    """Dual critic network that returns (carry, (q1, q2)) for SAC-style algorithms."""
+    """Dual critic network that returns (carry, ((q1, aux1), (q2, aux2))) for SAC-style algorithms."""
 
     feature_extractor: nn.Module = Identity()
     torso: nn.Module = SequenceModelWrapper(Identity())
@@ -73,10 +72,10 @@ class DualCriticNetwork(nn.Module):
             initial_carry=initial_carry,
         )
 
-        q1 = self.head1(x, action=action, reward=reward, done=done)
-        q2 = self.head2(x, action=action, reward=reward, done=done)
+        q1, aux1 = self.head1(x, action=action, reward=reward, done=done)
+        q2, aux2 = self.head2(x, action=action, reward=reward, done=done)
 
-        return carry, (q1, q2)
+        return carry, ((q1, aux1), (q2, aux2))
 
     @nn.nowrap
     def initialize_carry(self, input_shape):
@@ -262,12 +261,10 @@ class TestPPOContinuous:
             vf_coef=0.5,
         )
 
-        # Use Block to wrap identity transform for proper event dimension handling
-        identity_transform = distrax.Block(distrax.Lambda(lambda x: x), ndims=1)
         actor = Network(
             feature_extractor=MLP(features=32),
             torso=SequenceModelWrapper(Identity()),
-            head=Gaussian(action_dim=action_dim, transform=identity_transform),
+            head=Gaussian(action_dim=action_dim),
         )
 
         critic = Network(

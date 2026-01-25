@@ -33,10 +33,12 @@ class ViT(nn.Module):
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
         x = PatchEmbedding(self.patch_size, self.features)(x)
 
-        positional_embeddin = self.param(
-            nn.initializers.normal(0.02), (1, x.shape[1], self.features)
+        positional_embedding = self.param(
+            "positional_embedding",
+            nn.initializers.normal(0.02),
+            (1, x.shape[1], self.features),
         )
-        x = x + positional_embeddin
+        x = x + positional_embedding
 
         for _ in range(self.num_layers):
             skip = x

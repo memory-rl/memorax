@@ -10,6 +10,11 @@ resolution-markers = [
     "python_full_version < '3.12' and sys_platform != 'linux'",
 ]
 
+[manifest]
+
+[[manifest.dependency-metadata]]
+name = "jaxmarl"
+
 [[package]]
 name = "absl-py"
 version = "2.3.1"
@@ -1319,6 +1324,15 @@ wheels = [
 ]
 
 [[package]]
+name = "jaxmarl"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/c3/cd9b494bb18a05fee68559b3b5dd9c03734e22e5c839264df19d3bce9664/jaxmarl-0.1.0.tar.gz", hash = "sha256:0b6ec67ddf2fc3f91451546ca26c223bd91efb12d44355eafcecbb4143943028", size = 207239, upload-time = "2025-06-01T14:48:18.707Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8e/58/52f32160ab60f730d4bcb05ed8e98a0d386d0679a8d40b939acee62aac63/jaxmarl-0.1.0-py3-none-any.whl", hash = "sha256:6f5ee922f7647af039a593292467b2335799b0321dbe51c55146e8c00a33d1d8", size = 243740, upload-time = "2025-06-01T14:48:17.143Z" },
+]
+
+[[package]]
 name = "jaxopt"
 version = "0.8.5"
 source = { registry = "https://pypi.org/simple" }
@@ -1771,6 +1785,7 @@ all = [
     { name = "craftax" },
     { name = "gxm" },
     { name = "gymnax" },
+    { name = "jaxmarl" },
     { name = "jumanji" },
     { name = "navix" },
     { name = "playground" },
@@ -1789,6 +1804,10 @@ cuda = [
 ]
 gxm = [
     { name = "gxm" },
+]
+jaxmarl = [
+    { name = "brax" },
+    { name = "jaxmarl" },
 ]
 jumanji = [
     { name = "jumanji" },
@@ -1830,6 +1849,7 @@ docs = [
 requires-dist = [
     { name = "brax", marker = "extra == 'all'", specifier = ">=0.12.4" },
     { name = "brax", marker = "extra == 'brax'", specifier = ">=0.12.4" },
+    { name = "brax", marker = "extra == 'jaxmarl'" },
     { name = "craftax", marker = "extra == 'all'", specifier = ">=1.5.0" },
     { name = "craftax", marker = "extra == 'craftax'", specifier = ">=1.5.0" },
     { name = "distrax", specifier = ">=0.1.5" },
@@ -1841,6 +1861,8 @@ requires-dist = [
     { name = "gymnax", marker = "extra == 'all'", specifier = ">=0.0.9" },
     { name = "jax", specifier = ">=0.7.2" },
     { name = "jax", extras = ["cuda12"], marker = "extra == 'cuda'", specifier = ">=0.7.2" },
+    { name = "jaxmarl", marker = "extra == 'all'", specifier = "==0.1.0" },
+    { name = "jaxmarl", marker = "extra == 'jaxmarl'" },
     { name = "jumanji", marker = "extra == 'all'", specifier = ">=1.1.1" },
     { name = "jumanji", marker = "extra == 'jumanji'", specifier = ">=1.1.1" },
     { name = "navix", marker = "extra == 'all'", specifier = ">=0.7.0" },
@@ -1858,7 +1880,7 @@ requires-dist = [
     { name = "warp-lang", marker = "extra == 'playground'", specifier = ">=1.9.1" },
     { name = "xminigrid", marker = "extra == 'xminigrid'" },
 ]
-provides-extras = ["brax", "jumanji", "navix", "craftax", "popgym-arcade", "playground", "gxm", "popjym", "xminigrid", "all", "cuda"]
+provides-extras = ["brax", "jumanji", "navix", "craftax", "popgym-arcade", "playground", "gxm", "popjym", "xminigrid", "jaxmarl", "all", "cuda"]
 
 [package.metadata.requires-dev]
 development = [

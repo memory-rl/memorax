@@ -1,10 +1,11 @@
-"""PPO on CartPole with GPT-2 style architecture.
+"""IPPO on JAXMarl's MPE Simple Spread environment.
 
-This example demonstrates using a GPT-2 style transformer with:
-- Multi-head self-attention
-- Learnable positional embeddings
-- Pre-normalization (LayerNorm before attention/FFN)
-- Residual connections
+This example demonstrates Independent PPO (IPPO) for multi-agent reinforcement
+learning using JAXMarl environments. Each agent learns its own policy independently
+while sharing the same network architecture.
+
+The Simple Spread environment has N agents that must cooperatively spread out
+to cover N landmarks while avoiding collisions with each other.
 """
 
 import time
@@ -12,36 +13,32 @@ from dataclasses import asdict
 
 import flax.linen as nn
 import jax
-import jax.numpy as jnp
+import jaxmarl
 import optax
 
-from memorax.algorithms import PPO, PPOConfig
-from memorax.environments import environment
+from memorax.algorithms import IPPO, IPPOConfig
+from memorax.environments.jaxmarl import JaxMarlWrapper
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (
-    FFN,
-    MLP,
-    FeatureExtractor,
-    LearnablePositionalEmbedding,
-    Network,
-    PreNorm,
-    Residual,
-    SelfAttention,
-    Stack,
-    heads,
-)
+from memorax.networks import MLP, FeatureExtractor, Network, SequenceModelWrapper, heads
 
-total_timesteps = 500_000
+# # JAXMarl compatibility fix for JAX 0.6.0+ (jax.tree_map was removed)
+# if not hasattr(jax, "tree_map"):
+#     jax.tree_map = jax.tree.map
+
+
+total_timesteps = 1_000_000
 num_train_steps = 10_000
 num_eval_steps = 10_000
 
 seed = 0
 num_seeds = 1
 
-env, env_params = environment.make("gymnax::CartPole-v1")
+# Create JAXMarl environment and wrap it
+base_env = jaxmarl.make("MPE_simple_spread_v3")
+env = JaxMarlWrapper(base_env)
 
-cfg = PPOConfig(
-    name="PPO-GPT2",
+cfg = IPPOConfig(
+    name="IPPO",
     num_envs=8,
     num_eval_envs=16,
     num_steps=128,
@@ -56,45 +53,26 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# GPT-2 style configuration
-d_model = 64
-num_heads = 4
-context_length = 128
-num_layers = 2
+# Network configuration
+d_model = 128
 
 feature_extractor = FeatureExtractor(
     observation_extractor=MLP(
         features=(d_model,), kernel_init=nn.initializers.orthogonal(scale=1.414)
     ),
 )
-
-# GPT-2 style transformer: positional embedding + (PreNorm -> Attention -> Residual, PreNorm -> FFN -> Residual) * num_layers
-positional_embedding = LearnablePositionalEmbedding(
-    num_embeddings=512,
-    features=d_model,
+torso = SequenceModelWrapper(
+    MLP(features=(d_model,), kernel_init=nn.initializers.orthogonal(scale=1.414))
 )
-attention = Residual(
-    module=PreNorm(
-        module=SelfAttention(
-            features=d_model,
-            num_heads=num_heads,
-            context_length=context_length,
-            dtype=jnp.float32,
-            param_dtype=jnp.float32,
-            kernel_init=nn.initializers.xavier_uniform(),
-            bias_init=nn.initializers.zeros_init(),
-        )
-    )
-)
-ffn = Residual(module=PreNorm(module=FFN(features=d_model, expansion_factor=4)))
 
-torso = Stack(blocks=(positional_embedding,) + (attention, ffn) * num_layers)
+# Get action space from first agent (all agents have same action space in MPE)
+action_space = env.action_spaces[env.agents[0]]
 
 actor_network = Network(
     feature_extractor=feature_extractor,
     torso=torso,
     head=heads.Categorical(
-        action_dim=env.action_space(env_params).n,
+        action_dim=action_space.n,
         kernel_init=nn.initializers.orthogonal(scale=0.01),
     ),
 )
@@ -116,10 +94,9 @@ optimizer = optax.chain(
 key = jax.random.key(seed)
 keys = jax.random.split(key, num_seeds)
 
-agent = PPO(
+agent = IPPO(
     cfg=cfg,
     env=env,
-    env_params=env_params,
     actor_network=actor_network,
     critic_network=critic_network,
     actor_optimizer=optimizer,
@@ -127,7 +104,7 @@ agent = PPO(
 )
 
 logger = Logger(
-    [DashboardLogger(title="PPO GPT-2 CartPole", total_timesteps=total_timesteps)]
+    [DashboardLogger(title="IPPO MPE Simple Spread", total_timesteps=total_timesteps)]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 

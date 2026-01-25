@@ -81,8 +81,8 @@ agent = PPO(
     cfg=cfg,
     env=env,
     env_params=env_params,
-    actor=actor_network,
-    critic=critic_network,
+    actor_network=actor_network,
+    critic_network=critic_network,
     actor_optimizer=optimizer,
     critic_optimizer=optimizer,
 )

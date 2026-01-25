@@ -4,23 +4,23 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from memorax.utils.typing import Array
+from memorax.utils.typing import Array, PyTree
 
 
 @struct.dataclass(frozen=True)
 class Transition:
-    obs: Optional[Array] = None
-    action: Optional[Array] = None
-    reward: Optional[Array] = None
-    done: Optional[Array] = None
+    obs: Optional[PyTree] = None
+    action: Optional[PyTree] = None
+    reward: Optional[PyTree] = None
+    done: Optional[PyTree] = None
     info: Optional[dict] = None
-    prev_action: Optional[Array] = None
-    prev_reward: Optional[Array] = None
-    prev_done: Optional[Array] = None
-    next_obs: Optional[Array] = None
-    log_prob: Optional[Array] = None
-    value: Optional[Array] = None
-    env_state: Optional[Array] = None
+    prev_action: Optional[PyTree] = None
+    prev_reward: Optional[PyTree] = None
+    prev_done: Optional[PyTree] = None
+    next_obs: Optional[PyTree] = None
+    log_prob: Optional[PyTree] = None
+    value: Optional[PyTree] = None
+    env_state: Optional[PyTree] = None
 
     @property
     def num_episodes(self) -> Array:

@@ -204,8 +204,8 @@ class TestPPODiscrete:
             cfg=cfg,
             env=env,
             env_params=env_params,
-            actor=actor,
-            critic=critic,
+            actor_network=actor,
+            critic_network=critic,
             actor_optimizer=actor_optimizer,
             critic_optimizer=critic_optimizer,
         )
@@ -279,8 +279,8 @@ class TestPPOContinuous:
             cfg=cfg,
             env=env,
             env_params=env_params,
-            actor=actor,
-            critic=critic,
+            actor_network=actor,
+            critic_network=critic,
             actor_optimizer=actor_optimizer,
             critic_optimizer=critic_optimizer,
         )

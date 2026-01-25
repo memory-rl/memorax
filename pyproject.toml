@@ -34,6 +34,7 @@ playground= ["playground>=0.0.5", "warp-lang>=1.9.1"]
 gxm       = ["gxm"]
 popjym    = ["popjym"]
 xminigrid = ["xminigrid"]
+jaxmarl   = ["jaxmarl", "brax"]
 
 all = [
     "brax>=0.12.4",
@@ -44,6 +45,7 @@ all = [
     "popgym-arcade>=0.0.4",
     "warp-lang>=1.9.1",
     "playground>=0.0.5",
+    "jaxmarl==0.1.0",
     "gxm",
     "popjym",
 ]
@@ -63,6 +65,10 @@ docs = [
 
 [tool.uv]
 package = true
+
+[[tool.uv.dependency-metadata]]
+name = "jaxmarl"
+requires-dist = []
 
 [tool.uv.sources]
 gxm    = { git = "https://github.com/huterguier/gxm", rev = "dev", extra = "gxm" }

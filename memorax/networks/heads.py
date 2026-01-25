@@ -106,6 +106,61 @@ class HLGaussVNetwork(nn.Module):
         return loss.mean()
 
 
+class C51QNetwork(nn.Module):
+    action_dim: int
+    num_atoms: int = 51
+    v_min: float = -10.0
+    v_max: float = 10.0
+    kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
+    bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
+
+    def setup(self):
+        self.delta_z = (self.v_max - self.v_min) / (self.num_atoms - 1)
+        self.atoms = jnp.linspace(self.v_min, self.v_max, self.num_atoms)
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray, **kwargs) -> tuple[jnp.ndarray, dict]:
+        logits = nn.Dense(
+            self.action_dim * self.num_atoms,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+        )(x)
+
+        batch_shape = logits.shape[:-1]
+        logits = logits.reshape(*batch_shape, self.action_dim, self.num_atoms)
+
+        probs = jax.nn.softmax(logits, axis=-1)
+        q_values = jnp.sum(probs * self.atoms, axis=-1)
+
+        return q_values, {"logits": logits, "probs": probs}
+
+    @nn.nowrap
+    def loss(self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray) -> jnp.ndarray:
+        logits = aux["logits"]
+        delta_z = (self.v_max - self.v_min) / (self.num_atoms - 1)
+
+        targets = jnp.clip(targets, self.v_min, self.v_max)
+
+        lower_idx = ((targets - self.v_min) / delta_z).astype(jnp.int32)
+        lower_idx = jnp.clip(lower_idx, 0, self.num_atoms - 2)
+        upper_idx = lower_idx + 1
+
+        upper_weight = (targets - (self.v_min + lower_idx * delta_z)) / delta_z
+        lower_weight = 1.0 - upper_weight
+
+        log_probs = jax.nn.log_softmax(logits, axis=-1)
+
+        lower_log_prob = jnp.take_along_axis(
+            log_probs, lower_idx[..., None].astype(jnp.int32), axis=-1
+        ).squeeze(-1)
+        upper_log_prob = jnp.take_along_axis(
+            log_probs, upper_idx[..., None].astype(jnp.int32), axis=-1
+        ).squeeze(-1)
+
+        loss = -(lower_weight * lower_log_prob + upper_weight * upper_log_prob)
+        return loss.mean()
+
+
 class Categorical(nn.Module):
     action_dim: int
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()

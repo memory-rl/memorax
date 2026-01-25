@@ -495,7 +495,9 @@ class TestMLSTM:
 
         # Check all components are close
         for i in range(4):
-            assert jnp.allclose(ab_c[i], a_bc[i], atol=1e-5), f"Component {i} not associative"
+            assert jnp.allclose(ab_c[i], a_bc[i], atol=1e-5), (
+                f"Component {i} not associative"
+            )
 
 
 class TestSequenceModelWrapper:
@@ -503,7 +505,8 @@ class TestSequenceModelWrapper:
 
     @pytest.fixture
     def wrapped_mlp(self):
-        from memorax.networks.sequence_models.wrappers import SequenceModelWrapper
+        from memorax.networks.sequence_models.wrappers import \
+            SequenceModelWrapper
 
         mlp = nn.Dense(features=32)
         return SequenceModelWrapper(network=mlp)

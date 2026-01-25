@@ -5,6 +5,7 @@ This example demonstrates using a Mixture of Experts with:
 - TopKRouter for sparse expert selection (top-2 out of 4 experts)
 - Load balancing via auxiliary routing loss
 """
+
 import time
 from dataclasses import asdict
 
@@ -15,19 +16,8 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (
-    MLP,
-    FFN,
-    FeatureExtractor,
-    MoE,
-    Network,
-    PreNorm,
-    RNN,
-    Residual,
-    Stack,
-    TopKRouter,
-    heads,
-)
+from memorax.networks import (FFN, MLP, RNN, FeatureExtractor, MoE, Network,
+                              PreNorm, Residual, Stack, TopKRouter, heads)
 
 total_timesteps = 500_000
 num_train_steps = 10_000

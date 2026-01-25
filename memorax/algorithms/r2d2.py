@@ -10,26 +10,16 @@ import optax
 from flax import core, struct
 
 from memorax.buffers import compute_importance_weights
-from memorax.networks.sequence_models.utils import (
-    add_feature_axis,
-    remove_feature_axis,
-    remove_time_axis,
-)
+from memorax.networks.sequence_models.utils import (add_feature_axis,
+                                                    remove_feature_axis,
+                                                    remove_time_axis)
 from memorax.utils import Timestep, Transition, periodic_incremental_update
-from memorax.utils.typing import (
-    Array,
-    Buffer,
-    BufferState,
-    Environment,
-    EnvParams,
-    EnvState,
-    Key,
-)
+from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
+                                  EnvParams, EnvState, Key)
 
 
 @struct.dataclass(frozen=True)
 class R2D2Config:
-
     name: str
     learning_rate: float
     num_envs: int
@@ -54,7 +44,6 @@ class R2D2Config:
 
 @struct.dataclass(frozen=True)
 class R2D2State:
-
     step: int
     timestep: Timestep
     hidden_state: tuple
@@ -101,7 +90,6 @@ def compute_n_step_returns(
 
 @struct.dataclass(frozen=True)
 class R2D2:
-
     cfg: R2D2Config
     env: Environment
     env_params: EnvParams

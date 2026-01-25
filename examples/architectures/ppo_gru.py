@@ -5,6 +5,7 @@ This example demonstrates using a standard GRU (Gated Recurrent Unit) with:
 - Sequential processing (not parallel like Memoroid cells)
 - Simple and well-understood baseline architecture
 """
+
 import time
 from dataclasses import asdict
 
@@ -16,17 +17,8 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (
-    MLP,
-    FFN,
-    FeatureExtractor,
-    Network,
-    PreNorm,
-    RNN,
-    Residual,
-    Stack,
-    heads,
-)
+from memorax.networks import (FFN, MLP, RNN, FeatureExtractor, Network,
+                              PreNorm, Residual, Stack, heads)
 
 total_timesteps = 500_000
 num_train_steps = 10_000

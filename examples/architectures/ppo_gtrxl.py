@@ -6,6 +6,7 @@ This example demonstrates using Gated Transformer-XL with:
 - Memory that persists across segments for long-range dependencies
 - Relative positional embeddings (ALiBi)
 """
+
 import time
 from dataclasses import asdict
 
@@ -17,19 +18,9 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (
-    MLP,
-    FFN,
-    ALiBi,
-    FeatureExtractor,
-    GatedResidual,
-    Network,
-    PreNorm,
-    SegmentRecurrence,
-    SelfAttention,
-    Stack,
-    heads,
-)
+from memorax.networks import (FFN, MLP, ALiBi, FeatureExtractor, GatedResidual,
+                              Network, PreNorm, SegmentRecurrence,
+                              SelfAttention, Stack, heads)
 
 total_timesteps = 500_000
 num_train_steps = 10_000

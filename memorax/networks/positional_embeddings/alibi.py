@@ -13,9 +13,9 @@ class ALiBi(RelativePositionalEmbedding):
     num_heads: int
 
     def compute_coefficients(self) -> Array:
-        assert (
-            self.num_heads & (self.num_heads - 1) == 0
-        ), "num_heads must be a power of 2"
+        assert self.num_heads & (self.num_heads - 1) == 0, (
+            "num_heads must be a power of 2"
+        )
         ratio = 2 ** (-8 / self.num_heads)
         return ratio ** jnp.arange(1, self.num_heads + 1)
 

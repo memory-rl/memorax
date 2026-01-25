@@ -5,36 +5,16 @@ import jax.numpy as jnp
 import optax
 import pytest
 
-from memorax.algorithms import (
-    DQN,
-    PPO,
-    PQN,
-    R2D2,
-    SAC,
-    DQNConfig,
-    DQNState,
-    PPOConfig,
-    PPOState,
-    PQNConfig,
-    PQNState,
-    R2D2Config,
-    R2D2State,
-    SACConfig,
-    SACState,
-)
+from memorax.algorithms import (DQN, PPO, PQN, R2D2, SAC, DQNConfig, DQNState,
+                                PPOConfig, PPOState, PQNConfig, PQNState,
+                                R2D2Config, R2D2State, SACConfig, SACState)
 from memorax.algorithms.r2d2 import compute_n_step_returns
 from memorax.buffers import make_prioritised_episode_buffer
-from memorax.networks.sequence_models import RNN
 from memorax.networks import MLP, Identity, Network, SequenceModelWrapper
-from memorax.networks.heads import (
-    Alpha,
-    Categorical,
-    ContinuousQNetwork,
-    DiscreteQNetwork,
-    Gaussian,
-    SquashedGaussian,
-    VNetwork,
-)
+from memorax.networks.heads import (Alpha, Categorical, ContinuousQNetwork,
+                                    DiscreteQNetwork, Gaussian,
+                                    SquashedGaussian, VNetwork)
+from memorax.networks.sequence_models import RNN
 
 
 def make_trajectory_buffer(buffer_size, batch_size, sequence_length, num_envs):

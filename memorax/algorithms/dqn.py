@@ -7,21 +7,12 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 
-from memorax.networks.sequence_models.utils import (
-    add_feature_axis,
-    remove_feature_axis,
-    remove_time_axis,
-)
+from memorax.networks.sequence_models.utils import (add_feature_axis,
+                                                    remove_feature_axis,
+                                                    remove_time_axis)
 from memorax.utils import Timestep, Transition, periodic_incremental_update
-from memorax.utils.typing import (
-    Array,
-    Buffer,
-    BufferState,
-    Environment,
-    EnvParams,
-    EnvState,
-    Key,
-)
+from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
+                                  EnvParams, EnvState, Key)
 
 
 @struct.dataclass(frozen=True)

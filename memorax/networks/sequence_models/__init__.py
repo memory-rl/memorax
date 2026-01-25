@@ -2,7 +2,7 @@ from .ffm import FFMCell
 from .linear_attention import LinearAttentionCell
 from .lru import LRUCell
 from .mamba import MambaCell
-from .memoroid import MemoroidCellBase, Memoroid
+from .memoroid import Memoroid, MemoroidCellBase
 from .min_gru import MinGRUCell
 from .mlstm import mLSTMCell
 from .rnn import RNN

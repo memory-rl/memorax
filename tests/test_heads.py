@@ -4,18 +4,10 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from memorax.networks.heads import (
-    Alpha,
-    Beta,
-    C51QNetwork,
-    Categorical,
-    ContinuousQNetwork,
-    DiscreteQNetwork,
-    Gaussian,
-    HLGaussVNetwork,
-    SquashedGaussian,
-    VNetwork,
-)
+from memorax.networks.heads import (Alpha, Beta, C51QNetwork, Categorical,
+                                    ContinuousQNetwork, DiscreteQNetwork,
+                                    Gaussian, HLGaussVNetwork,
+                                    SquashedGaussian, VNetwork)
 
 
 class TestDiscreteQNetwork:
@@ -194,7 +186,6 @@ class TestHLGaussVNetwork:
 
 
 class TestC51QNetwork:
-
     @pytest.fixture
     def head(self):
         return C51QNetwork(action_dim=4, num_atoms=51, v_min=-5.0, v_max=5.0)
@@ -256,7 +247,6 @@ class TestC51QNetwork:
 
 
 class TestCategorical:
-
     @pytest.fixture
     def head(self):
         return Categorical(action_dim=4)

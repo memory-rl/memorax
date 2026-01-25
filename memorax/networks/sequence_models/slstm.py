@@ -9,14 +9,13 @@ from flax.linen.recurrent import RNNCellBase
 from flax.typing import Array, Dtype, Initializer, PRNGKey
 from jax import numpy as jnp
 from jax import random
-from memorax.networks.sequence_models.utils import (
-    BlockDiagonalDense,
-    CausalConv1d,
-    MultiHeadLayerNorm,
-    add_time_axis,
-    powerlaw_init,
-    remove_time_axis,
-)
+
+from memorax.networks.sequence_models.utils import (BlockDiagonalDense,
+                                                    CausalConv1d,
+                                                    MultiHeadLayerNorm,
+                                                    add_time_axis,
+                                                    powerlaw_init,
+                                                    remove_time_axis)
 
 A = TypeVar("A")
 Carry = Any

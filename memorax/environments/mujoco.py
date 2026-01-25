@@ -48,9 +48,7 @@ class AutoResetWrapper(GymnaxWrapper):
                 done = jnp.reshape(done, [x.shape[0]] + [1] * (len(x.shape) - 1))  # type: ignore
             return jnp.where(done, x, y)
 
-        data = jax.tree.map(
-            where_done, state.info["first_data"], state.data
-        )
+        data = jax.tree.map(where_done, state.info["first_data"], state.data)
         obs = jax.tree.map(where_done, state.info["first_obs"], state.obs)
         return state.replace(data=data, obs=obs)
 

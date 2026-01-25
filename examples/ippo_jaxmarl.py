@@ -19,7 +19,8 @@ import optax
 from memorax.algorithms import IPPO, IPPOConfig
 from memorax.environments.jaxmarl import JaxMarlWrapper
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import MLP, FeatureExtractor, Network, SequenceModelWrapper, heads
+from memorax.networks import (MLP, FeatureExtractor, Network,
+                              SequenceModelWrapper, heads)
 
 total_timesteps = 1_000_000
 num_train_steps = 10_000

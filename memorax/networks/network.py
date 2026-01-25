@@ -24,9 +24,7 @@ class Network(nn.Module):
         initial_carry: Optional[Array] = None,
         **kwargs,
     ):
-        x = self.feature_extractor(
-            observation, action=action, reward=reward, done=done
-        )
+        x = self.feature_extractor(observation, action=action, reward=reward, done=done)
 
         carry, x = self.torso(
             x,

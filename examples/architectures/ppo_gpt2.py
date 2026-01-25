@@ -18,18 +18,9 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (
-    FFN,
-    MLP,
-    FeatureExtractor,
-    LearnablePositionalEmbedding,
-    Network,
-    PreNorm,
-    Residual,
-    SelfAttention,
-    Stack,
-    heads,
-)
+from memorax.networks import (FFN, MLP, FeatureExtractor,
+                              LearnablePositionalEmbedding, Network, PreNorm,
+                              Residual, SelfAttention, Stack, heads)
 
 total_timesteps = 500_000
 num_train_steps = 10_000

@@ -5,13 +5,9 @@ import jax.numpy as jnp
 import pytest
 from flax import struct
 
-from memorax.buffers import (
-    compute_importance_weights,
-    get_full_start_flags,
-    get_start_flags_from_done,
-    make_episode_buffer,
-    make_prioritised_episode_buffer,
-)
+from memorax.buffers import (compute_importance_weights, get_full_start_flags,
+                             get_start_flags_from_done, make_episode_buffer,
+                             make_prioritised_episode_buffer)
 
 
 @struct.dataclass
@@ -40,7 +36,9 @@ def make_sample_experience(obs_dim: int = 4) -> MockExperience:
     )
 
 
-def make_timestep_batch(batch_size: int, key: jax.Array, obs_dim: int = 4) -> MockExperience:
+def make_timestep_batch(
+    batch_size: int, key: jax.Array, obs_dim: int = 4
+) -> MockExperience:
     """Create a batch of single timesteps for adding to buffer.
 
     When add_sequences=False, the buffer expects shape (batch_size, *feature_shape).
@@ -67,8 +65,12 @@ def make_sequence_batch(
         obs=jax.random.normal(keys[0], (batch_size, seq_len, obs_dim)),
         action=jax.random.randint(keys[1], (batch_size, seq_len), 0, 2),
         reward=jax.random.normal(keys[2], (batch_size, seq_len)),
-        done=jax.random.bernoulli(keys[3], 0.1, (batch_size, seq_len)).astype(jnp.float32),
-        prev_done=jax.random.bernoulli(keys[4], 0.1, (batch_size, seq_len)).astype(jnp.float32),
+        done=jax.random.bernoulli(keys[3], 0.1, (batch_size, seq_len)).astype(
+            jnp.float32
+        ),
+        prev_done=jax.random.bernoulli(keys[4], 0.1, (batch_size, seq_len)).astype(
+            jnp.float32
+        ),
     )
 
 
@@ -334,7 +336,9 @@ class TestEpisodeBoundarySampling:
             prev_done = prev_done.at[:, pos].set(1.0)
 
         expected_sample_positions = set([1, 11, 21, 31])
-        invalid_positions = set(range(seq_len - 4)) - expected_sample_positions  # -4 for seq length
+        invalid_positions = (
+            set(range(seq_len - 4)) - expected_sample_positions
+        )  # -4 for seq length
 
         exp = MockExperience(
             obs=time_indices,
@@ -410,7 +414,9 @@ class TestPrioritisedEpisodeBuffer:
         assert new_state.current_index == 1
         assert new_state.running_index == 1
 
-    def test_buffer_sample_returns_indices_and_probabilities(self, buffer_config, random_key):
+    def test_buffer_sample_returns_indices_and_probabilities(
+        self, buffer_config, random_key
+    ):
         """Sample should include indices and probabilities."""
         buffer = make_prioritised_episode_buffer(**buffer_config)
         state = buffer.init(make_sample_experience())
@@ -467,7 +473,9 @@ class TestPrioritisedEpisodeBuffer:
         key, sample_key = jax.random.split(key)
         sample = buffer.sample(state, sample_key)
 
-        new_priorities = jnp.abs(jax.random.normal(sample_key, sample.indices.shape)) + 1e-6
+        new_priorities = (
+            jnp.abs(jax.random.normal(sample_key, sample.indices.shape)) + 1e-6
+        )
         new_state = buffer.set_priorities(state, sample.indices, new_priorities)
 
         assert new_state is not None

@@ -9,11 +9,9 @@ import optax
 from flax import core, struct
 
 from memorax.networks import SequenceModelWrapper
-from memorax.networks.sequence_models.utils import (
-    add_feature_axis,
-    remove_feature_axis,
-    remove_time_axis,
-)
+from memorax.networks.sequence_models.utils import (add_feature_axis,
+                                                    remove_feature_axis,
+                                                    remove_time_axis)
 from memorax.utils import Timestep, Transition
 from memorax.utils.typing import Array, Environment, EnvParams, EnvState, Key
 

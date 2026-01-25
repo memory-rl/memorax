@@ -6,6 +6,7 @@ This example demonstrates using S5 with:
 - Efficient parallel training via associative scan
 - Captures long-range dependencies better than vanilla RNNs
 """
+
 import time
 from dataclasses import asdict
 
@@ -17,18 +18,8 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (
-    MLP,
-    FFN,
-    FeatureExtractor,
-    Memoroid,
-    Network,
-    PreNorm,
-    Residual,
-    S5Cell,
-    Stack,
-    heads,
-)
+from memorax.networks import (FFN, MLP, FeatureExtractor, Memoroid, Network,
+                              PreNorm, Residual, S5Cell, Stack, heads)
 
 total_timesteps = 500_000
 num_train_steps = 10_000

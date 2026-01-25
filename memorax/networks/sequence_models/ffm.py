@@ -8,6 +8,7 @@ from flax.linen import initializers
 from flax.linen.linear import Dense, default_kernel_init
 from flax.linen.normalization import LayerNorm
 from flax.typing import Dtype, Initializer
+
 from memorax.utils.typing import Array, Carry
 
 from .memoroid import MemoroidCellBase

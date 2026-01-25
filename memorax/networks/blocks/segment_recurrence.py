@@ -5,10 +5,11 @@ import jax.numpy as jnp
 from flax import linen as nn
 from flax import struct
 
-from .base import Block
 from memorax.networks.sequence_models.sequence_model import SequenceModel
 from memorax.networks.sequence_models.utils import get_input_shape
 from memorax.utils.typing import Array, Carry
+
+from .base import Block
 
 
 @struct.dataclass

@@ -10,15 +10,8 @@ from gymnax.wrappers import FlattenObservationWrapper
 from memorax.algorithms import PQN, PQNConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger, WandbLogger
-from memorax.networks import (
-    CNN,
-    MLP,
-    RNN,
-    FeatureExtractor,
-    Network,
-    SequenceModelWrapper,
-    heads,
-)
+from memorax.networks import (CNN, MLP, RNN, FeatureExtractor, Network,
+                              SequenceModelWrapper, heads)
 
 total_timesteps = 5_000_000
 num_train_steps = 100_000

@@ -6,6 +6,7 @@ This example demonstrates using Mamba (Selective State Space Model) with:
 - Content-aware memory updates
 - Efficient parallel training
 """
+
 import time
 from dataclasses import asdict
 
@@ -17,18 +18,8 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (
-    MLP,
-    FFN,
-    FeatureExtractor,
-    MambaCell,
-    Memoroid,
-    Network,
-    PreNorm,
-    Residual,
-    Stack,
-    heads,
-)
+from memorax.networks import (FFN, MLP, FeatureExtractor, MambaCell, Memoroid,
+                              Network, PreNorm, Residual, Stack, heads)
 
 total_timesteps = 500_000
 num_train_steps = 10_000

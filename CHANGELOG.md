@@ -7,10 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Mixture of Experts (MoE) routing for horizontal scaling
 
-## [0.1.0] - 2025-01-24
+## [0.1.0] - 2026-01-25
 
 ### Added
 
@@ -34,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Normalization: PreNorm, PostNorm, LayerNorm
 - Residual connections: Residual, GatedResidual
 - Feed-forward networks with configurable expansion
+- Mixture of Experts (MoE) routing for horizontal scaling
 
 #### Environments
 - Gymnax integration (classic control, Atari-style)
@@ -61,5 +60,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite (104 tests)
 - 20 example scripts
 
-[Unreleased]: https://github.com/memory-rl/memorax/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/memory-rl/memorax/releases/tag/v0.1.0

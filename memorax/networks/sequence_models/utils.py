@@ -242,9 +242,7 @@ class MultiHeadLayerNorm(nn.Module):
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-        )(
-            x
-        )
+        )(x)
 
         if self.use_scale:
             gamma = self.param(

@@ -7,21 +7,12 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 
-from memorax.networks.sequence_models.utils import (
-    add_feature_axis,
-    remove_feature_axis,
-    remove_time_axis,
-)
+from memorax.networks.sequence_models.utils import (add_feature_axis,
+                                                    remove_feature_axis,
+                                                    remove_time_axis)
 from memorax.utils import Timestep, Transition, periodic_incremental_update
-from memorax.utils.typing import (
-    Array,
-    Buffer,
-    BufferState,
-    Environment,
-    EnvParams,
-    EnvState,
-    Key,
-)
+from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
+                                  EnvParams, EnvState, Key)
 
 
 @struct.dataclass(frozen=True)
@@ -368,7 +359,9 @@ class SAC:
 
         log_alpha = self.alpha_network.apply(state.alpha_params)
         alpha = jnp.exp(log_alpha)
-        target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * (remove_feature_axis(next_q) - alpha * next_log_probs)
+        target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * (
+            remove_feature_axis(next_q) - alpha * next_log_probs
+        )
 
         target_q = jax.lax.stop_gradient(target_q)
 
@@ -382,10 +375,9 @@ class SAC:
                 batch.prev_done,
                 initial_critic_carry,
             )
-            critic_loss = (
-                self.critic_network.head1.loss(q1, aux1, target_q)
-                + self.critic_network.head2.loss(q2, aux2, target_q)
-            )
+            critic_loss = self.critic_network.head1.loss(
+                q1, aux1, target_q
+            ) + self.critic_network.head2.loss(q2, aux2, target_q)
 
             return critic_loss, {
                 "critic_loss": critic_loss,
@@ -425,9 +417,7 @@ class SAC:
         initial_critic_target_carry = None
 
         if self.cfg.burn_in_length > 0:
-            burn_in = jax.tree.map(
-                lambda x: x[:, : self.cfg.burn_in_length], batch
-            )
+            burn_in = jax.tree.map(lambda x: x[:, : self.cfg.burn_in_length], batch)
             # Process burn-in through actor network
             initial_actor_carry, (_, _) = self.actor_network.apply(
                 jax.lax.stop_gradient(state.actor_params),
@@ -459,12 +449,12 @@ class SAC:
                 add_feature_axis(burn_in.reward),
                 burn_in.done,
             )
-            initial_critic_target_carry = jax.lax.stop_gradient(initial_critic_target_carry)
+            initial_critic_target_carry = jax.lax.stop_gradient(
+                initial_critic_target_carry
+            )
 
             # Use remaining experience for actual learning
-            batch = jax.tree.map(
-                lambda x: x[:, self.cfg.burn_in_length :], batch
-            )
+            batch = jax.tree.map(lambda x: x[:, self.cfg.burn_in_length :], batch)
 
         state, critic_info = self._update_critic(
             critic_key,

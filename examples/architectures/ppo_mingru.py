@@ -6,6 +6,7 @@ This example demonstrates using MinGRU with:
 - Efficient parallel training via associative scan
 - Simplified GRU with fewer parameters
 """
+
 import time
 from dataclasses import asdict
 
@@ -17,18 +18,8 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (
-    MLP,
-    FFN,
-    FeatureExtractor,
-    Memoroid,
-    MinGRUCell,
-    Network,
-    PreNorm,
-    Residual,
-    Stack,
-    heads,
-)
+from memorax.networks import (FFN, MLP, FeatureExtractor, Memoroid, MinGRUCell,
+                              Network, PreNorm, Residual, Stack, heads)
 
 total_timesteps = 500_000
 num_train_steps = 10_000

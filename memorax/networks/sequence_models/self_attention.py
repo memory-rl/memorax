@@ -8,10 +8,7 @@ from flax import struct
 
 from memorax.networks.positional_embeddings import RelativePositionalEmbedding
 from memorax.networks.sequence_models.utils import (
-    get_attention_implementation,
-    get_attention_mask,
-    get_input_shape,
-)
+    get_attention_implementation, get_attention_mask, get_input_shape)
 from memorax.utils.typing import Array
 
 from .sequence_model import SequenceModel
@@ -32,10 +29,12 @@ class SelfAttention(SequenceModel):
     param_dtype: Any
     kernel_init: Any
     bias_init: Any
-    positional_embedding: RelativePositionalEmbedding = lambda query, key, query_pos, key_pos: (
-        query,
-        key,
-        None,
+    positional_embedding: RelativePositionalEmbedding = (
+        lambda query, key, query_pos, key_pos: (
+            query,
+            key,
+            None,
+        )
     )
 
     @nn.nowrap
@@ -76,9 +75,9 @@ class SelfAttention(SequenceModel):
 
         _, M, *_ = memory.shape
 
-        assert (
-            T <= self.context_length
-        ), f"T must be less than or equal to context_length, but was T: {T}, context_length: {self.context_length}"
+        assert T <= self.context_length, (
+            f"T must be less than or equal to context_length, but was T: {T}, context_length: {self.context_length}"
+        )
 
         projection = partial(
             nn.DenseGeneral,

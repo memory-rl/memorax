@@ -8,13 +8,12 @@ from flax import core
 from flax import linen as nn
 from flax import struct
 
-from memorax.networks.sequence_models.utils import (
-    add_feature_axis,
-    add_time_axis,
-    remove_feature_axis,
-    remove_time_axis,
-)
-from memorax.utils import Timestep, Transition, generalized_advantage_estimation
+from memorax.networks.sequence_models.utils import (add_feature_axis,
+                                                    add_time_axis,
+                                                    remove_feature_axis,
+                                                    remove_time_axis)
+from memorax.utils import (Timestep, Transition,
+                           generalized_advantage_estimation)
 from memorax.utils.typing import Array, Key
 
 to_sequence = lambda timestep: jax.tree.map(

@@ -13,6 +13,7 @@ def _check_positions(positions, num_embeddings):
             "Ensure num_embeddings >= context_length or that episode resets occur frequently enough."
         )
 
+
 from memorax.utils.typing import Array, Carry
 
 from .base import AbsolutePositionalEmbedding

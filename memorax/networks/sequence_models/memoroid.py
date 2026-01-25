@@ -4,6 +4,7 @@ from typing import Optional, Tuple
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
+
 from memorax.utils.typing import Array, Carry
 
 from .sequence_model import SequenceModel
@@ -39,9 +40,7 @@ class Memoroid(SequenceModel):
     ) -> Tuple[Carry, Array]:
         if initial_carry is None:
             input_shape = get_input_shape(inputs)
-            initial_carry = self.cell.initialize_carry(
-                jax.random.key(0), input_shape
-            )
+            initial_carry = self.cell.initialize_carry(jax.random.key(0), input_shape)
 
         z = self.cell(inputs, **kwargs)
 

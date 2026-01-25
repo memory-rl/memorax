@@ -22,37 +22,26 @@ from chex import PRNGKey
 from flashbax import utils
 from flashbax.buffers import sum_tree
 from flashbax.buffers.prioritised_trajectory_buffer import (
-    PrioritisedTrajectoryBuffer,
-    PrioritisedTrajectoryBufferSample,
-    PrioritisedTrajectoryBufferState,
-    Priorities,
-    Probabilities,
-    SET_BATCH_FN,
-    get_sum_tree_capacity,
-    prioritised_init,
-    set_priorities,
-    validate_device,
-    validate_priority_exponent,
-)
+    SET_BATCH_FN, Priorities, PrioritisedTrajectoryBuffer,
+    PrioritisedTrajectoryBufferSample, PrioritisedTrajectoryBufferState,
+    Probabilities, get_sum_tree_capacity, prioritised_init, set_priorities,
+    validate_device, validate_priority_exponent)
 from flashbax.buffers.sum_tree import SumTreeState
 from flashbax.buffers.trajectory_buffer import (
-    Experience,
-    can_sample,
-    validate_trajectory_buffer_args,
-)
+    Experience, can_sample, validate_trajectory_buffer_args)
 from flashbax.utils import add_dim_to_args
 from jax import Array
 
-from .episode_buffer import (
-    get_start_flags_from_done,
-    validate_episode_buffer_args,
-)
+from .episode_buffer import (get_start_flags_from_done,
+                             validate_episode_buffer_args)
 
 Indices = Array
 
 
 @dataclass(frozen=True)
-class PrioritisedEpisodeBufferSample(PrioritisedTrajectoryBufferSample, Generic[Experience]):
+class PrioritisedEpisodeBufferSample(
+    PrioritisedTrajectoryBufferSample, Generic[Experience]
+):
     """Sample from prioritised episode buffer with priority information.
 
     Attributes:
@@ -247,9 +236,7 @@ def prioritised_episode_sample(
         starts[:, None] + jnp.arange(sample_sequence_length)
     ) % max_length_time_axis  # [N, L]
 
-    experience = jax.tree.map(
-        lambda x: x[rows[:, None], time_idx], state.experience
-    )
+    experience = jax.tree.map(lambda x: x[rows[:, None], time_idx], state.experience)
 
     # Convert flat indices to item indices for priority updates
     # With period=1, item_index = flat_index
@@ -335,7 +322,9 @@ def prioritised_episode_add(
     # These are items at positions: [current_index - sample_sequence_length + 1, current_index]
     # before the write, which are now broken
     num_invalid = jnp.minimum(sample_sequence_length - 1, add_sequence_length)
-    invalid_time_start = (state.current_index - num_invalid + max_length_time_axis) % max_length_time_axis
+    invalid_time_start = (
+        state.current_index - num_invalid + max_length_time_axis
+    ) % max_length_time_axis
 
     invalid_time_indices = (
         invalid_time_start + jnp.arange(sample_sequence_length - 1)

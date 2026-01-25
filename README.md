@@ -127,3 +127,7 @@ If you use Memory-RL for your work, please cite:
   url     = {https://github.com/memory-rl/memorax}
 }
 ```
+
+## 🙏 Acknowledgments
+
+Special thanks to [@huterguier](https://github.com/huterguier) for the valuable discussions and advice on the API design.

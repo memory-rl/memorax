@@ -40,7 +40,7 @@ class SACConfig:
     target_entropy_scale: float
     learning_starts: int
     max_grad_norm: float
-    mask: bool
+    burn_in_length: int = 0
 
 
 @struct.dataclass(frozen=True)
@@ -57,6 +57,7 @@ class SACState:
     critic_optimizer_state: optax.OptState
     alpha_optimizer_state: optax.OptState
     actor_hidden_state: Array
+    critic_hidden_state: Array
 
 
 @struct.dataclass(frozen=True)
@@ -219,10 +220,13 @@ class SAC:
         )
         buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
 
+        critic_hidden_state = self.critic_network.initialize_carry(obs.shape)
+
         return key, SACState(
             step=0,
             timestep=timestep.from_sequence(),
             actor_hidden_state=actor_hidden_state,
+            critic_hidden_state=critic_hidden_state,
             env_state=env_state,
             buffer_state=buffer_state,
             actor_params=actor_params,
@@ -273,13 +277,15 @@ class SAC:
         return state, info
 
     @partial(jax.jit, static_argnames=["self"])
-    def _update_actor(self, key, state: SACState, batch):
+    def _update_actor(
+        self,
+        key,
+        state: SACState,
+        batch,
+        initial_actor_carry=None,
+        initial_critic_carry=None,
+    ):
         alpha = self.alpha_network.apply(state.alpha_params)
-        mask = jnp.ones_like(batch.prev_done, dtype=bool)
-        if self.cfg.mask:
-            episode_idx = jnp.cumsum(batch.prev_done.astype(jnp.int32), axis=1)
-            terminal = (episode_idx == 1) & batch.prev_done
-            mask = (episode_idx == 0) | terminal
 
         def actor_loss_fn(actor_params):
             _, dist = self.actor_network.apply(
@@ -289,6 +295,7 @@ class SAC:
                 batch.action,
                 add_feature_axis(batch.reward),
                 batch.prev_done,
+                initial_actor_carry,
             )
             actions, log_probs = dist.sample_and_log_prob(seed=key)
             _, (q1, q2) = self.critic_network.apply(
@@ -298,9 +305,10 @@ class SAC:
                 actions,
                 add_feature_axis(batch.reward),
                 batch.prev_done,
+                initial_critic_carry,
             )
             q = jnp.minimum(q1, q2)
-            actor_loss = (log_probs * alpha - q.squeeze(-1)).mean(where=mask)
+            actor_loss = (log_probs * alpha - q.squeeze(-1)).mean()
             return actor_loss, {"actor_loss": actor_loss, "entropy": -log_probs.mean()}
 
         (_, info), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
@@ -318,7 +326,15 @@ class SAC:
         return state, info
 
     @partial(jax.jit, static_argnames=["self"])
-    def _update_critic(self, key, state: SACState, batch):
+    def _update_critic(
+        self,
+        key,
+        state: SACState,
+        batch,
+        initial_actor_carry=None,
+        initial_critic_carry=None,
+        initial_critic_target_carry=None,
+    ):
         _, dist = self.actor_network.apply(
             state.actor_params,
             batch.next_obs,
@@ -326,6 +342,7 @@ class SAC:
             batch.action,
             add_feature_axis(batch.reward),
             batch.done,
+            initial_actor_carry,
         )
         next_actions, next_log_probs = dist.sample_and_log_prob(seed=key)
 
@@ -336,6 +353,7 @@ class SAC:
             next_actions,
             add_feature_axis(batch.reward),
             batch.done,
+            initial_critic_target_carry,
         )
         next_q = jnp.minimum(next_q1, next_q2)
 
@@ -343,12 +361,6 @@ class SAC:
         target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * next_q.squeeze(-1)
 
         target_q = jax.lax.stop_gradient(target_q)
-
-        mask = jnp.ones_like(batch.prev_done, dtype=bool)
-        if self.cfg.mask:
-            episode_idx = jnp.cumsum(batch.prev_done.astype(jnp.int32), axis=1)
-            terminal = (episode_idx == 1) & batch.prev_done
-            mask = (episode_idx == 0) | terminal
 
         def critic_loss_fn(critic_params):
             _, (q1, q2) = self.critic_network.apply(
@@ -358,10 +370,11 @@ class SAC:
                 batch.action,
                 add_feature_axis(batch.reward),
                 batch.prev_done,
+                initial_critic_carry,
             )
             q1_error = q1.squeeze(-1) - target_q
             q2_error = q2.squeeze(-1) - target_q
-            critic_loss = (q1_error**2 + q2_error**2).mean(where=mask)
+            critic_loss = (q1_error**2 + q2_error**2).mean()
 
             return critic_loss, {
                 "critic_loss": critic_loss,
@@ -396,8 +409,67 @@ class SAC:
         key, batch_key, critic_key, actor_key, alpha_key = jax.random.split(key, 5)
         batch = self.buffer.sample(state.buffer_state, batch_key).experience
 
-        state, critic_info = self._update_critic(critic_key, state, batch)
-        state, actor_info = self._update_actor(actor_key, state, batch)
+        initial_actor_carry = None
+        initial_critic_carry = None
+        initial_critic_target_carry = None
+
+        if self.cfg.burn_in_length > 0:
+            burn_in = jax.tree.map(
+                lambda x: x[:, : self.cfg.burn_in_length], batch
+            )
+            # Process burn-in through actor network
+            initial_actor_carry, _ = self.actor_network.apply(
+                jax.lax.stop_gradient(state.actor_params),
+                burn_in.obs,
+                burn_in.prev_done,
+                burn_in.action,
+                add_feature_axis(burn_in.reward),
+                burn_in.prev_done,
+            )
+            initial_actor_carry = jax.lax.stop_gradient(initial_actor_carry)
+
+            # Process burn-in through critic network
+            initial_critic_carry, _ = self.critic_network.apply(
+                jax.lax.stop_gradient(state.critic_params),
+                burn_in.obs,
+                burn_in.prev_done,
+                burn_in.action,
+                add_feature_axis(burn_in.reward),
+                burn_in.prev_done,
+            )
+            initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
+
+            # Process burn-in through target critic network
+            initial_critic_target_carry, _ = self.critic_network.apply(
+                jax.lax.stop_gradient(state.critic_target_params),
+                burn_in.next_obs,
+                burn_in.done,
+                burn_in.action,
+                add_feature_axis(burn_in.reward),
+                burn_in.done,
+            )
+            initial_critic_target_carry = jax.lax.stop_gradient(initial_critic_target_carry)
+
+            # Use remaining experience for actual learning
+            batch = jax.tree.map(
+                lambda x: x[:, self.cfg.burn_in_length :], batch
+            )
+
+        state, critic_info = self._update_critic(
+            critic_key,
+            state,
+            batch,
+            initial_actor_carry,
+            initial_critic_carry,
+            initial_critic_target_carry,
+        )
+        state, actor_info = self._update_actor(
+            actor_key,
+            state,
+            batch,
+            initial_actor_carry,
+            initial_critic_carry,
+        )
         state, alpha_info = self._update_alpha(alpha_key, state)
 
         info = {**critic_info, **actor_info, **alpha_info}
@@ -453,10 +525,12 @@ class SAC:
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
         hidden_state = self.actor_network.initialize_carry(obs.shape)
 
+        critic_hidden_state = self.critic_network.initialize_carry(obs.shape)
         eval_state = state.replace(
             timestep=timestep,
             env_state=env_state,
             actor_hidden_state=hidden_state,
+            critic_hidden_state=critic_hidden_state,
         )
 
         (key, eval_state), transitions = jax.lax.scan(

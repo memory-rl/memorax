@@ -63,6 +63,7 @@ cfg = DQNConfig(
     epsilon_start=1.0,
     epsilon_end=0.05,
     epsilon_decay_steps=50_000,
+    burn_in_length=0,  # RNN burn-in steps
 )
 
 agent = DQN(cfg, env, env_params, q_network, optimizer)
@@ -85,6 +86,7 @@ cfg = SACConfig(
     tau=0.005,
     alpha=0.2,  # Temperature parameter
     auto_alpha=True,  # Learn temperature
+    burn_in_length=0,  # RNN burn-in steps
 )
 
 agent = SAC(cfg, env, env_params, actor, critic, critic, actor_optimizer, critic_optimizer, alpha_optimizer)
@@ -110,13 +112,25 @@ key, returns = agent.evaluate(key, state, num_episodes=10)
 
 ## Burn-in for Recurrent Networks
 
-When using RNNs/SSMs, use burn-in to establish hidden state context:
+When using RNNs/SSMs with off-policy algorithms (DQN, SAC) or on-policy algorithms (PPO), use burn-in to establish hidden state context before computing losses. This is especially important when sampling sequences from a replay buffer, as the initial hidden state is unknown.
 
 ```python
+# Off-policy (DQN, SAC)
+cfg = DQNConfig(
+    burn_in_length=20,  # 20 steps of context before learning
+    # ...
+)
+
+cfg = SACConfig(
+    burn_in_length=20,
+    # ...
+)
+
+# On-policy (PPO)
 cfg = PPOConfig(
-    burn_in_length=20,  # 20 steps of context
+    burn_in_length=20,
     num_steps=128,
 )
 ```
 
-This replays the first `burn_in_length` steps without gradient to initialize the hidden state before computing losses.
+The first `burn_in_length` steps of each sequence are replayed without gradients to initialize the hidden state. Only the remaining steps are used for computing losses and updates.

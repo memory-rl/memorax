@@ -1780,7 +1780,16 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-all = [
+brax = [
+    { name = "brax" },
+]
+craftax = [
+    { name = "craftax" },
+]
+cuda = [
+    { name = "jax", extra = ["cuda12"] },
+]
+environments = [
     { name = "brax" },
     { name = "craftax" },
     { name = "gxm" },
@@ -1792,15 +1801,6 @@ all = [
     { name = "popgym-arcade" },
     { name = "popjym" },
     { name = "warp-lang" },
-]
-brax = [
-    { name = "brax" },
-]
-craftax = [
-    { name = "craftax" },
-]
-cuda = [
-    { name = "jax", extra = ["cuda12"] },
 ]
 gxm = [
     { name = "gxm" },
@@ -1847,40 +1847,40 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "brax", marker = "extra == 'all'", specifier = ">=0.12.4" },
     { name = "brax", marker = "extra == 'brax'", specifier = ">=0.12.4" },
+    { name = "brax", marker = "extra == 'environments'", specifier = ">=0.12.4" },
     { name = "brax", marker = "extra == 'jaxmarl'" },
-    { name = "craftax", marker = "extra == 'all'", specifier = ">=1.5.0" },
     { name = "craftax", marker = "extra == 'craftax'", specifier = ">=1.5.0" },
+    { name = "craftax", marker = "extra == 'environments'", specifier = ">=1.5.0" },
     { name = "distrax", specifier = ">=0.1.5" },
     { name = "flashbax", specifier = ">=0.1.3" },
     { name = "flax", specifier = ">=0.10.7" },
-    { name = "gxm", marker = "extra == 'all'" },
+    { name = "gxm", marker = "extra == 'environments'" },
     { name = "gxm", marker = "extra == 'gxm'", git = "https://github.com/huterguier/gxm?rev=dev" },
     { name = "gymnax", specifier = ">=0.0.9" },
-    { name = "gymnax", marker = "extra == 'all'", specifier = ">=0.0.9" },
+    { name = "gymnax", marker = "extra == 'environments'", specifier = ">=0.0.9" },
     { name = "jax", specifier = ">=0.7.2" },
     { name = "jax", extras = ["cuda12"], marker = "extra == 'cuda'", specifier = ">=0.7.2" },
-    { name = "jaxmarl", marker = "extra == 'all'", specifier = "==0.1.0" },
+    { name = "jaxmarl", marker = "extra == 'environments'", specifier = "==0.1.0" },
     { name = "jaxmarl", marker = "extra == 'jaxmarl'" },
-    { name = "jumanji", marker = "extra == 'all'", specifier = ">=1.1.1" },
+    { name = "jumanji", marker = "extra == 'environments'", specifier = ">=1.1.1" },
     { name = "jumanji", marker = "extra == 'jumanji'", specifier = ">=1.1.1" },
-    { name = "navix", marker = "extra == 'all'", specifier = ">=0.7.0" },
+    { name = "navix", marker = "extra == 'environments'", specifier = ">=0.7.0" },
     { name = "navix", marker = "extra == 'navix'", specifier = ">=0.7.0" },
     { name = "neptune-scale", specifier = ">=0.27.0" },
-    { name = "playground", marker = "extra == 'all'", specifier = ">=0.0.5" },
+    { name = "playground", marker = "extra == 'environments'", specifier = ">=0.0.5" },
     { name = "playground", marker = "extra == 'playground'", specifier = ">=0.0.5" },
-    { name = "popgym-arcade", marker = "extra == 'all'", specifier = ">=0.0.4" },
+    { name = "popgym-arcade", marker = "extra == 'environments'", specifier = ">=0.0.4" },
     { name = "popgym-arcade", marker = "extra == 'popgym-arcade'", specifier = ">=0.0.4" },
-    { name = "popjym", marker = "extra == 'all'" },
+    { name = "popjym", marker = "extra == 'environments'" },
     { name = "popjym", marker = "extra == 'popjym'", git = "https://github.com/EdanToledo/popjym.git" },
     { name = "tensorboardx", specifier = ">=2.6.4" },
     { name = "wandb", specifier = ">=0.21.0" },
-    { name = "warp-lang", marker = "extra == 'all'", specifier = ">=1.9.1" },
+    { name = "warp-lang", marker = "extra == 'environments'", specifier = ">=1.9.1" },
     { name = "warp-lang", marker = "extra == 'playground'", specifier = ">=1.9.1" },
     { name = "xminigrid", marker = "extra == 'xminigrid'" },
 ]
-provides-extras = ["brax", "jumanji", "navix", "craftax", "popgym-arcade", "playground", "gxm", "popjym", "xminigrid", "jaxmarl", "all", "cuda"]
+provides-extras = ["brax", "jumanji", "navix", "craftax", "popgym-arcade", "playground", "gxm", "popjym", "xminigrid", "jaxmarl", "environments", "cuda"]
 
 [package.metadata.requires-dev]
 development = [

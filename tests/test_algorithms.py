@@ -108,10 +108,8 @@ class TestDQN:
             start_e=1.0,
             end_e=0.01,
             exploration_fraction=0.1,
-            double=False,
             learning_starts=32,
             train_frequency=4,
-            mask=False,
         )
 
         q_network = Network(
@@ -405,7 +403,6 @@ class TestSAC:
             target_entropy_scale=1.0,
             learning_starts=32,
             max_grad_norm=0.5,
-            mask=False,
         )
 
         actor_network = Network(

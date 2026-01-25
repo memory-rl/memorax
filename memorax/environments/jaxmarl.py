@@ -1,8 +1,9 @@
 import jax.numpy as jnp
-import jaxmarl
 
 
 def make(env_id, **kwargs):
+    import jaxmarl
+
     env = jaxmarl.make(env_id, **kwargs)
     return env, None
 

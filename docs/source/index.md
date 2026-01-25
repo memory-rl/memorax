@@ -1,15 +1,99 @@
-# Memory-Augmented Reinforcement Learning in JAX
+# Memorax
 
 A unified JAX/Flax framework for memory-augmented reinforcement learning.
 
+```{image} https://github.com/memory-rl/memorax/blob/main/images/memorax_logo.png?raw=true
+:alt: Memorax Logo
+:align: center
+:height: 170px
+```
+
 Memorax provides modular, high-performance implementations of RL algorithms with support for advanced sequence models including RNNs, State Space Models, and Transformers.
+
+---
 
 ## Features
 
-- 🧠 **Algorithms**: `PPO`, `DQN`, `SAC`, `PQN` with full JAX vectorization
-- 🔁 **Sequence Models**: `LSTM`, `GRU`, `Mamba`, `S5`, `LRU`, `Linear Attention`, and more
-- 🌍 **Environments**: Integration with Gymnax, Brax, POPGym, Craftax, and others
-- 📊 **Logging**: Weights & Biases, TensorBoard, Neptune, and console logging
+**Algorithms**
+: JAX implementations of [DQN](https://arxiv.org/abs/1312.5602), [PPO](https://arxiv.org/abs/1707.06347), [SAC](https://arxiv.org/abs/1801.01290), [PQN](https://arxiv.org/abs/2407.04811v2), [IPPO](https://arxiv.org/abs/2011.09533), [R2D2](https://openreview.net/forum?id=r1lyTjAqYX), and their memory-augmented variants with burn-in support.
+
+**Sequence Models**
+: Support for [LSTM](https://ieeexplore.ieee.org/abstract/document/6795963), [GRU](https://arxiv.org/abs/1412.3555), [GTrXL](https://arxiv.org/abs/1910.06764), [FFM](https://arxiv.org/abs/2310.04128), [xLSTM](https://arxiv.org/abs/2405.04517), [S5](https://arxiv.org/abs/2303.03982), [LRU](https://arxiv.org/abs/2303.06349), [Mamba](https://arxiv.org/abs/2312.00752), [MinGRU](https://arxiv.org/abs/2410.01201), [Linear Transformer](https://arxiv.org/abs/2006.16236), and more.
+
+**Networks**
+: MLP, CNN, and [ViT](https://arxiv.org/abs/2010.11929) encoders with [RoPE](https://arxiv.org/abs/2104.09864) and [ALiBi](https://arxiv.org/abs/2108.12409) positional embeddings, plus [Mixture of Experts](https://arxiv.org/abs/1701.06538) for horizontal scaling.
+
+**Environments**
+: Integration with [Gymnax](https://github.com/RobertTLange/gymnax), [PopJym](https://github.com/EdanToledo/popjym), [Navix](https://github.com/epignatelli/navix), [Craftax](https://github.com/MichaelTMatthews/Craftax), [Brax](https://github.com/google/brax), [MuJoCo](https://github.com/google-deepmind/mujoco_playground), [XMiniGrid](https://github.com/corl-team/xland-minigrid), and [JaxMARL](https://github.com/FLAIROx/JaxMARL).
+
+**Logging**
+: Built-in support for [Weights & Biases](https://wandb.ai), [TensorBoard](https://github.com/lanpa/tensorboardX), [Neptune](https://neptune.ai), and CLI dashboard.
+
+---
+
+## Installation
+
+Install Memorax using pip:
+
+```bash
+pip install memorax
+```
+
+Or with CUDA support:
+
+```bash
+pip install memorax[cuda]
+```
+
+See the {doc}`getting_started/installation` guide for more options.
+
+---
+
+## Quick Example
+
+```python
+import jax
+import optax
+from memorax.algorithms import PPO, PPOConfig
+from memorax.environments import environment
+from memorax.networks import MLP, FeatureExtractor, Network, heads
+
+env, env_params = environment.make("gymnax::CartPole-v1")
+
+cfg = PPOConfig(
+    name="PPO",
+    num_envs=8,
+    num_steps=128,
+    gamma=0.99,
+    gae_lambda=0.95,
+)
+
+feature_extractor = FeatureExtractor(observation_extractor=MLP(features=(64,)))
+actor = Network(feature_extractor, heads.Categorical(env.action_space(env_params).n))
+critic = Network(feature_extractor, heads.VNetwork())
+optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(3e-4))
+
+agent = PPO(cfg, env, env_params, actor, critic, optimizer, optimizer)
+key, state = agent.init(jax.random.key(0))
+key, state, transitions = agent.train(key, state, num_steps=10_000)
+```
+
+See the {doc}`getting_started/quickstart` for more examples.
+
+---
+
+## Citation
+
+If you use Memorax in your research, please cite:
+
+```bibtex
+@software{memoryrl2025github,
+  title   = {Memory-RL: A Unified Framework for Memory-Augmented Reinforcement Learning},
+  author  = {Noah Farr},
+  year    = {2025},
+  url     = {https://github.com/memory-rl/memorax}
+}
+```
 
 ```{toctree}
 :maxdepth: 2

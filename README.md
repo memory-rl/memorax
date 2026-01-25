@@ -18,26 +18,25 @@ A unified reinforcement learning framework featuring memory-augmented algorithms
 
 ## 📥 Installation
 
-1. **Clone the repository**:
+Install Memorax using pip:
 
 ```bash
-git clone https://github.com/memorax/memorax.git
-cd memorax
+pip install memorax
 ```
 
-2. **Install Python dependencies**:
+Or using uv:
 
 ```bash
-uv sync
+uv add memorax
 ```
 
-Optionally you can add support for CUDA with
+Optionally you can add support for CUDA with:
 
 ```bash
-uv sync --extra cuda
+pip install memorax[cuda]
 ```
 
-3. **Optional**: Set up Weights & Biases for logging by logging in:
+**Optional**: Set up Weights & Biases for logging by logging in:
 
 ```bash
 wandb login

@@ -14,9 +14,13 @@ class CNN(nn.Module):
     normalizer: Optional[Callable] = None
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
+    normalize: bool = False
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
+        if self.normalize:
+            x = x / 255.0
+
         poolings = self.poolings or [None] * len(self.features)
 
         for feature, kernel_size, stride, pooling in zip(

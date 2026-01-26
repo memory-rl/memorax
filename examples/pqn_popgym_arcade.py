@@ -11,8 +11,16 @@ from gymnax.wrappers import FlattenObservationWrapper
 from memorax.algorithms import PQN, PQNConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger, WandbLogger
-from memorax.networks import (CNN, MLP, RNN, Embedding, FeatureExtractor,
-                              Network, SequenceModelWrapper, heads)
+from memorax.networks import (
+    CNN,
+    MLP,
+    RNN,
+    Embedding,
+    FeatureExtractor,
+    Network,
+    SequenceModelWrapper,
+    heads,
+)
 
 total_timesteps = 5_000_000
 num_train_steps = 100_000
@@ -45,6 +53,7 @@ q_network = Network(
                 partial(nn.max_pool, window_shape=(2, 2), strides=(2, 2)),
                 partial(nn.max_pool, window_shape=(2, 2), strides=(2, 2)),
             ),
+            normalize=True,
         ),
         action_extractor=Embedding(
             num_embeddings=env.action_space(env_params).n,
@@ -54,7 +63,6 @@ q_network = Network(
     torso=SequenceModelWrapper(
         MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
     ),
-    # torso=RNN(cell=nn.GRUCell(128)),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,
     ),
@@ -123,7 +131,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"SPS": SPS, **training_statistics, **losses}
+    data = {"training/SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)

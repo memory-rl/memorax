@@ -111,6 +111,21 @@ memorax/
    └─ utils/
 ```
 
+## 🧩 JAX POMDP Ecosystem
+
+Memorax is designed to work alongside a growing suite of JAX-native tools focused on partial observability and memory. These projects provide the foundational architectures and benchmarks for modern memory-augmented RL:
+
+### 🧠 Architectures & Infrastructure
+* **[Memax](https://github.com/smorad/memax):** A library for efficient sequence and recurrent modeling in JAX. It provides unified interfaces for fast recurrent state resets and associative scans, serving as a powerful primitive for building the types of memory cells used in Memorax.
+* **[Flashbax](https://github.com/instadeepai/flashbax):** The library powering Memorax's buffer system. It provides high-performance, JAX-native experience replay buffers optimized for sequence storage and prioritized sampling.
+* **[Gymnax](https://github.com/RobertTLange/gymnax):** The standard for JAX-native RL environments. Memorax provides seamless wrappers to run recurrent agents on these vectorized tasks.
+
+### 🎮 POMDP Benchmarks & Environments
+* **[PopGym Arcade](https://github.com/bolt-lab/popgym-arcade):** A JAX-native suite of "pixel-perfect" POMDP environments. It features Atari-style games specifically designed to test long-term memory with hardware-accelerated rendering.
+* **[PopJym](https://github.com/bolt-lab/popjym):** A fast, JAX-native implementation of the POPGym benchmark suite, providing a variety of classic POMDP tasks optimized for massive vectorization.
+* **[Navix](https://github.com/pignatelli/navix):** Accelerated MiniGrid-style environments. These are excellent for testing spatial reasoning and navigation in partially observable grid worlds.
+* **[XLand-MiniGrid](https://github.com/corl-team/xland-minigrid):** A high-throughput meta-RL environment suite that provides massive task diversity for testing agent generalization in POMDPs.
+
 ## 📄 License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.

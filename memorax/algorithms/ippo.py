@@ -355,25 +355,35 @@ class IPPO:
             shuffle_time_axis = (
                 initial_actor_carry is None or initial_critic_carry is None
             )
-            num_permutations = self.env.num_agents * self.cfg.num_envs
+            num_agents = self.env.num_agents
+            num_envs = self.cfg.num_envs
+            num_steps = self.cfg.num_steps
 
             if shuffle_time_axis:
+                # Reshape to (num_agents, num_envs*num_steps, 1, *obs_shape)
+                # This preserves the agent dimension for VmappedNetwork
                 batch = (
                     initial_actor_carry,
                     initial_critic_carry,
                     *jax.tree.map(
-                        lambda x: x.reshape(-1, 1, *x.shape[3:]),
+                        lambda x: x.reshape(num_agents, -1, 1, *x.shape[3:]),
                         (transitions, advantages, returns),
                     ),
                 )
-                num_permutations *= self.cfg.num_steps
+                num_samples_per_agent = num_envs * num_steps
+            else:
+                num_samples_per_agent = num_envs
 
-            permutation = jax.random.permutation(permutation_key, num_permutations)
+            # Permute within each agent's samples (along axis 1)
+            permutation = jax.random.permutation(permutation_key, num_samples_per_agent)
 
             minibatches = jax.tree.map(
                 lambda x: (
-                    jnp.take(x, permutation, axis=0).reshape(
-                        self.cfg.num_minibatches, -1, *x.shape[1:]
+                    jnp.moveaxis(
+                        jnp.take(x, permutation, axis=1).reshape(
+                            num_agents, self.cfg.num_minibatches, -1, *x.shape[2:]
+                        ),
+                        1, 0,
                     )
                     if x is not None
                     else None

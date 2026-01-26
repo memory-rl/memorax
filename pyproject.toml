@@ -35,6 +35,7 @@ gxm       = ["gxm"]
 popjym    = ["popjym"]
 xminigrid = ["xminigrid"]
 jaxmarl   = ["jaxmarl", "brax"]
+mettagrid = ["mettagrid", "torch", "pufferlib", "boto3"]
 
 environments = [
     "brax>=0.12.4",
@@ -68,6 +69,10 @@ package = true
 
 [[tool.uv.dependency-metadata]]
 name = "jaxmarl"
+requires-dist = []
+
+[[tool.uv.dependency-metadata]]
+name = "mettagrid"
 requires-dist = []
 
 [tool.uv.sources]

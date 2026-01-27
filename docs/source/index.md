@@ -18,7 +18,7 @@ Memorax provides modular, high-performance implementations of RL algorithms with
 : JAX implementations of [DQN](https://arxiv.org/abs/1312.5602), [PPO](https://arxiv.org/abs/1707.06347), [SAC](https://arxiv.org/abs/1801.01290), [PQN](https://arxiv.org/abs/2407.04811v2), [IPPO](https://arxiv.org/abs/2011.09533), [R2D2](https://openreview.net/forum?id=r1lyTjAqYX), and their memory-augmented variants with burn-in support.
 
 **Sequence Models**
-: Support for [LSTM](https://ieeexplore.ieee.org/abstract/document/6795963), [GRU](https://arxiv.org/abs/1412.3555), [GTrXL](https://arxiv.org/abs/1910.06764), [FFM](https://arxiv.org/abs/2310.04128), [xLSTM](https://arxiv.org/abs/2405.04517), [S5](https://arxiv.org/abs/2303.03982), [LRU](https://arxiv.org/abs/2303.06349), [Mamba](https://arxiv.org/abs/2312.00752), [MinGRU](https://arxiv.org/abs/2410.01201), [Linear Transformer](https://arxiv.org/abs/2006.16236), and more.
+: LSTM/GRU (Flax), sLSTM/mLSTM, FFM/SHM, S5/LRU/Mamba/MinGRU, plus attention blocks (Self-Attention, Linear Attention). GPT-2/GTrXL/xLSTM-style architectures are composed from these blocks (see examples).
 
 **Networks**
 : MLP, CNN, and [ViT](https://arxiv.org/abs/2010.11929) encoders with [RoPE](https://arxiv.org/abs/2104.09864) and [ALiBi](https://arxiv.org/abs/2108.12409) positional embeddings, plus [Mixture of Experts](https://arxiv.org/abs/1701.06538) for horizontal scaling.

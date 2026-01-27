@@ -7,6 +7,7 @@ Memorax provides several RL algorithms optimized for memory-augmented learning.
 | Algorithm | Action Space | Use Case |
 |-----------|--------------|----------|
 | PPO | Discrete & Continuous | General-purpose, stable training |
+| IPPO | Discrete | Multi-agent PPO (independent policies) |
 | DQN | Discrete | Value-based learning |
 | SAC | Continuous | Maximum entropy RL |
 | PQN | Discrete | On-policy Q-learning |

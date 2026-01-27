@@ -23,7 +23,9 @@ def get_full_start_flags(experience: Experience) -> jnp.ndarray:
 
 
 def get_start_flags_from_done(experience: Experience) -> jnp.ndarray:
-    return experience.prev_done
+    # Start flags indicate the first step *after* a terminal transition.
+    # Rolling prev_done by 1 aligns start positions with the next timestep.
+    return jnp.roll(experience.prev_done, shift=1, axis=1)
 
 
 def validate_sample_batch_size(sample_batch_size: int, max_length: int):

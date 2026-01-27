@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-01-27
+
+### Fixed
+- Align the package `__version__` with `pyproject.toml`.
+- Correct the README quick start command.
+- Remove invalid example imports that caused immediate ImportErrors.
+- Clarify sequence-model feature claims to match available building blocks.
+- Document IPPO/R2D2 in the API reference and re-export them at the top level.
+- Update installation extras to reflect the available environment bundles.
+
 
 ## [1.0.0] - 2026-01-25
 
@@ -59,4 +69,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pre-commit hooks for code quality
 - Comprehensive test suite (104 tests)
 - 20 example scripts
-

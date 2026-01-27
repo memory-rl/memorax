@@ -8,10 +8,7 @@ from flashbax import make_item_buffer
 from memorax.algorithms import SAC, SACConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger, WandbLogger
-from memorax.networks import (GPT2, LRU, MLP, RNN, DeltaNet, DeltaProduct,
-                              FeatureExtractor, GatedDeltaNet, GTrXL, Mamba,
-                              Network, TDDeltaNet, TDGatedDeltaNet, heads,
-                              xLSTMCell)
+from memorax.networks import FeatureExtractor, MLP, Network, RNN, heads
 
 total_timesteps = 1_000_000
 num_train_steps = 10_000

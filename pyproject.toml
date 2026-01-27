@@ -35,7 +35,7 @@ gxm       = ["gxm"]
 popjym    = ["popjym"]
 xminigrid = ["xminigrid"]
 jaxmarl   = ["jaxmarl", "brax"]
-mettagrid = ["mettagrid", "torch", "pufferlib", "boto3"]
+mettagrid = ["mettagrid", "torch", "pufferlib-core", "boto3"]
 
 environments = [
     "brax>=0.12.4",

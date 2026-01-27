@@ -1,19 +1,25 @@
 """Memorax: A unified JAX/Flax framework for memory-augmented reinforcement learning."""
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 # Algorithms
 from memorax.algorithms import (
     DQN,
+    IPPO,
     PPO,
     PQN,
+    R2D2,
     SAC,
     DQNConfig,
     DQNState,
+    IPPOConfig,
+    IPPOState,
     PPOConfig,
     PPOState,
     PQNConfig,
     PQNState,
+    R2D2Config,
+    R2D2State,
     SACConfig,
     SACState,
 )
@@ -50,12 +56,18 @@ __all__ = [
     "DQN",
     "DQNConfig",
     "DQNState",
+    "IPPO",
+    "IPPOConfig",
+    "IPPOState",
     "PPO",
     "PPOConfig",
     "PPOState",
     "PQN",
     "PQNConfig",
     "PQNState",
+    "R2D2",
+    "R2D2Config",
+    "R2D2State",
     "SAC",
     "SACConfig",
     "SACState",

@@ -31,8 +31,26 @@ pip install memorax[navix]
 # POPGym Arcade
 pip install memorax[popgym-arcade]
 
-# All environments
-pip install memorax[all]
+# POPJym benchmarks
+pip install memorax[popjym]
+
+# gxm environments
+pip install memorax[gxm]
+
+# JaxMARL multi-agent environments
+pip install memorax[jaxmarl]
+
+# XMiniGrid environments
+pip install memorax[xminigrid]
+
+# MuJoCo Playground
+pip install memorax[playground]
+
+# Mettagrid (requires torch + pufferlib)
+pip install memorax[mettagrid]
+
+# Bundled environment stack (most JAX-native envs)
+pip install memorax[environments]
 ```
 
 ## GPU Support

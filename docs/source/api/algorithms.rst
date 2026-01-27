@@ -14,6 +14,15 @@ PPO
 
 :class:`PPOState` - Training state for PPO.
 
+IPPO
+----
+
+:class:`IPPO` - Independent PPO for multi-agent environments.
+
+:class:`IPPOConfig` - Configuration dataclass for IPPO.
+
+:class:`IPPOState` - Training state for IPPO.
+
 DQN
 ---
 
@@ -22,6 +31,15 @@ DQN
 :class:`DQNConfig` - Configuration dataclass for DQN.
 
 :class:`DQNState` - Training state for DQN.
+
+R2D2
+----
+
+:class:`R2D2` - Recurrent Experience Replay in Distributed RL.
+
+:class:`R2D2Config` - Configuration dataclass for R2D2.
+
+:class:`R2D2State` - Training state for R2D2.
 
 SAC
 ---
@@ -48,9 +66,15 @@ PQN
    PPO
    PPOConfig
    PPOState
+   IPPO
+   IPPOConfig
+   IPPOState
    DQN
    DQNConfig
    DQNState
+   R2D2
+   R2D2Config
+   R2D2State
    SAC
    SACConfig
    SACState

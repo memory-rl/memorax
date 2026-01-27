@@ -27,6 +27,9 @@ from memorax.algorithms import (
     SACState,
 )
 
+# Intrinsic Rewards
+from memorax.intrinsic_rewards import ICM, RND
+
 # Environment factory
 from memorax.environments import make
 

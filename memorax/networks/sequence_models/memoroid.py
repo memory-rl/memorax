@@ -55,18 +55,18 @@ class Memoroid(SequenceModel):
 
         @jax.vmap
         def binary_operator(lhs, rhs):
-            lhs_i, rhs_i = lhs
-            lhs_j, rhs_j = rhs
+            lhs_carry, lhs_reset = lhs
+            rhs_carry, rhs_reset = rhs
 
-            combined = self.cell.binary_operator(lhs_i, lhs_j)
+            combined = self.cell.binary_operator(lhs_carry, rhs_carry)
 
             out = jax.tree.map(
-                lambda lj, c: jnp.where(broadcast_mask(rhs_j, lj), lj, c),
-                lhs_j,
+                lambda rc, c: jnp.where(broadcast_mask(rhs_reset, rc), rc, c),
+                rhs_carry,
                 combined,
             )
 
-            return out, jnp.maximum(rhs_i, rhs_j)
+            return out, jnp.maximum(lhs_reset, rhs_reset)
 
         h, _ = jax.lax.associative_scan(binary_operator, (z, reset), axis=1)
 

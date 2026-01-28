@@ -4,6 +4,11 @@ A unified reinforcement learning framework featuring memory-augmented algorithms
 
 <div align="center">
     <img src="https://github.com/memory-rl/memorax/blob/main/images/memorax_logo.png" height="170">
+
+[![PyPI version](https://img.shields.io/pypi/v/memorax.svg)](https://pypi.org/project/memorax/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Documentation](https://img.shields.io/readthedocs/memorax)](https://memorax.readthedocs.io/)
 </div>
 
 ## ✨ Features
@@ -134,8 +139,8 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 If you use Memory-RL for your work, please cite:
 ```
-@software{memoryrl2025github,
-  title   = {Memory-RL: A Unified Framework for Memory-Augmented Reinforcement Learning},
+@software{memorax2025github,
+  title   = {Memorax: A Unified Framework for Memory-Augmented Reinforcement Learning},
   author  = {Noah Farr},
   year    = {2025},
   url     = {https://github.com/memory-rl/memorax}

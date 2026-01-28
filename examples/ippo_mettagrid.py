@@ -1,11 +1,14 @@
-"""IPPO on Mettagrid CogsGuard environment.
+"""IPPO on MettaGrid arena environment.
 
 This example demonstrates Independent PPO (IPPO) for multi-agent reinforcement
-learning using the Mettagrid environment. Each agent learns its own policy
+learning using the MettaGrid environment. Each agent learns its own policy
 independently while sharing the same network architecture.
 
-The CogsGuard environment features agents that must cooperatively harvest resources,
-manage energy, and power assemblies for rewards while navigating combat mechanics.
+MettaGrid is a CPU-based multi-agent gridworld environment that is integrated
+with JAX training via pure_callback.
+
+Requirements:
+    pip install mettagrid
 """
 
 import time
@@ -13,41 +16,35 @@ from dataclasses import asdict
 
 import flax.linen as nn
 import jax
+import jax.numpy as jnp
 import optax
 
 from memorax.algorithms import IPPO, IPPOConfig
-from memorax.environments.mettagrid import MettagridEnvironment
+from memorax.environments.mettagrid import FlattenObservationWrapper, MettagridEnvironment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (
-    CNN,
-    MLP,
-    FeatureExtractor,
-    Network,
-    SequenceModelWrapper,
-    heads,
-)
+from memorax.networks import MLP, FeatureExtractor, Network, SequenceModelWrapper, heads
 
-total_timesteps = 1_000_000
+total_timesteps = 500_000
+num_train_steps = 100_000
 num_eval_steps = 10_000
 
 seed = 0
 num_seeds = 1
 
-num_agents = 24
+from mettagrid.builder.envs import make_arena
 
-env = MettagridEnvironment(
-    id="mettagrid/cogsguard",
-    num_agents=num_agents,
-)
+num_agents = 6  # Arena requires multiples of 6 agents
+cfg = make_arena(num_agents=num_agents)
+env = FlattenObservationWrapper(MettagridEnvironment(cfg))
 
 cfg = IPPOConfig(
     name="IPPO",
-    num_envs=8,
-    num_eval_envs=16,
-    num_steps=128,
+    num_envs=2,
+    num_eval_envs=2,
+    num_steps=64,
     gamma=0.99,
     gae_lambda=0.95,
-    num_minibatches=4,
+    num_minibatches=2,
     update_epochs=4,
     normalize_advantage=True,
     clip_coef=0.2,
@@ -56,22 +53,11 @@ cfg = IPPOConfig(
     vf_coef=0.5,
 )
 
-num_train_steps = 0
-
-for _ in range(total_timesteps):
-    num_train_steps += cfg.batch_size
-    if num_train_steps >= 10_000:
-        break
-
 d_model = 128
 
 feature_extractor = FeatureExtractor(
-    observation_extractor=CNN(
-        features=(32, 64, 64),
-        kernel_sizes=((3, 3), (3, 3), (3, 3)),
-        strides=(2, 2, 2),
-        padding="SAME",
-        kernel_init=nn.initializers.orthogonal(scale=1.414),
+    observation_extractor=MLP(
+        features=(d_model,), kernel_init=nn.initializers.orthogonal(scale=1.414)
     ),
 )
 torso = SequenceModelWrapper(
@@ -124,7 +110,7 @@ agent = IPPO(
 )
 
 logger = Logger(
-    [DashboardLogger(title="IPPO Mettagrid CogsGuard", total_timesteps=total_timesteps)]
+    [DashboardLogger(title="IPPO MettaGrid Arena", total_timesteps=total_timesteps)]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 
@@ -157,7 +143,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"SPS": SPS, **training_statistics, **losses}
+    data = {"training/SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)
@@ -168,3 +154,5 @@ for i in range(0, total_timesteps, num_train_steps):
         logger_state, evaluation_statistics, step=state.step[0].item()
     )
     logger.emit(logger_state)
+
+env.close()

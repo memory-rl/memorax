@@ -157,14 +157,14 @@ class TestDQN:
         # First dim is batch (num_updates * num_envs), second is time
         assert transitions.reward.shape[0] > transitions.reward.shape[1]
 
-    def test_batch_major_evaluate(self, agent, random_key):
-        """Evaluate should return batch-major transitions (batch, time, ...)."""
+    def test_time_major_evaluate(self, agent, random_key):
+        """Evaluate should return time-major transitions (time, batch, ...)."""
         key, state = agent.init(random_key)
         num_steps = 32
         key, transitions = agent.evaluate(key, state, num_steps=num_steps)
-        # First dim should be num_eval_envs, second should be num_steps
-        assert transitions.reward.shape[0] == agent.cfg.num_eval_envs
-        assert transitions.reward.shape[1] == num_steps
+        # First dim should be num_steps, second should be num_eval_envs
+        assert transitions.reward.shape[0] == num_steps
+        assert transitions.reward.shape[1] == agent.cfg.num_eval_envs
 
 
 class TestPPODiscrete:
@@ -246,14 +246,14 @@ class TestPPODiscrete:
         # First dim is batch (num_updates * num_envs), second is time (num_steps)
         assert transitions.reward.shape[1] == agent.cfg.num_steps
 
-    def test_batch_major_evaluate(self, agent, random_key):
-        """Evaluate should return batch-major transitions (batch, time, ...)."""
+    def test_time_major_evaluate(self, agent, random_key):
+        """Evaluate should return time-major transitions (time, batch, ...)."""
         key, state = agent.init(random_key)
         num_steps = 32
         key, transitions = agent.evaluate(key, state, num_steps=num_steps)
-        # First dim should be num_eval_envs, second should be num_steps
-        assert transitions.reward.shape[0] == agent.cfg.num_eval_envs
-        assert transitions.reward.shape[1] == num_steps
+        # First dim should be num_steps, second should be num_eval_envs
+        assert transitions.reward.shape[0] == num_steps
+        assert transitions.reward.shape[1] == agent.cfg.num_eval_envs
 
 
 class TestPPOContinuous:
@@ -335,14 +335,14 @@ class TestPPOContinuous:
         # First dim is batch (num_updates * num_envs), second is time (num_steps)
         assert transitions.reward.shape[1] == agent.cfg.num_steps
 
-    def test_batch_major_evaluate(self, agent, random_key):
-        """Evaluate should return batch-major transitions (batch, time, ...)."""
+    def test_time_major_evaluate(self, agent, random_key):
+        """Evaluate should return time-major transitions (time, batch, ...)."""
         key, state = agent.init(random_key)
         num_steps = 32
         key, transitions = agent.evaluate(key, state, num_steps=num_steps)
-        # First dim should be num_eval_envs, second should be num_steps
-        assert transitions.reward.shape[0] == agent.cfg.num_eval_envs
-        assert transitions.reward.shape[1] == num_steps
+        # First dim should be num_steps, second should be num_eval_envs
+        assert transitions.reward.shape[0] == num_steps
+        assert transitions.reward.shape[1] == agent.cfg.num_eval_envs
 
 
 class TestPQN:
@@ -416,14 +416,14 @@ class TestPQN:
         # First dim is batch (num_updates * num_envs), second is time (num_steps)
         assert transitions.reward.shape[1] == agent.cfg.num_steps
 
-    def test_batch_major_evaluate(self, agent, random_key):
-        """Evaluate should return batch-major transitions (batch, time, ...)."""
+    def test_time_major_evaluate(self, agent, random_key):
+        """Evaluate should return time-major transitions (time, batch, ...)."""
         key, state = agent.init(random_key)
         num_steps = 32
         key, transitions = agent.evaluate(key, state, num_steps=num_steps)
-        # First dim should be num_eval_envs, second should be num_steps
-        assert transitions.reward.shape[0] == agent.cfg.num_eval_envs
-        assert transitions.reward.shape[1] == num_steps
+        # First dim should be num_steps, second should be num_eval_envs
+        assert transitions.reward.shape[0] == num_steps
+        assert transitions.reward.shape[1] == agent.cfg.num_eval_envs
 
 
 class TestSAC:
@@ -523,14 +523,14 @@ class TestSAC:
         expected_time = agent.cfg.train_frequency // agent.cfg.num_envs
         assert transitions.reward.shape[1] == expected_time
 
-    def test_batch_major_evaluate(self, agent, random_key):
-        """Evaluate should return batch-major transitions (batch, time, ...)."""
+    def test_time_major_evaluate(self, agent, random_key):
+        """Evaluate should return time-major transitions (time, batch, ...)."""
         key, state = agent.init(random_key)
         num_steps = 32
         key, transitions = agent.evaluate(key, state, num_steps=num_steps)
-        # First dim should be num_eval_envs, second should be num_steps // num_eval_envs
-        assert transitions.reward.shape[0] == agent.cfg.num_eval_envs
-        assert transitions.reward.shape[1] == num_steps // agent.cfg.num_eval_envs
+        # First dim should be num_steps // num_eval_envs, second should be num_eval_envs
+        assert transitions.reward.shape[0] == num_steps // agent.cfg.num_eval_envs
+        assert transitions.reward.shape[1] == agent.cfg.num_eval_envs
 
 
 class TestNStepReturns:
@@ -691,11 +691,11 @@ class TestR2D2:
         expected_time = agent.cfg.train_frequency // agent.cfg.num_envs
         assert transitions.reward.shape[1] == expected_time
 
-    def test_batch_major_evaluate(self, agent, random_key):
-        """Evaluate should return batch-major transitions (batch, time, ...)."""
+    def test_time_major_evaluate(self, agent, random_key):
+        """Evaluate should return time-major transitions (time, batch, ...)."""
         key, state = agent.init(random_key)
         num_steps = 32
         key, transitions = agent.evaluate(key, state, num_steps=num_steps)
-        # First dim should be num_eval_envs, second should be num_steps
-        assert transitions.reward.shape[0] == agent.cfg.num_eval_envs
-        assert transitions.reward.shape[1] == num_steps
+        # First dim should be num_steps, second should be num_eval_envs
+        assert transitions.reward.shape[0] == num_steps
+        assert transitions.reward.shape[1] == agent.cfg.num_eval_envs

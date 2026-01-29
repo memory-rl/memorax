@@ -507,17 +507,6 @@ class DDPPO:
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
-        """Initialize training state.
-
-        Initializes the networks and environment on a single device.
-        Use replicate() to distribute across devices for pmap.
-
-        Args:
-            key: JAX random key.
-
-        Returns:
-            Tuple of (key, DDPPOState).
-        """
         (
             key,
             env_key,
@@ -590,15 +579,6 @@ class DDPPO:
         )
 
     def replicate(self, key, state):
-        """Replicate state across all devices for pmap.
-
-        Args:
-            key: JAX random key.
-            state: DDPPOState from init().
-
-        Returns:
-            Tuple of (replicated_keys, replicated_state) with leading device dimension.
-        """
         # Fold in process index for multi-host uniqueness
         key = jax.random.fold_in(key, jax.process_index())
 
@@ -619,19 +599,6 @@ class DDPPO:
 
     @partial(jax.pmap, axis_name="devices", static_broadcasted_argnums=(0, 3))
     def train(self, key, state, num_steps):
-        """Distributed training step using pmap.
-
-        Each device collects rollouts, computes gradients, and synchronizes
-        via lax.pmean before applying updates.
-
-        Args:
-            key: JAX random key (one per device).
-            state: DDPPOState (replicated across devices).
-            num_steps: Total number of timesteps to train.
-
-        Returns:
-            Tuple of (keys, states, transitions) with leading device dimension.
-        """
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
@@ -645,17 +612,6 @@ class DDPPO:
 
     @partial(jax.pmap, axis_name="devices", static_broadcasted_argnums=(0, 3, 4))
     def evaluate(self, key, state, num_steps, deterministic=True):
-        """Distributed evaluation using pmap.
-
-        Args:
-            key: JAX random key (one per device).
-            state: DDPPOState (replicated across devices).
-            num_steps: Number of evaluation steps.
-            deterministic: Whether to use deterministic actions.
-
-        Returns:
-            Tuple of (keys, transitions) with leading device dimension.
-        """
         key, reset_key = jax.random.split(key)
 
         reset_keys = jax.random.split(reset_key, self.cfg.num_eval_envs)

@@ -1,46 +1,3 @@
-"""DD-IPPO-style synchronous distributed Independent PPO (gradient all-reduce) in JAX.
-
-Enables true data parallelism across multiple GPUs with synchronized gradients
-for multi-agent environments. Each GPU runs its own environment instances, computes
-gradients locally, then synchronizes via jax.pmap + lax.pmean.
-
-This version is for multi-agent environments (JaxMarl, MettaGrid, etc.) that use
-the PettingZoo-style API with env.agents, env.num_agents, and env.action_spaces.
-For single-agent environments, use DDPPO instead.
-
-Architecture:
-    [GPU 0]              [GPU 1]              [GPU N]
-       |                    |                    |
-       v                    v                    v
-    +-------+            +-------+            +-------+
-    | Envs  |            | Envs  |            | Envs  |
-    | (MA)  |            | (MA)  |            | (MA)  |
-    +-------+            +-------+            +-------+
-       |                    |                    |
-       v                    v                    v
-    Collect              Collect              Collect
-    Rollout              Rollout              Rollout
-       |                    |                    |
-       v                    v                    v
-    Compute              Compute              Compute
-    Gradients            Gradients            Gradients
-       |                    |                    |
-       +--------+-----------+-----------+-------+
-                |                       |
-                v                       v
-          lax.pmean(grads)  <-- SYNC --> lax.pmean(grads)
-                |                       |
-                v                       v
-          Apply Updates            Apply Updates
-                |                       |
-                v                       v
-          (Params now identical across all devices)
-
-Inspired by:
-    Wijmans et al., "DD-PPO: Learning Near-Perfect PointGoal Navigators from 2.5 Billion Frames"
-    https://arxiv.org/abs/1911.00357
-"""
-
 from functools import partial
 from typing import Any, Callable, Optional
 
@@ -67,25 +24,6 @@ to_sequence = lambda timestep: jax.tree.map(
 
 @struct.dataclass(frozen=True)
 class DDIPPOConfig:
-    """Configuration for DD-IPPO algorithm.
-
-    Attributes:
-        name: Name identifier for the algorithm.
-        num_envs: Number of environments per device. Total batch = num_envs * num_devices.
-        num_eval_envs: Number of environments for evaluation.
-        num_steps: Rollout length (steps per environment before update).
-        gamma: Discount factor.
-        gae_lambda: Lambda for Generalized Advantage Estimation.
-        num_minibatches: Number of minibatches per epoch.
-        update_epochs: Number of epochs per update.
-        normalize_advantage: Whether to normalize advantages globally across devices.
-        clip_coef: PPO clipping coefficient.
-        clip_vloss: Whether to clip value loss.
-        ent_coef: Entropy coefficient.
-        vf_coef: Value function coefficient.
-        target_kl: Optional early stopping threshold for KL divergence.
-        burn_in_length: Burn-in length for recurrent networks.
-    """
 
     name: str
     num_envs: int
@@ -110,21 +48,6 @@ class DDIPPOConfig:
 
 @struct.dataclass(frozen=True)
 class DDIPPOState:
-    """Training state for DD-IPPO.
-
-    All arrays have a leading device dimension when used with pmap.
-
-    Attributes:
-        step: Current training step count.
-        timestep: Current environment timestep.
-        env_state: Environment state.
-        actor_params: Actor network parameters (replicated across devices).
-        actor_optimizer_state: Actor optimizer state.
-        actor_carry: Actor recurrent carry state.
-        critic_params: Critic network parameters (replicated across devices).
-        critic_optimizer_state: Critic optimizer state.
-        critic_carry: Critic recurrent carry state.
-    """
 
     step: int
     timestep: Timestep
@@ -139,23 +62,6 @@ class DDIPPOState:
 
 @struct.dataclass(frozen=True)
 class DDIPPO:
-    """Decentralized Distributed Independent PPO for multi-agent environments.
-
-    DD-IPPO trains a single model with gradients averaged across all devices,
-    achieving linear scaling of effective batch size. Uses jax.pmap for
-    data parallelism and lax.pmean for gradient synchronization.
-
-    Assumes jittable multi-agent environments (like JaxMarl, MettaGrid, etc.)
-    that use the PettingZoo-style API.
-
-    Attributes:
-        cfg: Algorithm configuration.
-        env: Jittable multi-agent environment.
-        actor_network: Actor network module.
-        critic_network: Critic network module.
-        actor_optimizer: Actor optimizer.
-        critic_optimizer: Critic optimizer.
-    """
 
     cfg: DDIPPOConfig
     env: Any

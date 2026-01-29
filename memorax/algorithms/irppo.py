@@ -691,6 +691,4 @@ class IRPPO:
             length=num_steps,
         )
 
-        transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
-
         return key, transitions.replace(obs=None, next_obs=None)

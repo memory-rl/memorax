@@ -508,10 +508,7 @@ class SAC:
         )
 
         transitions = jax.tree.map(
-            lambda x: x.swapaxes(1, 2).reshape((-1,) + x.shape[2:])
-            if x.ndim >= 3
-            else x,
-            transitions,
+            lambda x: x.reshape((-1,) + x.shape[2:]), transitions
         )
 
         return key, state, transitions
@@ -550,7 +547,5 @@ class SAC:
             (key, eval_state),
             length=num_steps // self.cfg.num_eval_envs,
         )
-
-        transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
 
         return key, transitions.replace(obs=None, next_obs=None)

@@ -26,12 +26,12 @@ class FlattenObservationWrapper:
 
     def reset(self, key: Key):
         obs, state = self._env.reset(key)
-        obs = obs.reshape(*obs.shape[:-len(self._env.obs_shape)], -1)
+        obs = obs.reshape(*obs.shape[: -len(self._env.obs_shape)], -1)
         return obs, state
 
     def step(self, key: Key, state, actions):
         obs, state, reward, done, info = self._env.step(key, state, actions)
-        obs = obs.reshape(*obs.shape[:-len(self._env.obs_shape)], -1)
+        obs = obs.reshape(*obs.shape[: -len(self._env.obs_shape)], -1)
         return obs, state, reward, done, info
 
 
@@ -143,7 +143,7 @@ class MettagridEnvironment:
             vec_env = self._get_or_create_vec_env(num_envs)
 
             vec_env.send(actions_flat)
-            obs, reward, terminated, truncated, _, _, _ = vec_env.recv()
+            obs, reward, terminated, truncated, _, _, _, _ = vec_env.recv()
 
             obs = obs.astype(np.float32).reshape(
                 *batch_shape, self.num_agents, *self.obs_shape

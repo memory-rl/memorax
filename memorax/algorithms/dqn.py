@@ -335,6 +335,14 @@ class DQN:
             (key, state),
             length=(num_steps // self.cfg.train_frequency),
         )
+
+        transitions = jax.tree.map(
+            lambda x: x.swapaxes(1, 2).reshape((-1,) + x.shape[2:])
+            if x.ndim >= 3
+            else x,
+            transitions,
+        )
+
         return key, state, transitions
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
@@ -360,5 +368,7 @@ class DQN:
             (key, state),
             length=num_steps,
         )
+
+        transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
 
         return key, transitions.replace(obs=None, next_obs=None)

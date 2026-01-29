@@ -501,13 +501,20 @@ class SAC:
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(self, key: Key, state: SACState, num_steps: int):
-        (key, state), info = jax.lax.scan(
+        (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
             length=(num_steps // self.cfg.train_frequency),
         )
 
-        return key, state, info
+        transitions = jax.tree.map(
+            lambda x: x.swapaxes(1, 2).reshape((-1,) + x.shape[2:])
+            if x.ndim >= 3
+            else x,
+            transitions,
+        )
+
+        return key, state, transitions
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: Key, state: SACState, num_steps: int):
@@ -544,4 +551,6 @@ class SAC:
             length=num_steps // self.cfg.num_eval_envs,
         )
 
-        return key, transitions
+        transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
+
+        return key, transitions.replace(obs=None, next_obs=None)

@@ -149,6 +149,23 @@ class TestDQN:
         key, transitions = agent.evaluate(key, state, num_steps=32)
         assert transitions is not None
 
+    def test_batch_major_train(self, agent, random_key):
+        """Train should return batch-major transitions (batch, time, ...)."""
+        key, state = agent.init(random_key)
+        key, state = agent.warmup(key, state, num_steps=64)
+        key, state, transitions = agent.train(key, state, num_steps=64)
+        # First dim is batch (num_updates * num_envs), second is time
+        assert transitions.reward.shape[0] > transitions.reward.shape[1]
+
+    def test_batch_major_evaluate(self, agent, random_key):
+        """Evaluate should return batch-major transitions (batch, time, ...)."""
+        key, state = agent.init(random_key)
+        num_steps = 32
+        key, transitions = agent.evaluate(key, state, num_steps=num_steps)
+        # First dim should be num_eval_envs, second should be num_steps
+        assert transitions.reward.shape[0] == agent.cfg.num_eval_envs
+        assert transitions.reward.shape[1] == num_steps
+
 
 class TestPPODiscrete:
     """Test PPO algorithm with discrete action space (CartPole)."""
@@ -221,6 +238,22 @@ class TestPPODiscrete:
         key, state = agent.init(random_key)
         key, transitions = agent.evaluate(key, state, num_steps=32)
         assert transitions is not None
+
+    def test_batch_major_train(self, agent, random_key):
+        """Train should return batch-major transitions (batch, time, ...)."""
+        key, state = agent.init(random_key)
+        key, state, transitions = agent.train(key, state, num_steps=64)
+        # First dim is batch (num_updates * num_envs), second is time (num_steps)
+        assert transitions.reward.shape[1] == agent.cfg.num_steps
+
+    def test_batch_major_evaluate(self, agent, random_key):
+        """Evaluate should return batch-major transitions (batch, time, ...)."""
+        key, state = agent.init(random_key)
+        num_steps = 32
+        key, transitions = agent.evaluate(key, state, num_steps=num_steps)
+        # First dim should be num_eval_envs, second should be num_steps
+        assert transitions.reward.shape[0] == agent.cfg.num_eval_envs
+        assert transitions.reward.shape[1] == num_steps
 
 
 class TestPPOContinuous:
@@ -295,6 +328,22 @@ class TestPPOContinuous:
         key, transitions = agent.evaluate(key, state, num_steps=32)
         assert transitions is not None
 
+    def test_batch_major_train(self, agent, random_key):
+        """Train should return batch-major transitions (batch, time, ...)."""
+        key, state = agent.init(random_key)
+        key, state, transitions = agent.train(key, state, num_steps=64)
+        # First dim is batch (num_updates * num_envs), second is time (num_steps)
+        assert transitions.reward.shape[1] == agent.cfg.num_steps
+
+    def test_batch_major_evaluate(self, agent, random_key):
+        """Evaluate should return batch-major transitions (batch, time, ...)."""
+        key, state = agent.init(random_key)
+        num_steps = 32
+        key, transitions = agent.evaluate(key, state, num_steps=num_steps)
+        # First dim should be num_eval_envs, second should be num_steps
+        assert transitions.reward.shape[0] == agent.cfg.num_eval_envs
+        assert transitions.reward.shape[1] == num_steps
+
 
 class TestPQN:
     """Test PQN algorithm with discrete action space (CartPole)."""
@@ -359,6 +408,22 @@ class TestPQN:
         key, state = agent.init(random_key)
         key, transitions = agent.evaluate(key, state, num_steps=32)
         assert transitions is not None
+
+    def test_batch_major_train(self, agent, random_key):
+        """Train should return batch-major transitions (batch, time, ...)."""
+        key, state = agent.init(random_key)
+        key, state, transitions = agent.train(key, state, num_steps=64)
+        # First dim is batch (num_updates * num_envs), second is time (num_steps)
+        assert transitions.reward.shape[1] == agent.cfg.num_steps
+
+    def test_batch_major_evaluate(self, agent, random_key):
+        """Evaluate should return batch-major transitions (batch, time, ...)."""
+        key, state = agent.init(random_key)
+        num_steps = 32
+        key, transitions = agent.evaluate(key, state, num_steps=num_steps)
+        # First dim should be num_eval_envs, second should be num_steps
+        assert transitions.reward.shape[0] == agent.cfg.num_eval_envs
+        assert transitions.reward.shape[1] == num_steps
 
 
 class TestSAC:
@@ -448,6 +513,24 @@ class TestSAC:
         key, state = agent.init(random_key)
         key, transitions = agent.evaluate(key, state, num_steps=32)
         assert transitions is not None
+
+    def test_batch_major_train(self, agent, random_key):
+        """Train should return batch-major transitions (batch, time, ...)."""
+        key, state = agent.init(random_key)
+        key, state = agent.warmup(key, state, num_steps=64)
+        key, state, transitions = agent.train(key, state, num_steps=64)
+        # First dim is batch, second is time (train_frequency // num_envs)
+        expected_time = agent.cfg.train_frequency // agent.cfg.num_envs
+        assert transitions.reward.shape[1] == expected_time
+
+    def test_batch_major_evaluate(self, agent, random_key):
+        """Evaluate should return batch-major transitions (batch, time, ...)."""
+        key, state = agent.init(random_key)
+        num_steps = 32
+        key, transitions = agent.evaluate(key, state, num_steps=num_steps)
+        # First dim should be num_eval_envs, second should be num_steps // num_eval_envs
+        assert transitions.reward.shape[0] == agent.cfg.num_eval_envs
+        assert transitions.reward.shape[1] == num_steps // agent.cfg.num_eval_envs
 
 
 class TestNStepReturns:
@@ -598,3 +681,21 @@ class TestR2D2:
         key, state = agent.init(random_key)
         key, transitions = agent.evaluate(key, state, num_steps=32)
         assert transitions is not None
+
+    def test_batch_major_train(self, agent, random_key):
+        """Train should return batch-major transitions (batch, time, ...)."""
+        key, state = agent.init(random_key)
+        key, state = agent.warmup(key, state, num_steps=200)
+        key, state, transitions = agent.train(key, state, num_steps=16)
+        # First dim is batch, second is time (train_frequency // num_envs)
+        expected_time = agent.cfg.train_frequency // agent.cfg.num_envs
+        assert transitions.reward.shape[1] == expected_time
+
+    def test_batch_major_evaluate(self, agent, random_key):
+        """Evaluate should return batch-major transitions (batch, time, ...)."""
+        key, state = agent.init(random_key)
+        num_steps = 32
+        key, transitions = agent.evaluate(key, state, num_steps=num_steps)
+        # First dim should be num_eval_envs, second should be num_steps
+        assert transitions.reward.shape[0] == agent.cfg.num_eval_envs
+        assert transitions.reward.shape[1] == num_steps

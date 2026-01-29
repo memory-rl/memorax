@@ -563,7 +563,9 @@ class DDIPPO:
             transitions,
         )
 
-        transitions = jax.tree.map(lambda x: jnp.moveaxis(x, 0, 2), transitions)
+        transitions = jax.tree.map(
+            lambda x: jnp.moveaxis(x, 0, min(2, x.ndim - 1)), transitions
+        )
         advantages = jnp.moveaxis(advantages, 0, 2)
         returns = jnp.moveaxis(returns, 0, 2)
 

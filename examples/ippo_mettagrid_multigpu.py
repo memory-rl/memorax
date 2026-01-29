@@ -1,7 +1,7 @@
 """IPPO on MettaGrid arena environment with Multi-GPU support.
 
-Each GPU runs an independent training instance. JAX's async dispatch
-runs all devices in parallel automatically.
+Uses jax.pmap to run independent training instances in parallel across GPUs.
+Each GPU maintains its own environment and training state.
 
 Requirements:
     pip install mettagrid
@@ -9,6 +9,7 @@ Requirements:
 
 import time
 from dataclasses import asdict
+from functools import partial
 
 import flax.linen as nn
 import jax

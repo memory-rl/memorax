@@ -1,6 +1,6 @@
-"""DD-PPO: Decentralized Distributed PPO for single-agent environments.
+"""DD-PPO-style synchronous distributed PPO (gradient all-reduce) in JAX.
 
-DD-PPO enables true data parallelism across multiple GPUs with synchronized gradients.
+Enables true data parallelism across multiple GPUs with synchronized gradients.
 Each GPU runs its own environment instances, computes gradients locally, then synchronizes
 via jax.pmap + lax.pmean.
 
@@ -34,7 +34,7 @@ Architecture:
                 v                       v
           (Params now identical across all devices)
 
-Reference:
+Inspired by:
     Wijmans et al., "DD-PPO: Learning Near-Perfect PointGoal Navigators from 2.5 Billion Frames"
     https://arxiv.org/abs/1911.00357
 """
@@ -489,6 +489,10 @@ class DDPPO:
         metrics = jax.tree.map(
             lambda x: x.mean(), (actor_loss, critic_loss, entropy, approx_kl, clipfrac)
         )
+        # Sync metrics across devices for consistent control flow (critical for while_loop)
+        metrics = jax.tree.map(
+            lambda x: jax.lax.pmean(x, axis_name="devices"), metrics
+        )
 
         return (
             key,
@@ -684,6 +688,9 @@ class DDPPO:
         Returns:
             Tuple of (replicated_keys, replicated_state) with leading device dimension.
         """
+        # Fold in process index for multi-host uniqueness
+        key = jax.random.fold_in(key, jax.process_index())
+
         num_devices = jax.local_device_count()
 
         # Split key for each device

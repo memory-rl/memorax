@@ -1,6 +1,6 @@
-"""DD-IPPO: Decentralized Distributed Independent PPO for multi-agent environments.
+"""DD-IPPO-style synchronous distributed Independent PPO (gradient all-reduce) in JAX.
 
-DD-IPPO enables true data parallelism across multiple GPUs with synchronized gradients
+Enables true data parallelism across multiple GPUs with synchronized gradients
 for multi-agent environments. Each GPU runs its own environment instances, computes
 gradients locally, then synchronizes via jax.pmap + lax.pmean.
 
@@ -36,7 +36,7 @@ Architecture:
                 v                       v
           (Params now identical across all devices)
 
-Reference:
+Inspired by:
     Wijmans et al., "DD-PPO: Learning Near-Perfect PointGoal Navigators from 2.5 Billion Frames"
     https://arxiv.org/abs/1911.00357
 """
@@ -514,6 +514,10 @@ class DDIPPO:
         metrics = jax.tree.map(
             lambda x: x.mean(), (actor_loss, critic_loss, entropy, approx_kl, clipfrac)
         )
+        # Sync metrics across devices for consistent control flow (critical for while_loop)
+        metrics = jax.tree.map(
+            lambda x: jax.lax.pmean(x, axis_name="devices"), metrics
+        )
 
         return (
             key,
@@ -718,6 +722,9 @@ class DDIPPO:
         Returns:
             Tuple of (replicated_keys, replicated_state) with leading device dimension.
         """
+        # Fold in process index for multi-host uniqueness
+        key = jax.random.fold_in(key, jax.process_index())
+
         num_devices = jax.local_device_count()
 
         # Split key for each device

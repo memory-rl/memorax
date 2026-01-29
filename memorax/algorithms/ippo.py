@@ -481,7 +481,7 @@ class IPPO:
         )
 
         actor_loss, critic_loss, entropy, approx_kl, clipfrac = jax.tree.map(
-            lambda x: jnp.expand_dims(x, axis=(0, 1)), metrics
+            lambda x: jnp.expand_dims(x, axis=(0, 1, 2)), metrics
         )
         info = {
             **transitions.info,

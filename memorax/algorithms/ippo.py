@@ -587,7 +587,7 @@ class IPPO:
             length=num_steps // (self.cfg.num_envs * self.cfg.num_steps),
         )
         transitions = jax.tree.map(
-            lambda x: x.swapaxes(1, 2).reshape((-1,) + x.shape[2:]),
+            lambda x: jnp.moveaxis(x, 3, 1).reshape(-1, x.shape[1], x.shape[2], *x.shape[4:]),
             transitions,
         )
         return key, state, transitions

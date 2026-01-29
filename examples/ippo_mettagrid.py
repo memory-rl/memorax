@@ -11,6 +11,7 @@ Requirements:
     pip install mettagrid
 """
 
+import os
 import time
 from dataclasses import asdict
 
@@ -20,32 +21,38 @@ import jax.numpy as jnp
 import optax
 
 from memorax.algorithms import IPPO, IPPOConfig
-from memorax.environments.mettagrid import FlattenObservationWrapper, MettagridEnvironment
+from memorax.environments.mettagrid import (
+    FlattenObservationWrapper,
+    MettagridEnvironment,
+)
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import MLP, FeatureExtractor, Network, SequenceModelWrapper, heads
 
-total_timesteps = 500_000
-num_train_steps = 100_000
-num_eval_steps = 10_000
+total_timesteps = 100_000_000
+num_train_steps = 25_000_000
+num_eval_steps = 0
 
 seed = 0
 num_seeds = 1
 
-from mettagrid.builder.envs import make_arena
+from cogames.cogs_vs_clips.missions import make_cogsguard_mission
 
-num_agents = 6  # Arena requires multiples of 6 agents
-cfg = make_arena(num_agents=num_agents)
-env = FlattenObservationWrapper(MettagridEnvironment(cfg))
+num_agents = 10
+num_workers = 64
+
+cfg = make_cogsguard_mission(num_agents=num_agents).make_env()
+env = FlattenObservationWrapper(MettagridEnvironment(cfg, num_workers=num_workers))
+
 
 cfg = IPPOConfig(
     name="IPPO",
-    num_envs=2,
-    num_eval_envs=2,
-    num_steps=64,
+    num_envs=1024,
+    num_eval_envs=0,
+    num_steps=256,
     gamma=0.99,
     gae_lambda=0.95,
-    num_minibatches=2,
-    update_epochs=4,
+    num_minibatches=8,
+    update_epochs=1,
     normalize_advantage=True,
     clip_coef=0.2,
     clip_vloss=True,
@@ -53,7 +60,7 @@ cfg = IPPOConfig(
     vf_coef=0.5,
 )
 
-d_model = 128
+d_model = 256
 
 feature_extractor = FeatureExtractor(
     observation_extractor=MLP(
@@ -93,9 +100,12 @@ critic_network = VmappedNetwork(
 
 optimizer = optax.chain(
     optax.clip_by_global_norm(1.0),
-    optax.adam(learning_rate=3e-4, eps=1e-5),
+    optax.contrib.muon(
+        learning_rate=0.005,  # Start conservative
+        beta=0.95,  # Momentum decay (default)
+        nesterov=True,
+    ),
 )
-
 
 key = jax.random.key(seed)
 keys = jax.random.split(key, num_seeds)
@@ -120,14 +130,15 @@ train = jax.vmap(agent.train, in_axes=(0, 0, None))
 
 keys, state = init(keys)
 
-keys, transitions = evaluate(keys, state, num_eval_steps)
-evaluation_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
-    transitions, "evaluation"
-)
-logger_state = logger.log(
-    logger_state, evaluation_statistics, step=state.step[0].item()
-)
-logger.emit(logger_state)
+if num_eval_steps > 0:
+    keys, transitions = evaluate(keys, state, num_eval_steps)
+    evaluation_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
+        transitions, "evaluation"
+    )
+    logger_state = logger.log(
+        logger_state, evaluation_statistics, step=state.step[0].item()
+    )
+    logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
     start = time.perf_counter()
@@ -146,13 +157,14 @@ for i in range(0, total_timesteps, num_train_steps):
     data = {"training/SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
-    keys, transitions = evaluate(keys, state, num_eval_steps)
-    evaluation_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
-        transitions, "evaluation"
-    )
-    logger_state = logger.log(
-        logger_state, evaluation_statistics, step=state.step[0].item()
-    )
+    if num_eval_steps > 0:
+        keys, transitions = evaluate(keys, state, num_eval_steps)
+        evaluation_statistics = jax.vmap(
+            Logger.get_episode_statistics, in_axes=(0, None)
+        )(transitions, "evaluation")
+        logger_state = logger.log(
+            logger_state, evaluation_statistics, step=state.step[0].item()
+        )
     logger.emit(logger_state)
 
 env.close()

@@ -12,12 +12,13 @@ class FeatureExtractor(nn.Module):
 
     def extract(
         self,
-        features: list,
+        embeddings: dict,
+        key: str,
         extractor: Optional[nn.Module],
         x: Optional[jnp.ndarray] = None,
     ):
         if extractor is not None and x is not None:
-            features.append(extractor(x))
+            embeddings[key] = extractor(x)
 
     @nn.compact
     def __call__(
@@ -28,11 +29,11 @@ class FeatureExtractor(nn.Module):
         done: jnp.ndarray,
         **kwargs,
     ):
-        features = [self.observation_extractor(observation)]
-        self.extract(features, self.action_extractor, action)
-        self.extract(features, self.reward_extractor, reward)
-        self.extract(features, self.done_extractor, done.astype(jnp.int32))
+        embeddings = {"observation": self.observation_extractor(observation)}
+        self.extract(embeddings, "action_embedding", self.action_extractor, action)
+        self.extract(embeddings, "reward_embedding", self.reward_extractor, reward)
+        self.extract(embeddings, "done_embedding", self.done_extractor, done)
 
-        features = jnp.concatenate(features, axis=-1)
+        features = jnp.concatenate([embeddings.values()], axis=-1)
 
-        return features
+        return features, embeddings

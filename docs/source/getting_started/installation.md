@@ -46,9 +46,6 @@ pip install memorax[xminigrid]
 # MuJoCo Playground
 pip install memorax[playground]
 
-# Mettagrid (requires torch + pufferlib)
-pip install memorax[mettagrid]
-
 # Bundled environment stack (most JAX-native envs)
 pip install memorax[environments]
 ```

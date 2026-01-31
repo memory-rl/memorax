@@ -1,10 +1,13 @@
+from functools import partial
 from typing import Callable, Optional
 
+import jax
 import flax.linen as nn
 import jax.numpy as jnp
 
 from memorax.networks.blocks import FFN
 from memorax.networks.identity import Identity
+from memorax.networks.sequence_models.utils import get_attention_implementation
 
 
 class PatchEmbedding(nn.Module):
@@ -33,10 +36,26 @@ class Block(nn.Module):
     @nn.compact
     def __call__(self, carry, _):
         x = carry
+        head_dim = self.features // self.num_heads
+
+        projection = partial(nn.DenseGeneral, features=(self.num_heads, head_dim))
 
         skip = x
         x = nn.LayerNorm()(x)
-        x = nn.MultiHeadDotProductAttention(num_heads=self.num_heads)(x, x)
+
+        query = projection(name="query")(x)
+        key = projection(name="key")(x)
+        value = projection(name="value")(x)
+
+        implementation, attention_dtype = get_attention_implementation()
+        x = jax.nn.dot_product_attention(
+            query.astype(attention_dtype),
+            key.astype(attention_dtype),
+            value.astype(attention_dtype),
+            implementation=implementation,
+        ).astype(query.dtype)
+
+        x = nn.DenseGeneral(features=self.features, axis=(-2, -1), name="out")(x)
         x = skip + x
 
         skip = x

@@ -8,8 +8,7 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (MLP, FeatureExtractor, Network,
-                              SequenceModelWrapper, heads)
+from memorax.networks import MLP, FeatureExtractor, Network, heads
 
 total_timesteps = 500_000
 num_train_steps = 10_000
@@ -41,9 +40,7 @@ feature_extractor = FeatureExtractor(
         features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
     ),
 )
-torso = SequenceModelWrapper(
-    MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
-)
+torso = MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
 actor_network = Network(
     feature_extractor=feature_extractor,
     torso=torso,
@@ -104,7 +101,7 @@ for i in range(0, total_timesteps, num_train_steps):
     jax.block_until_ready(state)
     end = time.perf_counter()
 
-    SPS = num_train_steps / (end - start)
+    SPS = int(num_train_steps / (end - start))
 
     training_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
         transitions, "training"
@@ -112,7 +109,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"SPS": SPS, **training_statistics, **losses}
+    data = {"training/SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)

@@ -1,15 +1,14 @@
 import time
+from dataclasses import asdict
 
 import flax.linen as nn
 import jax
-import jax.numpy as jnp
 import optax
 
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
-from memorax.loggers import DashboardLogger, Logger, WandbLogger
-from memorax.networks import MLP, RNN, FeatureExtractor, Network, heads
-from memorax.networks.sequence_models.wrappers import SequenceModelWrapper
+from memorax.loggers import DashboardLogger, Logger
+from memorax.networks import MLP, FeatureExtractor, Network, heads
 
 total_timesteps = 50_000_000
 num_train_steps = 4_096_000
@@ -41,9 +40,7 @@ feature_extractor = FeatureExtractor(
         features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
     ),
 )
-torso = SequenceModelWrapper(
-    network=MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
-)
+torso = MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
 actor_network = Network(
     feature_extractor=feature_extractor,
     torso=torso,
@@ -82,7 +79,7 @@ logger = Logger(
         DashboardLogger(title="PPO brax Example", total_timesteps=total_timesteps),
     ]
 )
-logger_state = logger.init(cfg=cfg)
+logger_state = logger.init(cfg=asdict(cfg))
 
 init = jax.vmap(agent.init)
 evaluate = jax.vmap(agent.evaluate, in_axes=(0, 0, None))
@@ -113,7 +110,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"SPS": SPS, **training_statistics, **losses}
+    data = {"training/SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)

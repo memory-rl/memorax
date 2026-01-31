@@ -1,13 +1,3 @@
-"""IPPO on JAXMarl's MPE Simple Spread environment.
-
-This example demonstrates Independent PPO (IPPO) for multi-agent reinforcement
-learning using JAXMarl environments. Each agent learns its own policy independently
-while sharing the same network architecture.
-
-The Simple Spread environment has N agents that must cooperatively spread out
-to cover N landmarks while avoiding collisions with each other.
-"""
-
 import time
 from dataclasses import asdict
 
@@ -19,8 +9,7 @@ import optax
 from memorax.algorithms import IPPO, IPPOConfig
 from memorax.environments.jaxmarl import JaxMarlWrapper
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (MLP, FeatureExtractor, Network,
-                              SequenceModelWrapper, heads)
+from memorax.networks import MLP, FeatureExtractor, Network, heads
 
 total_timesteps = 1_000_000
 num_train_steps = 10_000
@@ -55,9 +44,7 @@ feature_extractor = FeatureExtractor(
         features=(d_model,), kernel_init=nn.initializers.orthogonal(scale=1.414)
     ),
 )
-torso = SequenceModelWrapper(
-    MLP(features=(d_model,), kernel_init=nn.initializers.orthogonal(scale=1.414))
-)
+torso = MLP(features=(d_model,), kernel_init=nn.initializers.orthogonal(scale=1.414))
 
 action_space = env.action_spaces[env.agents[0]]
 
@@ -130,7 +117,7 @@ for i in range(0, total_timesteps, num_train_steps):
     jax.block_until_ready(state)
     end = time.perf_counter()
 
-    SPS = num_train_steps / (end - start)
+    SPS = int(num_train_steps / (end - start))
 
     training_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
         transitions, "training"
@@ -138,7 +125,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"SPS": SPS, **training_statistics, **losses}
+    data = {"training/SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)

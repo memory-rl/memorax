@@ -1,30 +1,10 @@
-"""
-Profile PPO training with JAX profiler.
-
-This script runs a short training session and generates a trace file
-that can be viewed in TensorBoard or Perfetto.
-
-Usage:
-    python examples/profile_ppo.py
-
-View results:
-    Option 1 - TensorBoard:
-        tensorboard --logdir=/tmp/jax-trace-ppo
-        Then open http://localhost:6006 and go to the "Profile" tab
-
-    Option 2 - Perfetto (recommended for detailed view):
-        1. Open https://ui.perfetto.dev/
-        2. Click "Open trace file"
-        3. Select the .json.gz file from /tmp/jax-trace-ppo/plugins/profile/
-"""
-
 import flax.linen as nn
 import jax
 import optax
 
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
-from memorax.networks import MLP, FeatureExtractor, Network, SequenceModelWrapper, heads
+from memorax.networks import MLP, FeatureExtractor, Network, heads
 
 TRACE_DIR = "/tmp/jax-trace-ppo"
 
@@ -58,9 +38,7 @@ feature_extractor = FeatureExtractor(
         features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
     ),
 )
-torso = SequenceModelWrapper(
-    MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
-)
+torso = MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
 actor_network = Network(
     feature_extractor=feature_extractor,
     torso=torso,

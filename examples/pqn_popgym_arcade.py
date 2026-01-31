@@ -4,23 +4,12 @@ from functools import partial
 
 import flax.linen as nn
 import jax
-import jax.numpy as jnp
 import optax
-from gymnax.wrappers import FlattenObservationWrapper
 
 from memorax.algorithms import PQN, PQNConfig
 from memorax.environments import environment
-from memorax.loggers import DashboardLogger, Logger, WandbLogger
-from memorax.networks import (
-    CNN,
-    MLP,
-    RNN,
-    Embedding,
-    FeatureExtractor,
-    Network,
-    SequenceModelWrapper,
-    heads,
-)
+from memorax.loggers import DashboardLogger, Logger
+from memorax.networks import CNN, MLP, Embedding, FeatureExtractor, Network, heads
 
 total_timesteps = 5_000_000
 num_train_steps = 100_000
@@ -60,9 +49,7 @@ q_network = Network(
             features=5,
         ),
     ),
-    torso=SequenceModelWrapper(
-        MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
-    ),
+    torso=MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,
     ),
@@ -123,7 +110,7 @@ for i in range(0, total_timesteps, num_train_steps):
     jax.block_until_ready(state)
     end = time.perf_counter()
 
-    SPS = num_train_steps / (end - start)
+    SPS = int(num_train_steps / (end - start))
 
     training_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
         transitions, "training"

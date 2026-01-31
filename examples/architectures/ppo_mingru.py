@@ -1,12 +1,3 @@
-"""PPO on CartPole with MinGRU (Minimal GRU) architecture.
-
-This example demonstrates using MinGRU with:
-- Minimal gating mechanism for efficiency
-- Log-space computation for numerical stability
-- Efficient parallel training via associative scan
-- Simplified GRU with fewer parameters
-"""
-
 import time
 from dataclasses import asdict
 
@@ -135,7 +126,7 @@ for i in range(0, total_timesteps, num_train_steps):
     jax.block_until_ready(state)
     end = time.perf_counter()
 
-    SPS = num_train_steps / (end - start)
+    SPS = int(num_train_steps / (end - start))
 
     training_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
         transitions, "training"
@@ -143,7 +134,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"SPS": SPS, **training_statistics, **losses}
+    data = {"training/SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)

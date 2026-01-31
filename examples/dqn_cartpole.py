@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 import jax
 import optax
 from flashbax import make_item_buffer
@@ -70,7 +72,7 @@ agent = DQN(
 )
 
 logger = Logger([DashboardLogger(title="DQN Example", total_timesteps=total_timesteps)])
-logger_state = logger.init(cfg)
+logger_state = logger.init(cfg=asdict(cfg))
 
 key, state = agent.init(key)
 

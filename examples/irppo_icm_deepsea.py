@@ -1,23 +1,3 @@
-"""IRPPO with ICM on DeepSea.
-
-This example demonstrates Intrinsic Reward PPO with the Intrinsic Curiosity Module (ICM)
-on the BSuite DeepSea environment - a classic hard exploration benchmark.
-
-DeepSea is an NxN grid where the agent starts at top-left and must reach bottom-right.
-At each step, the agent chooses left or right. Only reaching the goal gives reward,
-making random exploration exponentially unlikely to succeed (2^N probability).
-
-ICM provides curiosity-driven intrinsic rewards based on forward model prediction error,
-encouraging the agent to explore novel states rather than relying on sparse extrinsic rewards.
-
-Key components:
-- IRPPO: PPO variant that augments extrinsic rewards with intrinsic rewards
-- ICM: Curiosity-driven exploration module with:
-  - Encoder: Maps observations to feature space
-  - Forward model: Predicts next features from (features, action)
-  - Inverse model: Predicts action from (features, next_features)
-"""
-
 import time
 from dataclasses import asdict
 
@@ -31,7 +11,7 @@ from memorax.algorithms import IRPPO, IRPPOConfig
 from memorax.environments import environment
 from memorax.intrinsic_rewards import ICM
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import MLP, FeatureExtractor, Network, SequenceModelWrapper, heads
+from memorax.networks import MLP, FeatureExtractor, Network, heads
 
 total_timesteps = 500_000
 num_train_steps = 10_000
@@ -67,9 +47,7 @@ feature_extractor = FeatureExtractor(
         features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
     ),
 )
-torso = SequenceModelWrapper(
-    MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
-)
+torso = MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
 actor_network = Network(
     feature_extractor=feature_extractor,
     torso=torso,
@@ -159,7 +137,7 @@ for i in range(0, total_timesteps, num_train_steps):
     jax.block_until_ready(state)
     end = time.perf_counter()
 
-    SPS = num_train_steps / (end - start)
+    SPS = int(num_train_steps / (end - start))
 
     training_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
         transitions, "training"

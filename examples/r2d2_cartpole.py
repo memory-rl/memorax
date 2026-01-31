@@ -1,9 +1,4 @@
-"""R2D2 example on CartPole environment.
-
-This demonstrates R2D2 with a GRU-based recurrent Q-network.
-R2D2 is particularly suited for partially observable environments,
-but this example uses CartPole to verify the implementation works.
-"""
+from dataclasses import asdict
 
 import flax.linen as nn
 import jax
@@ -97,7 +92,7 @@ agent = R2D2(
 logger = Logger(
     [DashboardLogger(title="R2D2 Example", total_timesteps=total_timesteps)]
 )
-logger_state = logger.init(cfg=cfg)
+logger_state = logger.init(cfg=asdict(cfg))
 
 key, state = agent.init(key)
 

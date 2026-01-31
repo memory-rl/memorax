@@ -1,4 +1,5 @@
 import time
+from dataclasses import asdict
 
 import flax.linen as nn
 import jax
@@ -7,7 +8,7 @@ from flashbax import make_item_buffer
 
 from memorax.algorithms import SAC, SACConfig
 from memorax.environments import environment
-from memorax.loggers import DashboardLogger, Logger, WandbLogger
+from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import FeatureExtractor, MLP, Network, RNN, heads
 
 total_timesteps = 1_000_000
@@ -109,10 +110,10 @@ agent = SAC(
 
 logger = Logger(
     [
-        DashboardLogger(title="SAC bsuite Example", total_timesteps=total_timesteps),
+        DashboardLogger(title="SAC Brax Ant", total_timesteps=total_timesteps),
     ]
 )
-logger_state = logger.init(cfg)
+logger_state = logger.init(cfg=asdict(cfg))
 
 init = jax.vmap(agent.init)
 evaluate = jax.vmap(agent.evaluate, in_axes=(0, 0, None))
@@ -143,7 +144,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"SPS": SPS, **training_statistics, **losses}
+    data = {"training/SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)

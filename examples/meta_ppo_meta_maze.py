@@ -1,16 +1,15 @@
 import time
+from dataclasses import asdict
 
 import flax.linen as nn
 import jax
-import jax.numpy as jnp
 import optax
 
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
-from memorax.loggers import DashboardLogger, Logger, WandbLogger
+from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import (MLP, RNN, Embedding, FeatureExtractor,
                               MetaMaskWrapper, Network, heads)
-from memorax.networks.sequence_models.wrapper import SequenceModelWrapper
 
 total_timesteps = 1_000_000
 num_train_steps = 100_000
@@ -110,10 +109,10 @@ agent = PPO(
 
 logger = Logger(
     [
-        DashboardLogger(title="PPO bsuite Example", total_timesteps=total_timesteps),
+        DashboardLogger(title="PPO MetaMaze", total_timesteps=total_timesteps),
     ]
 )
-logger_state = logger.init(cfg)
+logger_state = logger.init(cfg=asdict(cfg))
 
 init = jax.vmap(agent.init)
 evaluate = jax.vmap(agent.evaluate, in_axes=(0, 0, None))
@@ -144,7 +143,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"SPS": SPS, **training_statistics, **losses}
+    data = {"training/SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)

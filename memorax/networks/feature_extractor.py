@@ -32,8 +32,10 @@ class FeatureExtractor(nn.Module):
         embeddings = {"observation": self.observation_extractor(observation)}
         self.extract(embeddings, "action_embedding", self.action_extractor, action)
         self.extract(embeddings, "reward_embedding", self.reward_extractor, reward)
-        self.extract(embeddings, "done_embedding", self.done_extractor, done)
+        self.extract(
+            embeddings, "done_embedding", self.done_extractor, done.astype(jnp.int32)
+        )
 
-        features = jnp.concatenate([embeddings.values()], axis=-1)
+        features = jnp.concatenate([*embeddings.values()], axis=-1)
 
         return features, embeddings

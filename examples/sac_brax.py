@@ -18,7 +18,7 @@ num_eval_steps = 5_000
 seed = 0
 num_seeds = 1
 
-env, env_params = environment.make("brax::ant-V")
+env, env_params = environment.make("brax::ant", mode="V")
 
 
 cfg = SACConfig(

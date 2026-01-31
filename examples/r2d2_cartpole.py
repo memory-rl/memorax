@@ -1,3 +1,4 @@
+import time
 from dataclasses import asdict
 
 import flax.linen as nn
@@ -99,10 +100,15 @@ key, state = agent.init(key)
 key, state = agent.warmup(key, state, num_steps=cfg.learning_starts)
 
 for i in range(0, total_timesteps, num_train_steps):
+    start = time.perf_counter()
     key, state, transitions = agent.train(key, state, num_steps=num_train_steps)
+    jax.block_until_ready(state)
+    end = time.perf_counter()
+
+    SPS = int(num_train_steps / (end - start))
 
     training_statistics = Logger.get_episode_statistics(transitions, "training")
-    data = {**training_statistics, **transitions.losses}
+    data = {"training/SPS": SPS, **training_statistics, **transitions.losses}
     logger_state = logger.log(logger_state, data, step=state.step.item())
 
     key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)

@@ -298,7 +298,7 @@ class SAC:
                 initial_actor_carry,
             )
             actions, log_probs = dist.sample_and_log_prob(seed=key)
-            _, ((q1, _), (q2, _)) = self.critic_network.apply(
+            _, (qs, _) = self.critic_network.apply(
                 state.critic_params,
                 batch.obs,
                 batch.prev_done,
@@ -307,7 +307,7 @@ class SAC:
                 batch.prev_done,
                 initial_critic_carry,
             )
-            q = jnp.minimum(q1, q2)
+            q = jnp.minimum(*qs)
             actor_loss = (log_probs * alpha - remove_feature_axis(q)).mean()
             return actor_loss, {"actor_loss": actor_loss, "entropy": -log_probs.mean()}
 
@@ -346,7 +346,7 @@ class SAC:
         )
         next_actions, next_log_probs = dist.sample_and_log_prob(seed=key)
 
-        _, ((next_q1, _), (next_q2, _)) = self.critic_network.apply(
+        _, (next_qs, _) = self.critic_network.apply(
             state.critic_target_params,
             batch.next_obs,
             batch.done,
@@ -355,7 +355,7 @@ class SAC:
             batch.done,
             initial_critic_target_carry,
         )
-        next_q = jnp.minimum(next_q1, next_q2)
+        next_q = jnp.minimum(*next_qs)
 
         log_alpha = self.alpha_network.apply(state.alpha_params)
         alpha = jnp.exp(log_alpha)
@@ -366,7 +366,7 @@ class SAC:
         target_q = jax.lax.stop_gradient(target_q)
 
         def critic_loss_fn(critic_params):
-            _, ((q1, aux1), (q2, aux2)) = self.critic_network.apply(
+            _, (qs, _) = self.critic_network.apply(
                 critic_params,
                 batch.obs,
                 batch.prev_done,
@@ -375,9 +375,10 @@ class SAC:
                 batch.prev_done,
                 initial_critic_carry,
             )
-            critic_loss = self.critic_network.head1.loss(
-                q1, aux1, target_q
-            ) + self.critic_network.head2.loss(q2, aux2, target_q)
+            q1, q2 = qs
+            critic_loss = self.critic_network.head.loss(
+                q1, {}, target_q
+            ) + self.critic_network.head.loss(q2, {}, target_q)
 
             return critic_loss, {
                 "critic_loss": critic_loss,
@@ -429,7 +430,7 @@ class SAC:
             )
             initial_actor_carry = jax.lax.stop_gradient(initial_actor_carry)
 
-            initial_critic_carry, ((_, _), (_, _)) = self.critic_network.apply(
+            initial_critic_carry, _ = self.critic_network.apply(
                 jax.lax.stop_gradient(state.critic_params),
                 burn_in.obs,
                 burn_in.prev_done,
@@ -439,7 +440,7 @@ class SAC:
             )
             initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
 
-            initial_critic_target_carry, ((_, _), (_, _)) = self.critic_network.apply(
+            initial_critic_target_carry, _ = self.critic_network.apply(
                 jax.lax.stop_gradient(state.critic_target_params),
                 burn_in.next_obs,
                 burn_in.done,

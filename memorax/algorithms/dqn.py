@@ -284,12 +284,21 @@ class DQN:
             done=done,
             info=info,
             prev_done=done,
-        )        buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
+        )
+        buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
 
         return (
             key,
             DQNState(
-                step=0,                timestep=timestep.from_sequence(),                hidden_state=carry,                env_state=env_state,                params=params,                target_params=target_params,                optimizer_state=optimizer_state,                buffer_state=buffer_state,            ),
+                step=0,
+                timestep=timestep.from_sequence(),
+                hidden_state=carry,
+                env_state=env_state,
+                params=params,
+                target_params=target_params,
+                optimizer_state=optimizer_state,
+                buffer_state=buffer_state,
+            ),
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])

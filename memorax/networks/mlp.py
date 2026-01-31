@@ -3,11 +3,13 @@ from typing import Callable, Optional, Sequence
 import flax.linen as nn
 import jax.numpy as jnp
 
+from memorax.networks.identity import Identity
+
 
 class MLP(nn.Module):
     features: int | Sequence[int]
     activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
-    normalizer: Optional[Callable] = None
+    normalizer: Callable = Identity
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 

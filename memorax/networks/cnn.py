@@ -3,6 +3,8 @@ from typing import Callable, Optional, Sequence, Union
 import flax.linen as nn
 import jax.numpy as jnp
 
+from memorax.networks.identity import Identity
+
 
 class CNN(nn.Module):
     features: Sequence[int]
@@ -11,7 +13,7 @@ class CNN(nn.Module):
     poolings: Optional[Sequence[Callable]] = None
     padding: str = "VALID"
     activation: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
-    normalizer: Optional[Callable] = None
+    normalizer: Callable = Identity
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
     normalize: bool = False

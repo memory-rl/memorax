@@ -2,6 +2,7 @@ import flax.linen as nn
 import jax.numpy as jnp
 
 from memorax.networks.blocks import FFN
+from memorax.networks.identity import Identity
 
 
 class PatchEmbedding(nn.Module):
@@ -21,17 +22,29 @@ class PatchEmbedding(nn.Module):
 
 
 class ViT(nn.Module):
-    """Vision Transformer feature extractor."""
+    """Vision Transformer feature extractor.
 
-    patch_size: int = 16
+    Can operate in two modes:
+    - Token mode (default): For pre-tokenized inputs (e.g., (B, T, num_tokens, token_dim))
+    - Image mode: Pass patch_embedding=PatchEmbedding(patch_size, features) to convert images to tokens
+
+    Input shape: (B, T, ...) where T is the time/sequence axis.
+    Output shape: (B, T, features)
+    """
+
     features: int = 768
     num_layers: int = 12
     num_heads: int = 12
     expansion_factor: int = 4
+    patch_embedding: nn.Module = Identity()
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
-        x = PatchEmbedding(self.patch_size, self.features)(x)
+        batch_size, sequence_length, *_ = x.shape
+        x = x.reshape(batch_size * sequence_length, *x.shape[2:])
+
+        x = self.patch_embedding(x)
+        x = nn.Dense(self.features)(x)
 
         positional_embedding = self.param(
             "positional_embedding",
@@ -56,4 +69,5 @@ class ViT(nn.Module):
         x = nn.LayerNorm()(x)
         x = x.mean(axis=1)
 
+        x = x.reshape(batch_size, sequence_length, -1)
         return x

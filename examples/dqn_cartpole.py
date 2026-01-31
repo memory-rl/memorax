@@ -1,6 +1,6 @@
-import flashbax as fbx
 import jax
 import optax
+from flashbax import make_item_buffer
 
 from memorax.algorithms.dqn import DQN, DQNConfig
 from memorax.environments import environment
@@ -14,7 +14,7 @@ num_eval_steps = 5_000
 env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = DQNConfig(
-    name="rppo",
+    name="dqn",
     learning_rate=3e-4,
     num_envs=10,
     num_eval_envs=10,
@@ -28,7 +28,6 @@ cfg = DQNConfig(
     exploration_fraction=0.5,
     learning_starts=10_000,
     train_frequency=10,
-    double=False,
 )
 
 q_network = Network(
@@ -43,12 +42,12 @@ optimizer = optax.chain(
     optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
 )
 
-buffer = fbx.make_flat_buffer(
+buffer = make_item_buffer(
     max_length=cfg.buffer_size,
     min_length=cfg.batch_size,
     sample_batch_size=cfg.batch_size,
-    add_sequences=False,
-    add_batch_size=cfg.num_envs,
+    add_sequences=True,
+    add_batches=True,
 )
 
 epsilon_schedule = optax.linear_schedule(

@@ -46,7 +46,7 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# xLSTM (mLSTM) configuration
+
 d_model = 64
 hidden_dim = 64
 num_heads = 4
@@ -59,7 +59,6 @@ feature_extractor = FeatureExtractor(
 )
 
 
-# mLSTM block with FFN
 mlstm = Residual(
     module=PreNorm(
         module=Memoroid(

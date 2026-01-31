@@ -87,18 +87,15 @@ class FFMCell(MemoroidCellBase):
             param_dtype=self.param_dtype,
         )
 
-        # Input projections
         pre = dense(features=self.memory_size, name="pre")(inputs)
         input_gate = nn.sigmoid(
             dense(features=self.memory_size, name="input_gate")(inputs)
         )
         x = pre * input_gate
 
-        # Expand to context size and make complex
         state = jnp.repeat(x[..., None], self.context_size, axis=-1)
         state = jax.lax.complex(state, jnp.zeros_like(state))
 
-        # Timesteps (complex for compatibility)
         timestep = jnp.arange(T, dtype=self.param_dtype)
         timestep = jnp.broadcast_to(timestep, (B, T))
         timestep = jax.lax.complex(timestep, jnp.zeros_like(timestep))
@@ -127,11 +124,9 @@ class FFMCell(MemoroidCellBase):
         )
         ln = LayerNorm(use_scale=False, use_bias=False, name="ln")
 
-        # Output projections
         output_gate = nn.sigmoid(dense(features=self.features, name="output_gate")(x))
         skip = dense(features=self.features, name="skip")(x)
 
-        # Mix real and imaginary parts
         z_in = jnp.concatenate([jnp.real(state), jnp.imag(state)], axis=-1)
         z_in = z_in.reshape((*z_in.shape[:-2], -1))
         z = dense(features=self.features, name="mix")(z_in)
@@ -145,6 +140,5 @@ class FFMCell(MemoroidCellBase):
             (*batch_dims, 1, self.memory_size, self.context_size),
             dtype=self._complex_dtype(),
         )
-        # Start at timestep -1 so first real timestep is 0
         timestep = jnp.full((*batch_dims, 1), -1, dtype=self._complex_dtype())
         return (state, timestep)

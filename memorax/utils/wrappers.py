@@ -20,7 +20,6 @@ class GymnaxWrapper:
         return getattr(self._env, name)
 
 
-# Implementation from https://github.com/taodav/pobax/blob/main/pobax/envs/wrappers
 class MaskObservationWrapper(GymnaxWrapper):
     def __init__(self, env, mask_dims: list, **kwargs):
         super().__init__(env)

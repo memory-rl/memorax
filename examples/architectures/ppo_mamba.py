@@ -46,7 +46,6 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# Mamba configuration
 d_model = 64
 num_heads = 4
 head_dim = 16
@@ -60,7 +59,6 @@ feature_extractor = FeatureExtractor(
 )
 
 
-# Mamba block with FFN
 mamba = Residual(
     module=PreNorm(
         module=Memoroid(

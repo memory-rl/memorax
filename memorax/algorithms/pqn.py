@@ -118,23 +118,11 @@ class PQN:
             state.timestep.reward,
         )
         transition = Transition(
-            obs=state.timestep.obs,  # type: ignore
-            action=action,  # type: ignore
-            reward=reward,  # type: ignore
-            done=done,  # type: ignore
-            info=info,  # type: ignore
-            value=q_values,  # type: ignore
-            next_obs=next_obs,  # type: ignore
-            prev_action=prev_action,  # type: ignore
-            prev_reward=prev_reward,  # type: ignore
-            prev_done=state.timestep.done,  # type: ignore
-        )
+            obs=state.timestep.obs,            action=action,            reward=reward,            done=done,            info=info,            value=q_values,            next_obs=next_obs,            prev_action=prev_action,            prev_reward=prev_reward,            prev_done=state.timestep.done,        )
 
         state = state.replace(
             step=state.step + self.cfg.num_envs,
-            timestep=Timestep(obs=next_obs, action=action, reward=reward, done=done),  # type: ignore
-            env_state=env_state,  # type: ignore
-        )
+            timestep=Timestep(obs=next_obs, action=action, reward=reward, done=done),            env_state=env_state,        )
         return (key, state), transition
 
     def _td_lambda(self, carry, transition):
@@ -334,13 +322,7 @@ class PQN:
         return (
             key,
             PQNState(
-                step=0,  # type: ignore
-                timestep=timestep.from_sequence(),  # type: ignore
-                hidden_state=hidden_state,  # type: ignore
-                env_state=env_state,  # type: ignore
-                params=params,  # type: ignore
-                optimizer_state=optimizer_state,  # type: ignore
-            ),
+                step=0,                timestep=timestep.from_sequence(),                hidden_state=hidden_state,                env_state=env_state,                params=params,                optimizer_state=optimizer_state,            ),
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])

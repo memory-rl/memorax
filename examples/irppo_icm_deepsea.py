@@ -41,11 +41,10 @@ seed = 0
 num_seeds = 1
 
 env, env_params = environment.make("gymnax::DeepSea-bsuite")
-env = FlattenObservationWrapper(env)  # Flatten 2D observations (8x8 -> 64)
+env = FlattenObservationWrapper(env)
 num_actions = env.action_space(env_params).n
 obs_shape = env.observation_space(env_params).shape
 
-# IRPPO configuration with intrinsic reward coefficient
 cfg = IRPPOConfig(
     name="IRPPO-ICM-DeepSea",
     num_envs=8,
@@ -60,10 +59,9 @@ cfg = IRPPOConfig(
     clip_vloss=True,
     ent_coef=0.01,
     vf_coef=0.5,
-    intrinsic_reward_coef=0.01,  # Weight for intrinsic rewards
+    intrinsic_reward_coef=0.01,
 )
 
-# Actor-Critic networks
 feature_extractor = FeatureExtractor(
     observation_extractor=MLP(
         features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
@@ -88,19 +86,16 @@ critic_network = Network(
     ),
 )
 
-# ICM components
 icm_feature_dim = 64
 
 icm_encoder = MLP(
     features=(128, icm_feature_dim),
     kernel_init=nn.initializers.orthogonal(scale=1.414),
 )
-# Forward model: features + one-hot action -> next features
 icm_forward_model = MLP(
     features=(128, icm_feature_dim),
     kernel_init=nn.initializers.orthogonal(scale=1.414),
 )
-# Inverse model: features + next_features -> action logits
 icm_inverse_model = MLP(
     features=(128, num_actions),
     kernel_init=nn.initializers.orthogonal(scale=1.414),
@@ -111,10 +106,9 @@ icm = ICM(
     forward_model=icm_forward_model,
     inverse_model=icm_inverse_model,
     num_actions=num_actions,
-    beta=0.2,  # Weight for forward loss vs inverse loss
+    beta=0.2,
 )
 
-# Optimizers
 optimizer = optax.chain(
     optax.clip_by_global_norm(1.0),
     optax.adam(learning_rate=3e-4, eps=1e-5),

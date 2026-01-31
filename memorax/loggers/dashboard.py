@@ -26,8 +26,8 @@ class DashboardLoggerState(BaseLoggerState):
             "global_step": 0,
             "training/SPS": 0,
             "evaluation/SPS": 0,
-            "losses": {},  # dict[str, float]
-            "metrics": {},  # dict[str, float]
+            "losses": {},
+            "metrics": {},
         }
     )
 

@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 from chex import PRNGKey
 
-if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
+if TYPE_CHECKING:
     pass
 else:
     pass
@@ -23,8 +23,6 @@ def get_full_start_flags(experience: Experience) -> jnp.ndarray:
 
 
 def get_start_flags_from_done(experience: Experience) -> jnp.ndarray:
-    # Start flags indicate the first step *after* a terminal transition.
-    # Rolling prev_done by 1 aligns start positions with the next timestep.
     return jnp.roll(experience.prev_done, shift=1, axis=1)
 
 
@@ -114,7 +112,7 @@ def make_episode_buffer(
         max_length_time_axis=max_length // add_batch_size,
         min_length_time_axis=max(min_length // add_batch_size, sample_sequence_length),
         add_batch_size=add_batch_size,
-        sample_batch_size=sample_batch_size,  # unused by our custom sampler, harmless to set
+        sample_batch_size=sample_batch_size,
         sample_sequence_length=sample_sequence_length,
         period=1,
         max_size=None,
@@ -126,7 +124,7 @@ def make_episode_buffer(
             add_fn, axis=0, starting_arg_index=1, ending_arg_index=2
         )
     if not add_sequences:
-        axis = 1 - int(not add_batches)  # 1 if add_batches else 0
+        axis = 1 - int(not add_batches)
         add_fn = add_dim_to_args(
             add_fn, axis=axis, starting_arg_index=1, ending_arg_index=2
         )
@@ -138,24 +136,20 @@ def make_episode_buffer(
             state.experience, n_axes=2
         )
 
-        # Explicit episode starts provided by user callback
         start_flags = get_start_flags(state.experience)
         chex.assert_shape(start_flags, (add_batch_size, max_length_time_axis))
         start_flags = start_flags.astype(jnp.float32)
 
-        # Start positions must also respect buffer fill / sequence length
         valid_mask = _valid_start_mask(state, sample_sequence_length).astype(
             jnp.float32
-        )  # [T]
-        start_mask = start_flags * valid_mask[None, :]  # [B, T]
+        )
+        start_mask = start_flags * valid_mask[None, :]
 
-        # Counts
-        per_row = jnp.sum(start_mask, axis=1)  # [B]
-        total = jnp.sum(per_row)  # scalar
+        per_row = jnp.sum(start_mask, axis=1)
+        total = jnp.sum(per_row)
 
         def _sample_from_starts(key):
-            # Rows weighted by how many valid starts they have  (global uniformity)
-            p_rows = per_row / total  # [B]
+            p_rows = per_row / total
             key_rows, key_starts = jax.random.split(key)
 
             rows = jax.random.choice(
@@ -164,10 +158,9 @@ def make_episode_buffer(
                 shape=(sample_batch_size,),
                 p=p_rows,
                 replace=True,
-            )  # [N]
+            )
 
-            # For each chosen row, pick a start uniformly among its starts
-            row_start_probs = start_mask[rows]  # [N, T]
+            row_start_probs = start_mask[rows]
             row_start_probs = row_start_probs / jnp.maximum(
                 jnp.sum(row_start_probs, axis=1, keepdims=True), 1.0
             )
@@ -176,12 +169,10 @@ def make_episode_buffer(
                 lambda k, p: jax.random.choice(
                     k, a=max_length_time_axis, shape=(), p=p, replace=True
                 )
-            )(keys, row_start_probs)  # [N]
+            )(keys, row_start_probs)
             return rows, starts
 
         def _fallback_beginning(key):
-            # No explicit starts anywhere: treat t=0 as the only start and
-            # sample rows uniformly.
             rows = jax.random.randint(key, (sample_batch_size,), 0, add_batch_size)
             starts = jnp.zeros((sample_batch_size,), dtype=jnp.int32)
             return rows, starts
@@ -190,13 +181,12 @@ def make_episode_buffer(
             total > 0, _sample_from_starts, _fallback_beginning, rng_key
         )
 
-        # Gather sequences (wrap when full; remove %T if you prefer no wrap-around)
         time_idx = (
             starts[:, None] + jnp.arange(sample_sequence_length)
-        ) % max_length_time_axis  # [N, L]
+        ) % max_length_time_axis
         experience = jax.tree.map(
             lambda x: x[rows[:, None], time_idx], state.experience
         )
         return TrajectoryBufferSample(experience=experience)
 
-    return buffer.replace(add=add_fn, sample=sample_fn)  # type: ignore
+    return buffer.replace(add=add_fn, sample=sample_fn)

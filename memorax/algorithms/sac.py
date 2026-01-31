@@ -127,13 +127,13 @@ class SAC:
         )(env_keys, state.env_state, action, self.env_params)
 
         transition = Transition(
-            obs=state.timestep.obs,  # type: ignore
-            prev_done=state.timestep.done,  # type: ignore
-            action=action,  # type: ignore
-            reward=reward,  # type: ignore
-            next_obs=next_obs,  # type: ignore
-            done=done,  # type: ignore
-            info=info,  # type: ignore
+            obs=state.timestep.obs,
+            prev_done=state.timestep.done,
+            action=action,
+            reward=reward,
+            next_obs=next_obs,
+            done=done,
+            info=info,
         )
 
         buffer_state = state.buffer_state
@@ -411,6 +411,7 @@ class SAC:
     def _update(self, key, state: SACState):
         key, batch_key, critic_key, actor_key, alpha_key = jax.random.split(key, 5)
         batch = self.buffer.sample(state.buffer_state, batch_key).experience
+        batch = jax.tree.map(lambda x: jnp.expand_dims(x, 1), batch)
 
         initial_actor_carry = None
         initial_critic_carry = None
@@ -418,7 +419,6 @@ class SAC:
 
         if self.cfg.burn_in_length > 0:
             burn_in = jax.tree.map(lambda x: x[:, : self.cfg.burn_in_length], batch)
-            # Process burn-in through actor network
             initial_actor_carry, (_, _) = self.actor_network.apply(
                 jax.lax.stop_gradient(state.actor_params),
                 burn_in.obs,
@@ -429,7 +429,6 @@ class SAC:
             )
             initial_actor_carry = jax.lax.stop_gradient(initial_actor_carry)
 
-            # Process burn-in through critic network
             initial_critic_carry, ((_, _), (_, _)) = self.critic_network.apply(
                 jax.lax.stop_gradient(state.critic_params),
                 burn_in.obs,
@@ -440,7 +439,6 @@ class SAC:
             )
             initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
 
-            # Process burn-in through target critic network
             initial_critic_target_carry, ((_, _), (_, _)) = self.critic_network.apply(
                 jax.lax.stop_gradient(state.critic_target_params),
                 burn_in.next_obs,
@@ -453,7 +451,6 @@ class SAC:
                 initial_critic_target_carry
             )
 
-            # Use remaining experience for actual learning
             batch = jax.tree.map(lambda x: x[:, self.cfg.burn_in_length :], batch)
 
         state, critic_info = self._update_critic(

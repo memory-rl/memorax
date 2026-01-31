@@ -65,7 +65,6 @@ class MambaCell(MemoroidCellBase):
         batch_size, seq_len, _ = x.shape
         inner_dim = self.num_heads * self.head_dim
 
-        # Input projection with expansion for gating
         x_proj = nn.Dense(
             inner_dim * self.expansion_factor,
             kernel_init=self.kernel_init,
@@ -75,14 +74,11 @@ class MambaCell(MemoroidCellBase):
             name="in_proj",
         )(x)
 
-        # Split into x and gate
         x_inner, gate = jnp.split(x_proj, 2, axis=-1)
         gate = nn.silu(gate)
 
-        # Reshape x to (B, T, num_heads, head_dim)
         x_inner = x_inner.reshape(batch_size, seq_len, self.num_heads, self.head_dim)
 
-        # Project to dt, B, C
         dt = nn.Dense(
             self.num_heads,
             kernel_init=self.kernel_init,
@@ -102,15 +98,12 @@ class MambaCell(MemoroidCellBase):
         )(x)
         B = B.reshape(batch_size, seq_len, self.num_heads, self.hidden_dim)
 
-        # Compute decay and state
         decay_rate = -jnp.exp(self.log_decay)
         decay = jnp.exp(dt * decay_rate[None, None, :])
         decay = decay[:, :, :, None, None]
 
-        # State: outer product of B and x_inner, scaled by dt
         state = jnp.einsum("bthn,bthd->bthnd", B * dt[:, :, :, None], x_inner)
 
-        # Return carry with gate and x_inner for read()
         return (decay, state, gate, x_inner)
 
     def binary_operator(self, a: Carry, b: Carry) -> Carry:
@@ -120,8 +113,8 @@ class MambaCell(MemoroidCellBase):
         return (
             decay_j * decay_i,
             decay_j * state_i + state_j,
-            gate_j,  # Keep latest gate
-            x_j,  # Keep latest x
+            gate_j,
+            x_j,
         )
 
     @nn.compact
@@ -138,7 +131,6 @@ class MambaCell(MemoroidCellBase):
         batch_size, seq_len, _ = x.shape
         _, state, gate, x_inner = h
 
-        # Project to C
         C = nn.Dense(
             self.num_heads * self.hidden_dim,
             kernel_init=self.kernel_init,
@@ -149,15 +141,12 @@ class MambaCell(MemoroidCellBase):
         )(x)
         C = C.reshape(batch_size, seq_len, self.num_heads, self.hidden_dim)
 
-        # Compute output
         output = jnp.einsum("bthn,bthnd->bthd", C, state)
         output = output + self.skip_weight[None, None, :, :] * x_inner
 
-        # Reshape and apply gate
         output = output.reshape(batch_size, seq_len, self.num_heads * self.head_dim)
         output = output * gate
 
-        # Output projection
         output = nn.Dense(
             self.features,
             kernel_init=self.kernel_init,

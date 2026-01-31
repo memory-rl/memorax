@@ -12,7 +12,7 @@ version = "1.0.1"
 description = "A unified JAX/Flax framework for memory-augmented reinforcement learning with support for RNNs, SSMs, and Transformers"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "jax>=0.7.2",
     "flax>=0.10.7",
@@ -35,7 +35,6 @@ gxm       = ["gxm"]
 popjym    = ["popjym"]
 xminigrid = ["xminigrid"]
 jaxmarl   = ["jaxmarl", "brax"]
-mettagrid = ["mettagrid", "torch", "pufferlib-core", "boto3", "cogames; python_version >= '3.12' and python_version < '3.13'"]
 
 environments = [
     "brax>=0.12.4",
@@ -71,15 +70,7 @@ package = true
 name = "jaxmarl"
 requires-dist = []
 
-[[tool.uv.dependency-metadata]]
-name = "mettagrid"
-requires-dist = []
-
-[[tool.uv.dependency-metadata]]
-name = "cogames"
-requires-dist = []
 
 [tool.uv.sources]
 gxm     = { git = "https://github.com/huterguier/gxm", rev = "dev", extra = "gxm" }
 popjym  = { git = "https://github.com/EdanToledo/popjym.git", extra = "popjym" }
-cogames = { git = "ssh://git@github.com/Metta-AI/metta.git", subdirectory = "packages/cogames", extra = "mettagrid" }

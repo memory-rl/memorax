@@ -47,7 +47,7 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# GTrXL configuration
+
 d_model = 64
 num_heads = 4
 context_length = 128
@@ -61,7 +61,6 @@ feature_extractor = FeatureExtractor(
 )
 
 
-# GTrXL: SegmentRecurrence wraps attention for memory, GatedResidual for gating
 attention = GatedResidual(
     module=PreNorm(
         module=SegmentRecurrence(

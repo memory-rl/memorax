@@ -455,7 +455,6 @@ class IRPPO:
             length=self.cfg.num_steps,
         )
 
-        # Compute intrinsic rewards
         obs_flat = transitions.obs.reshape(-1, *transitions.obs.shape[2:])
         next_obs_flat = transitions.next_obs.reshape(
             -1, *transitions.next_obs.shape[2:]
@@ -467,12 +466,10 @@ class IRPPO:
         )
         intrinsic_rewards = intrinsic_rewards.reshape(transitions.obs.shape[:2])
 
-        # Update intrinsic reward network
         state, ir_metrics = self._update_intrinsic_reward(
             state, obs_flat, next_obs_flat, action_flat
         )
 
-        # Augment rewards
         augmented_rewards = (
             transitions.reward + self.cfg.intrinsic_reward_coef * intrinsic_rewards
         )
@@ -607,7 +604,6 @@ class IRPPO:
             initial_carry=critic_carry,
         )
 
-        # Initialize intrinsic reward network
         obs_shape = self.env.observation_space(self.env_params).shape
         dummy_obs = jnp.zeros((1, *obs_shape))
         dummy_action = jnp.zeros((1,), dtype=jnp.int32)
@@ -638,7 +634,6 @@ class IRPPO:
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key, state, num_steps):
-        """No warmup needed for IRPPO"""
         return key, state
 
     @partial(jax.jit, static_argnums=(0, 3))

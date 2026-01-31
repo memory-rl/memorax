@@ -81,7 +81,6 @@ agent = PPO(
 logger = Logger(
     [
         DashboardLogger(title="PPO bsuite Example", total_timesteps=total_timesteps),
-        # WandbLogger(entity="noahfarr", project="memorax", name="PPO_bsuite"),
     ]
 )
 logger_state = logger.init(cfg=cfg)

@@ -76,14 +76,12 @@ class ICM(nn.Module):
         features = self.encoder.apply({"params": params["encoder"]}, obs)
         next_features = self.encoder.apply({"params": params["encoder"]}, next_obs)
 
-        # Forward loss
         forward_input = jnp.concatenate([features, self.encode_action(action)], axis=-1)
         predicted_next_features = self.forward_model.apply(
             {"params": params["forward_model"]}, forward_input
         )
         forward_loss = jnp.square(next_features - predicted_next_features).mean()
 
-        # Inverse loss
         inverse_input = jnp.concatenate([features, next_features], axis=-1)
         predicted_action_logits = self.inverse_model.apply(
             {"params": params["inverse_model"]}, inverse_input

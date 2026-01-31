@@ -7,7 +7,6 @@ from memorax.utils.typing import Array, EnvParams, Key
 from memorax.utils.wrappers import GymnaxWrapper
 
 
-# Copied from https://github.com/huterguier/gxm/blob/dev/gxm/wrappers/terminal/gxm_to_gymnax.py
 class GxmGymnaxWrapper(GymnaxWrapper):
     @property
     def default_params(self) -> None:
@@ -43,7 +42,6 @@ class GxmGymnaxWrapper(GymnaxWrapper):
 
     def observation_space(self, params: Optional[EnvParams] = None) -> spaces.Space:
         del params
-        # Access the underlying gymnax env's observation_space
         return self._env.env.observation_space(self._env.env_params)
 
     def _gxm_to_gymnax_space(self, space: Any) -> spaces.Space:

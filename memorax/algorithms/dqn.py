@@ -110,14 +110,7 @@ class DQN:
         )(step_key, state.env_state, action, self.env_params)
 
         transition = Transition(
-            obs=state.timestep.obs,  # type: ignore
-            action=action,  # type: ignore
-            reward=reward,  # type: ignore
-            next_obs=next_obs,  # type: ignore
-            done=done,  # type: ignore
-            info=info,  # type: ignore
-            prev_done=state.timestep.done,  # type: ignore
-        )
+            obs=state.timestep.obs,            action=action,            reward=reward,            next_obs=next_obs,            done=done,            info=info,            prev_done=state.timestep.done,        )
 
         buffer_state = state.buffer_state
         if write_to_buffer:
@@ -127,8 +120,7 @@ class DQN:
         state = state.replace(
             step=state.step + self.cfg.num_envs,
             timestep=Timestep(obs=next_obs, action=action, reward=reward, done=done),
-            env_state=env_state,  # type: ignore
-            buffer_state=buffer_state,
+            env_state=env_state,            buffer_state=buffer_state,
         )
         return (key, state), transition
 
@@ -138,6 +130,7 @@ class DQN:
         key, memory_key, next_memory_key = jax.random.split(key, 3)
 
         experience = batch.experience
+        experience = jax.tree.map(lambda x: jnp.expand_dims(x, 1), experience)
         initial_carry = None
         initial_target_carry = None
 
@@ -291,21 +284,12 @@ class DQN:
             done=done,
             info=info,
             prev_done=done,
-        )  # type: ignore
-        buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
+        )        buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
 
         return (
             key,
             DQNState(
-                step=0,  # type: ignore
-                timestep=timestep.from_sequence(),  # type: ignore
-                hidden_state=carry,  # type: ignore
-                env_state=env_state,  # type: ignore
-                params=params,  # type: ignore
-                target_params=target_params,  # type: ignore
-                optimizer_state=optimizer_state,  # type: ignore
-                buffer_state=buffer_state,  # type: ignore
-            ),
+                step=0,                timestep=timestep.from_sequence(),                hidden_state=carry,                env_state=env_state,                params=params,                target_params=target_params,                optimizer_state=optimizer_state,                buffer_state=buffer_state,            ),
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
@@ -358,8 +342,7 @@ class DQN:
 
         state = state.replace(
             timestep=timestep, hidden_state=hidden_state, env_state=env_state
-        )  # type: ignore
-
+        )
         (key, _), transitions = jax.lax.scan(
             partial(self._step, policy=self._greedy_action, write_to_buffer=False),
             (key, state),

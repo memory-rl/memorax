@@ -64,13 +64,10 @@ class LinearAttentionCell(MemoroidCellBase):
         key = projection(name="key")(x)
         value = projection(name="value")(x)
 
-        # Apply feature map to keys
         key = self._feature_map(key)
 
-        # State: outer product v ⊗ φ(k)
         state = jnp.einsum("bthi,bthj->bthij", value, key)
 
-        # Normalizer: sum of φ(k) for proper normalization
         normalizer = key
 
         return (state, normalizer)
@@ -109,14 +106,11 @@ class LinearAttentionCell(MemoroidCellBase):
 
         state, normalizer = h
 
-        # Numerator: φ(q) @ S = φ(q) @ (Σ v ⊗ φ(k))
         numerator = jnp.einsum("bthij,bthj->bthi", state, query)
 
-        # Denominator: φ(q) @ z = φ(q) @ (Σ φ(k))
         denominator = jnp.einsum("bthi,bthi->bth", query, normalizer)
         denominator = jnp.maximum(denominator, self.eps)[:, :, :, None]
 
-        # Normalized output
         output = numerator / denominator
 
         hidden_dim = self.num_heads * self.head_dim

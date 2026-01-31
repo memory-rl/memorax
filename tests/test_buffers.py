@@ -230,19 +230,17 @@ class TestEpisodeBoundarySampling:
 
         state = buffer.init(make_sample_experience(obs_dim=1))
 
-        # Create experience where obs[t] = t, so we can identify positions
+
         seq_len = 40
         time_indices = jnp.arange(seq_len).reshape(1, seq_len, 1).astype(jnp.float32)
 
-        # We want to sample from positions [1, 9, 17, 25, 33]
-        # start_flags = roll(prev_done, 1), so we set prev_done[t-1]=1
-        # i.e., prev_done at positions [0, 8, 16, 24, 32]
+
         prev_done = jnp.zeros((add_batch_size, seq_len))
         prev_done_positions = [0, 8, 16, 24, 32]
         for pos in prev_done_positions:
             prev_done = prev_done.at[:, pos].set(1.0)
 
-        # After roll by 1, start_flags will be 1 at positions [1, 9, 17, 25, 33]
+
         expected_sample_positions = jnp.array([1, 9, 17, 25, 33])
 
         exp = MockExperience(
@@ -254,7 +252,7 @@ class TestEpisodeBoundarySampling:
         )
         state = buffer.add(state, exp)
 
-        # Sample and check that first obs values match expected positions
+
         key = random_key
         for _ in range(20):
             key, sample_key = jax.random.split(key)
@@ -329,16 +327,16 @@ class TestEpisodeBoundarySampling:
         seq_len = 40
         time_indices = jnp.arange(seq_len).reshape(1, seq_len, 1).astype(jnp.float32)
 
-        # Set prev_done only at specific positions
+
         prev_done = jnp.zeros((add_batch_size, seq_len))
-        prev_done_positions = [0, 10, 20, 30]  # -> start_flags at [1, 11, 21, 31]
+        prev_done_positions = [0, 10, 20, 30]
         for pos in prev_done_positions:
             prev_done = prev_done.at[:, pos].set(1.0)
 
         expected_sample_positions = set([1, 11, 21, 31])
         invalid_positions = (
             set(range(seq_len - 4)) - expected_sample_positions
-        )  # -4 for seq length
+        )
 
         exp = MockExperience(
             obs=time_indices,
@@ -349,7 +347,7 @@ class TestEpisodeBoundarySampling:
         )
         state = buffer.add(state, exp)
 
-        # Sample many times
+
         key = random_key
         all_sampled_positions = []
         for _ in range(50):
@@ -360,7 +358,7 @@ class TestEpisodeBoundarySampling:
 
         sampled_set = set(all_sampled_positions)
 
-        # All sampled positions should be in expected set
+
         assert sampled_set.issubset(expected_sample_positions), (
             f"Sampled invalid positions: {sampled_set - expected_sample_positions}"
         )

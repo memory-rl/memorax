@@ -360,8 +360,8 @@ class IPPO:
             num_steps = self.cfg.num_steps
 
             if shuffle_time_axis:
-                # Reshape to (num_agents, num_envs*num_steps, 1, *obs_shape)
-                # This preserves the agent dimension for VmappedNetwork
+
+
                 batch = (
                     initial_actor_carry,
                     initial_critic_carry,
@@ -374,7 +374,7 @@ class IPPO:
             else:
                 num_samples_per_agent = num_envs
 
-            # Permute within each agent's samples (along axis 1)
+
             permutation = jax.random.permutation(permutation_key, num_samples_per_agent)
 
             minibatches = jax.tree.map(

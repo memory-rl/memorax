@@ -95,7 +95,6 @@ class LRUCell(MemoroidCellBase):
 
         decay = jnp.broadcast_to(diag_lambda, (B, T, self.hidden_dim))
 
-        # State: B @ x for each timestep
         state = jax.vmap(jax.vmap(lambda u: B_norm @ u))(x)
 
         return (decay, state)
@@ -110,7 +109,6 @@ class LRUCell(MemoroidCellBase):
         C = jax.lax.complex(self.C_real, self.C_imag)
         _, state = h
 
-        # Output: C @ state + D * x
         y = jax.vmap(jax.vmap(lambda si, xi: (C @ si).real + self.D * xi))(state, x)
         return y
 

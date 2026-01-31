@@ -46,7 +46,6 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# MinGRU configuration
 d_model = 64
 num_layers = 2
 
@@ -57,7 +56,6 @@ feature_extractor = FeatureExtractor(
 )
 
 
-# MinGRU block with FFN
 mingru = Residual(
     module=PreNorm(
         module=Memoroid(

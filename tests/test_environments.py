@@ -61,7 +61,7 @@ class TestGymnaxEnvironments:
     def test_cartpole_action_space(self, cartpole):
         env, env_params = cartpole
         action_space = env.action_space(env_params)
-        assert hasattr(action_space, "n")  # Discrete action space
+        assert hasattr(action_space, "n")
         assert action_space.n == 2
 
     def test_cartpole_observation_space(self, cartpole):
@@ -94,7 +94,7 @@ class TestGymnaxEnvironments:
     def test_pendulum_action_space(self, pendulum):
         env, env_params = pendulum
         action_space = env.action_space(env_params)
-        assert hasattr(action_space, "shape")  # Continuous action space
+        assert hasattr(action_space, "shape")
         assert action_space.shape == (1,)
 
     def test_bsuite_wrapper(self, bsuite_catch):
@@ -103,7 +103,7 @@ class TestGymnaxEnvironments:
         key = jax.random.key(0)
         obs, state = env.reset(key, env_params)
 
-        # BSuiteWrapper adds extra state fields
+
         assert hasattr(state, "episode_regret")
         assert hasattr(state, "returned_episode_regret")
         assert hasattr(state, "timestep")
@@ -145,7 +145,7 @@ class TestUnifiedMakeInterface:
         """Test that make correctly parses namespace::env_id format."""
         from memorax.environments import make
 
-        # Should not raise
+
         env, _ = make("gymnax::Pendulum-v1")
         key = jax.random.key(0)
         obs, state = env.reset(key, _)
@@ -187,7 +187,7 @@ class TestPopJymEnvironments:
     def test_env_params_has_max_steps(self, repeat_first):
         _, env_params = repeat_first
         assert hasattr(env_params, "max_steps_in_episode")
-        assert env_params.max_steps_in_episode == 52  # RepeatFirstEasy
+        assert env_params.max_steps_in_episode == 52
 
 
 class TestBraxEnvironments:
@@ -231,7 +231,7 @@ class TestBraxEnvironments:
         """Test that MaskObservationWrapper properly masks observations."""
         env, env_params = ant_env
         obs_space = env.observation_space(env_params)
-        # Mode "F" should include all 27 dimensions for ant
+
         assert obs_space.shape == (27,)
 
 
@@ -242,7 +242,7 @@ class TestCraftaxEnvironments:
     def craftax_env(self):
         pytest.importorskip("craftax")
         try:
-            from craftax import craftax_env as _  # noqa: F401
+            from craftax import craftax_env as _
         except ImportError:
             pytest.skip("craftax.craftax_env not available")
         from memorax.environments import craftax
@@ -297,7 +297,7 @@ class TestNavixEnvironments:
         key = jax.random.key(0)
         obs, state = env.reset(key)
 
-        action = 0  # Move right
+        action = 0
         next_obs, next_state, reward, done, info = env.step(key, state, action)
 
         assert next_obs is not None
@@ -306,7 +306,7 @@ class TestNavixEnvironments:
     def test_action_space(self, navix_env):
         env, _ = navix_env
         action_space = env.action_space(None)
-        assert hasattr(action_space, "n")  # Discrete
+        assert hasattr(action_space, "n")
 
     def test_observation_space(self, navix_env):
         env, _ = navix_env
@@ -431,7 +431,7 @@ class TestMujocoEnvironments:
     def mujoco_env(self):
         pytest.importorskip("mujoco_playground")
         try:
-            from mujoco_playground import registry as _  # noqa: F401
+            from mujoco_playground import registry as _
         except ImportError:
             pytest.skip("mujoco_playground.registry not available")
         from memorax.environments import mujoco

@@ -47,7 +47,7 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# Linear Attention configuration
+
 d_model = 64
 num_heads = 4
 head_dim = 16
@@ -60,7 +60,6 @@ feature_extractor = FeatureExtractor(
 )
 
 
-# Linear Attention block with FFN
 linear_attention = Residual(
     module=PreNorm(
         module=Memoroid(

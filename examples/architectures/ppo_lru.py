@@ -46,7 +46,6 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# LRU configuration
 d_model = 64
 hidden_dim = 128
 num_layers = 2
@@ -58,7 +57,6 @@ feature_extractor = FeatureExtractor(
 )
 
 
-# LRU block with FFN
 lru = Residual(
     module=PreNorm(
         module=Memoroid(

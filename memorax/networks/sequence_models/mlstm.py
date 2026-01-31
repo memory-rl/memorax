@@ -83,7 +83,6 @@ class mLSTMCell(MemoroidCellBase):
                 f"num_heads ({self.num_heads})."
             )
 
-        # Project to hidden dimension
         x_proj = Dense(
             features=self.hidden_dim,
             use_bias=False,
@@ -92,7 +91,6 @@ class mLSTMCell(MemoroidCellBase):
             name="in_proj",
         )(x)
 
-        # Q, K, V projections
         projection = partial(
             Dense,
             features=self.hidden_dim,
@@ -105,14 +103,12 @@ class mLSTMCell(MemoroidCellBase):
         k = projection(name="k")(x_proj)
         v = projection(name="v")(x_proj)
 
-        # Reshape to heads: (B, T, NH, DH)
         q = q.reshape(B, T, self.num_heads, head_dim)
         k = k.reshape(B, T, self.num_heads, head_dim)
         v = v.reshape(B, T, self.num_heads, head_dim)
 
-        # Gate projections from concatenated qkv
-        qkv = jnp.concatenate([q, k, v], axis=-1)  # (B, T, NH, 3*DH)
-        qkv_flat = qkv.reshape(B, T, -1)  # (B, T, NH*3*DH)
+        qkv = jnp.concatenate([q, k, v], axis=-1)
+        qkv_flat = qkv.reshape(B, T, -1)
 
         gate = partial(
             Dense,
@@ -125,37 +121,28 @@ class mLSTMCell(MemoroidCellBase):
         i_gate = gate(name="wi", bias_init=initializers.normal(stddev=0.1))(qkv_flat)
         f_gate = gate(name="wf", bias_init=initializers.constant(4.0))(qkv_flat)
 
-        # Reshape gates: (B, T, NH)
         i_gate = i_gate.reshape(B, T, self.num_heads)
         f_gate = f_gate.reshape(B, T, self.num_heads)
 
-        # Log-space gates for numerical stability
-        log_f = -jax.nn.softplus(-f_gate)  # (B, T, NH)
-        log_i = i_gate  # Keep in log space
+        log_f = -jax.nn.softplus(-f_gate)
+        log_i = i_gate
 
-        # Compute max for stability: m = max(log_i)
-        m = log_i[:, :, :, None, None]  # (B, T, NH, 1, 1)
+        m = log_i[:, :, :, None, None]
 
-        # Stable input gate
-        i_stable = jnp.exp(log_i - m.squeeze(-1).squeeze(-1))  # (B, T, NH)
+        i_stable = jnp.exp(log_i - m.squeeze(-1).squeeze(-1))
 
-        # Scale k and v by sqrt for numerical stability
         k = k / jnp.sqrt(head_dim)
 
-        # Compute contributions
-        # C_contribution = i * (k ⊗ v): (B, T, NH, DH, DH)
-        k_col = k[:, :, :, :, None]  # (B, T, NH, DH, 1)
-        v_row = v[:, :, :, None, :]  # (B, T, NH, 1, DH)
-        kv_outer = k_col @ v_row  # (B, T, NH, DH, DH)
+        k_col = k[:, :, :, :, None]
+        v_row = v[:, :, :, None, :]
+        kv_outer = k_col @ v_row
 
-        i_expanded = i_stable[:, :, :, None, None]  # (B, T, NH, 1, 1)
-        C = i_expanded * kv_outer  # (B, T, NH, DH, DH)
+        i_expanded = i_stable[:, :, :, None, None]
+        C = i_expanded * kv_outer
 
-        # n_contribution = i * k: (B, T, NH, DH, 1)
-        n = i_stable[:, :, :, None] * k  # (B, T, NH, DH)
-        n = n[:, :, :, :, None]  # (B, T, NH, DH, 1)
+        n = i_stable[:, :, :, None] * k
+        n = n[:, :, :, :, None]
 
-        # Reshape log_f for broadcasting: (B, T, NH, 1, 1)
         log_f = log_f[:, :, :, None, None]
 
         return (log_f, C, n, m)
@@ -176,18 +163,14 @@ class mLSTMCell(MemoroidCellBase):
         log_f_a, C_a, n_a, m_a = a
         log_f_b, C_b, n_b, m_b = b
 
-        # Combined cumulative decay
         log_f_combined = log_f_a + log_f_b
 
-        # Numerical stability: find max of decayed a and b
-        m_a_decayed = m_a + log_f_b  # a's contribution after decay
+        m_a_decayed = m_a + log_f_b
         m_combined = jnp.maximum(m_a_decayed, m_b)
 
-        # Compute stable scaling factors
         scale_a = jnp.exp(m_a_decayed - m_combined)
         scale_b = jnp.exp(m_b - m_combined)
 
-        # Combine states
         C_combined = scale_a * C_a + scale_b * C_b
         n_combined = scale_a * n_a + scale_b * n_b
 
@@ -207,7 +190,6 @@ class mLSTMCell(MemoroidCellBase):
         B, T, in_features = x.shape
         head_dim = self.hidden_dim // self.num_heads
 
-        # Project input for query
         x_proj = Dense(
             features=self.hidden_dim,
             use_bias=False,
@@ -224,30 +206,22 @@ class mLSTMCell(MemoroidCellBase):
             name="q",
         )(x_proj)
 
-        # Reshape to heads: (B, T, NH, DH)
         q = q.reshape(B, T, self.num_heads, head_dim)
         q = q / jnp.sqrt(head_dim)
 
-        # Extract accumulated state
         _, C, n, m = h
 
-        # Query the memory: h_tilde = (q @ C) / normalize(q @ n)
-        q_row = q[:, :, :, None, :]  # (B, T, NH, 1, DH)
+        q_row = q[:, :, :, None, :]
 
-        # q @ C: (B, T, NH, 1, DH) @ (B, T, NH, DH, DH) -> (B, T, NH, 1, DH)
-        qC = (q_row @ C).squeeze(-2)  # (B, T, NH, DH)
+        qC = (q_row @ C).squeeze(-2)
 
-        # q @ n: (B, T, NH, 1, DH) @ (B, T, NH, DH, 1) -> (B, T, NH, 1, 1)
-        qn = (q_row @ n).squeeze(-2).squeeze(-1)  # (B, T, NH)
+        qn = (q_row @ n).squeeze(-2).squeeze(-1)
 
-        # Normalize
         normalizer = jnp.maximum(jnp.abs(qn), 1.0)[:, :, :, None]
         h_tilde = qC / (normalizer + 1e-6)
 
-        # Reshape and project output
         h_tilde = h_tilde.reshape(B, T, self.hidden_dim)
 
-        # Output projection
         y = Dense(
             features=self.features,
             use_bias=False,
@@ -257,7 +231,6 @@ class mLSTMCell(MemoroidCellBase):
             name="out_proj",
         )(h_tilde)
 
-        # Dropout
         y = nn.Dropout(
             rate=self.dropout_rate, deterministic=not self.has_rng("dropout")
         )(y)
@@ -277,14 +250,11 @@ class mLSTMCell(MemoroidCellBase):
         *batch_dims, _ = input_shape
         head_dim = self.hidden_dim // self.num_heads
 
-        # Initial cumulative log decay is 0 (no decay yet)
         log_f = jnp.zeros((*batch_dims, 1, self.num_heads, 1, 1))
 
-        # Initial state is zero
         C = jnp.zeros((*batch_dims, 1, self.num_heads, head_dim, head_dim))
         n = jnp.zeros((*batch_dims, 1, self.num_heads, head_dim, 1))
 
-        # Initial max is -inf (will be overwritten on first combine)
         m = jnp.full((*batch_dims, 1, self.num_heads, 1, 1), -1e9)
 
         return (log_f, C, n, m)

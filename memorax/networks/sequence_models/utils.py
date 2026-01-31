@@ -15,13 +15,13 @@ Implementation = Literal["xla", "cudnn"]
 def get_attention_implementation() -> tuple[Implementation, jnp.dtype]:
     backend = jax.default_backend()
     if backend == "gpu":
-        # Check if it's an NVIDIA GPU (for cudnn support)
+
         try:
             if any(
                 "nvidia" in device.device_kind.lower() for device in jax.local_devices()
             ):
                 return "cudnn", jnp.bfloat16
-        except Exception:  # pragma: no cover - best effort hardware detection
+        except Exception:
             pass
 
     return "xla", jnp.float32

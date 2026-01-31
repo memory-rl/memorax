@@ -131,10 +131,8 @@ class S5Cell(MemoroidCellBase):
         B, T, _ = x.shape
         lambda_bar, b_bar, _, _ = self._discretized_params()
 
-        # Decay: broadcast lambda to (B, T, state_size)
         decay = jnp.broadcast_to(lambda_bar, (B, T, self.state_size))
 
-        # State: B @ x for each timestep
         state = jax.vmap(jax.vmap(lambda xi: b_bar @ xi))(x)
 
         return (decay, state)
@@ -150,7 +148,6 @@ class S5Cell(MemoroidCellBase):
         _, _, c_tilde, d = self._discretized_params()
         _, state = h
 
-        # Output: C @ state + D * x
         y = jax.vmap(jax.vmap(lambda si, xi: (c_tilde @ si).real + d * xi))(state, x)
         return y
 

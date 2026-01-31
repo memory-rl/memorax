@@ -48,7 +48,6 @@ class MinGRUCell(MemoroidCellBase):
         z = dense(name="z")(inputs)
         h_tilde = dense(name="h")(inputs)
 
-        # Compute in log-space
         log_z = -nn.softplus(-z)
         log_h_tilde = jnp.where(
             h_tilde >= 0, jnp.log(nn.relu(h_tilde) + 0.5), -nn.softplus(-h_tilde)
@@ -74,7 +73,6 @@ class MinGRUCell(MemoroidCellBase):
 
     def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
         *batch_dims, _ = input_shape
-        # Identity for logaddexp is -inf, identity for + is 0
         log_state = jnp.full(
             (*batch_dims, 1, self.features),
             -jnp.inf,

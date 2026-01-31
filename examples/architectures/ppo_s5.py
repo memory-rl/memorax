@@ -46,7 +46,7 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# S5 configuration
+
 d_model = 64
 state_size = 64
 num_layers = 2
@@ -58,7 +58,6 @@ feature_extractor = FeatureExtractor(
 )
 
 
-# S5 block with FFN
 s5 = Residual(
     module=PreNorm(
         module=Memoroid(

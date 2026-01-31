@@ -71,7 +71,6 @@ class sLSTMCell(RNNCellBase):
                 f"hidden_dim ({self.hidden_dim}) must be divisible by num_heads ({self.num_heads})."
             )
 
-        # Project input to hidden dimension
         x_proj = nn.Dense(
             features=self.hidden_dim,
             use_bias=False,
@@ -80,7 +79,6 @@ class sLSTMCell(RNNCellBase):
             name="in_proj",
         )(inputs)
 
-        # Causal convolution (operates on hidden_dim)
         if self.use_causal_conv:
             x = add_time_axis(x_proj)
             conv_state, conv_x = CausalConv1d(
@@ -93,7 +91,6 @@ class sLSTMCell(RNNCellBase):
         else:
             conv_x_act = x_proj
 
-        # Input gate projections (from hidden_dim to hidden_dim)
         gate = partial(
             BlockDiagonalDense,
             self.hidden_dim,
@@ -108,7 +105,6 @@ class sLSTMCell(RNNCellBase):
         z = gate(name="z")(x_proj)
         o = gate(name="o")(x_proj)
 
-        # Recurrent gate projections
         recurrent_gate = partial(
             BlockDiagonalDense,
             self.hidden_dim,
@@ -160,7 +156,6 @@ class sLSTMCell(RNNCellBase):
             )
         )
 
-        # sLSTM recurrence
         o = jax.nn.sigmoid(o)
         log_f = -jax.nn.softplus(-f)
         m_new = jnp.where(jnp.all(n == 0.0), i, jnp.maximum(log_f + m, i))
@@ -174,16 +169,13 @@ class sLSTMCell(RNNCellBase):
 
         new_cell_state = (c_new, n_new, m_new, h_new)
 
-        # Dropout
         y = nn.Dropout(
             rate=self.dropout_rate, deterministic=not self.has_rng("dropout")
         )(h_new)
 
-        # Layer norm per head
         y = y.reshape(B, self.num_heads, 1, head_dim)
         y = MultiHeadLayerNorm(use_scale=True, use_bias=False)(y)
 
-        # Output projection
         y = y.reshape(B, self.hidden_dim)
         y = nn.Dense(
             features=self.features,

@@ -32,7 +32,7 @@ class TestLRU:
 
     def test_initialize_carry(self, lru):
         key = jax.random.key(0)
-        input_shape = (4, 16)  # (batch_size, features)
+        input_shape = (4, 16)
         carry = lru.initialize_carry(key, input_shape)
         assert carry is not None
 
@@ -88,7 +88,7 @@ class TestMinGRU:
         params = min_gru.init(key, inputs, mask)
         carry, outputs = min_gru.apply(params, inputs, mask)
 
-        # MinGRU output is its hidden features (32)
+
         assert outputs.shape == (batch_size, seq_len, 32)
 
 
@@ -179,7 +179,7 @@ class TestLinearAttention:
         input_shape = (4, 16)
         carry = linear_attention.initialize_carry(key, input_shape)
         assert carry is not None
-        # Check carry structure: (decay, state)
+
         assert len(carry) == 2
 
     def test_call(self, linear_attention):
@@ -228,7 +228,7 @@ class TestMamba:
 
         carry = mamba_algebra.initialize_carry(key, input_shape)
         assert carry is not None
-        assert len(carry) == 4  # (decay, state, gate, x_inner)
+        assert len(carry) == 4
 
     def test_algebra_call(self, mamba_algebra):
         """Test the algebra's __call__ directly."""
@@ -241,7 +241,7 @@ class TestMamba:
         carry = mamba_algebra.apply(params, x)
 
         assert carry is not None
-        assert len(carry) == 4  # (decay, state, gate, x_inner)
+        assert len(carry) == 4
 
     def test_binary_operator(self, mamba_algebra):
         """Test the binary_operator operation."""
@@ -314,7 +314,7 @@ class TestRNN:
         params = gru_rnn.init(key, inputs, mask)
         carry, outputs = gru_rnn.apply(params, inputs, mask)
 
-        assert outputs.shape == (batch_size, seq_len, 32)  # features from GRUCell
+        assert outputs.shape == (batch_size, seq_len, 32)
 
     def test_lstm_initialize_carry(self, lstm_rnn):
         key = jax.random.key(0)
@@ -345,15 +345,15 @@ class TestSHMCell:
             features=32,
             output_features=16,
             num_thetas=64,
-            sample_theta=False,  # Disable sampling for deterministic tests
+            sample_theta=False,
         )
 
     def test_initialize_carry(self, shm_cell):
         key = jax.random.key(0)
-        input_shape = (4, 16)  # (batch_size, features)
+        input_shape = (4, 16)
         carry = shm_cell.initialize_carry(key, input_shape)
         assert carry is not None
-        # SHM carry is a matrix of shape (batch_size, features, features)
+
         assert carry.shape == (4, 32, 32)
 
     def test_call(self, shm_cell):
@@ -361,14 +361,14 @@ class TestSHMCell:
         batch_size, features = 4, 16
         inputs = jnp.ones((batch_size, features))
 
-        # Initialize carry
+
         carry = shm_cell.initialize_carry(key, (batch_size, features))
 
         params = shm_cell.init(key, carry, inputs)
         new_carry, outputs = shm_cell.apply(params, carry, inputs)
 
         assert new_carry.shape == carry.shape
-        assert outputs.shape == (batch_size, 16)  # output_features
+        assert outputs.shape == (batch_size, 16)
 
 
 class TestSLSTMCell:
@@ -390,9 +390,9 @@ class TestSLSTMCell:
         input_shape = (4, 16)
         carry = slstm_rnn.initialize_carry(key, input_shape)
         assert carry is not None
-        # sLSTM carry is (cell_state, conv_state)
+
         cell_state, conv_state = carry
-        # cell_state is (c, n, m, h)
+
         assert len(cell_state) == 4
 
     def test_call(self, slstm_rnn):
@@ -439,7 +439,7 @@ class TestMLSTM:
         input_shape = (4, 16)
         carry = mlstm.initialize_carry(key, input_shape)
         assert carry is not None
-        # mLSTM carry is (log_f, C, n, m)
+
         assert len(carry) == 4
 
     def test_call(self, mlstm):
@@ -481,19 +481,19 @@ class TestMLSTM:
 
         params = algebra.init(key, inputs)
 
-        # Create three elements
+
         a = algebra.apply(params, inputs * 1.0)
         b = algebra.apply(params, inputs * 2.0)
         c = algebra.apply(params, inputs * 3.0)
 
-        # Test associativity: (a ⊕ b) ⊕ c == a ⊕ (b ⊕ c)
+
         ab = algebra.binary_operator(a, b)
         ab_c = algebra.binary_operator(ab, c)
 
         bc = algebra.binary_operator(b, c)
         a_bc = algebra.binary_operator(a, bc)
 
-        # Check all components are close
+
         for i in range(4):
             assert jnp.allclose(ab_c[i], a_bc[i], atol=1e-5), (
                 f"Component {i} not associative"
@@ -515,7 +515,7 @@ class TestSequenceModelWrapper:
         key = jax.random.key(0)
         input_shape = (4, 16)
         carry = wrapped_mlp.initialize_carry(key, input_shape)
-        # SequenceModelWrapper returns None for carry since it has no state
+
         assert carry is None
 
     def test_call(self, wrapped_mlp):
@@ -527,7 +527,7 @@ class TestSequenceModelWrapper:
         params = wrapped_mlp.init(key, inputs, mask)
         carry, outputs = wrapped_mlp.apply(params, inputs, mask)
 
-        # Carry should be None for wrapped non-recurrent networks
+
         assert carry is None
         assert outputs.shape == (batch_size, seq_len, 32)
 
@@ -545,10 +545,10 @@ class TestMetaMaskWrapper:
 
     def test_initialize_carry(self, meta_masked_rnn):
         key = jax.random.key(0)
-        input_shape = (4, 8, 16)  # (batch_size, seq_len, features)
+        input_shape = (4, 8, 16)
         carry = meta_masked_rnn.initialize_carry(key, input_shape)
         assert carry is not None
-        # MetaMaskState has carry and step
+
         assert hasattr(carry, "carry")
         assert hasattr(carry, "step")
 
@@ -556,13 +556,13 @@ class TestMetaMaskWrapper:
         key = jax.random.key(0)
         batch_size, seq_len, features = 4, 8, 16
         inputs = jnp.ones((batch_size, seq_len, features))
-        mask = jnp.zeros((batch_size, seq_len))  # Will be overwritten by wrapper
+        mask = jnp.zeros((batch_size, seq_len))
 
         params = meta_masked_rnn.init(key, inputs, mask)
         carry, outputs = meta_masked_rnn.apply(params, inputs, mask)
 
         assert outputs.shape == (batch_size, seq_len, 32)
-        # Step should be incremented by seq_len
+
         assert jnp.all(carry.step == seq_len)
 
 
@@ -581,12 +581,12 @@ class TestAlgebraBinaryOperator:
         batch_size, seq_len, features = 4, 1, 16
         inputs = jnp.ones((batch_size, seq_len, features))
 
-        # Initialize and get two different carries
+
         params = algebra.init(key, inputs)
         carry_a = algebra.apply(params, inputs)
         carry_b = algebra.apply(params, inputs * 2)
 
-        # Test binary_operator
+
         combined = algebra.binary_operator(carry_a, carry_b)
         assert combined is not None
 
@@ -607,7 +607,7 @@ class TestAlgebraBinaryOperator:
         carry_a = algebra.apply(params, inputs)
         carry_b = algebra.apply(params, inputs * 2)
 
-        # binary_operator needs access to setup params, so call it within apply context
+
         combined = algebra.apply(params, carry_a, carry_b, method="binary_operator")
         assert combined is not None
 
@@ -667,7 +667,7 @@ class TestAlgebraBinaryOperator:
 
         combined = algebra.binary_operator(carry_a, carry_b)
         assert combined is not None
-        assert len(combined) == 4  # (log_f, C, n, m)
+        assert len(combined) == 4
 
     def test_mamba_binary_operator(self):
         from memorax.networks.sequence_models import MambaCell
@@ -689,7 +689,7 @@ class TestAlgebraBinaryOperator:
 
         combined = algebra.binary_operator(carry_a, carry_b)
         assert combined is not None
-        assert len(combined) == 4  # (decay, state, gate, x_inner)
+        assert len(combined) == 4
 
     def test_linear_attention_binary_operator(self):
         from memorax.networks.sequence_models import LinearAttentionCell
@@ -712,7 +712,7 @@ class TestAlgebraBinaryOperator:
 
         combined = algebra.binary_operator(carry_a, carry_b)
         assert combined is not None
-        assert len(combined) == 2  # (decay, state)
+        assert len(combined) == 2
 
 
 class TestVmapCompatibility:
@@ -735,7 +735,7 @@ class TestVmapCompatibility:
 
         params = model.init(key, inputs, mask)
 
-        # Should work with larger batch via vmap
+
         @jax.jit
         def forward(inputs, mask):
             return model.apply(params, inputs, mask)
@@ -790,7 +790,7 @@ class TestJitCompatibility:
         initial_carry = model.initialize_carry(key, (batch_size, features))
         carry, outputs = forward(inputs, mask, initial_carry)
 
-        # Run twice to verify jit caching works
+
         carry2, outputs2 = forward(inputs, mask, initial_carry)
         assert jnp.allclose(outputs, outputs2)
 
@@ -832,7 +832,7 @@ class TestMaskingBehavior:
         batch_size, seq_len, features = 2, 8, 16
         inputs = jax.random.normal(key, (batch_size, seq_len, features))
 
-        # Mask = 0 means no reset, mask = 1 means reset
+
         no_mask = jnp.zeros((batch_size, seq_len))
         with_mask = jnp.ones((batch_size, seq_len))
 
@@ -841,7 +841,7 @@ class TestMaskingBehavior:
         _, outputs_no_mask = model.apply(params, inputs, no_mask)
         _, outputs_with_mask = model.apply(params, inputs, with_mask)
 
-        # Outputs should differ when mask is applied
+
         assert not jnp.allclose(outputs_no_mask, outputs_with_mask)
 
     def test_mask_resets_rnn(self):
@@ -861,5 +861,5 @@ class TestMaskingBehavior:
         _, outputs_no_mask = model.apply(params, inputs, no_mask)
         _, outputs_with_mask = model.apply(params, inputs, with_mask)
 
-        # Outputs should differ when mask is applied
+
         assert not jnp.allclose(outputs_no_mask, outputs_with_mask)

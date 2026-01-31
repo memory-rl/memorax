@@ -28,9 +28,8 @@ from memorax.networks import MLP, FeatureExtractor, Network, SequenceModelWrappe
 
 TRACE_DIR = "/tmp/jax-trace-ppo"
 
-# Shorter run for profiling
 NUM_TRAIN_STEPS = 1_000
-NUM_WARMUP_STEPS = 500  # Warmup to trigger JIT compilation before tracing
+NUM_WARMUP_STEPS = 500
 
 seed = 0
 
@@ -100,8 +99,6 @@ print("Initializing agent...", flush=True)
 key, state = agent.init(key)
 print("Agent initialized.", flush=True)
 
-# Warmup: run training once to trigger JIT compilation
-# This ensures the trace captures actual execution, not compilation
 print(f"Warming up (JIT compilation) with {NUM_WARMUP_STEPS} steps...", flush=True)
 key, state, _ = agent.train(key, state, NUM_WARMUP_STEPS)
 jax.block_until_ready(state)
@@ -110,11 +107,9 @@ print("Warmup complete.", flush=True)
 print(f"Starting profiled training with {NUM_TRAIN_STEPS} steps...", flush=True)
 print(f"Trace will be saved to: {TRACE_DIR}", flush=True)
 
-# Profile the training
 with jax.profiler.trace(TRACE_DIR):
     print("Trace started, running training...", flush=True)
     key, state, transitions = agent.train(key, state, NUM_TRAIN_STEPS)
-    # block_until_ready ensures all async operations complete before trace ends
     jax.block_until_ready(state)
     print("Training complete, closing trace...", flush=True)
 

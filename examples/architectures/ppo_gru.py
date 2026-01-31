@@ -45,7 +45,6 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# GRU configuration
 d_model = 64
 hidden_dim = 128
 num_layers = 2
@@ -57,7 +56,6 @@ feature_extractor = FeatureExtractor(
 )
 
 
-# GRU block with FFN
 gru = Residual(
     module=PreNorm(
         module=RNN(

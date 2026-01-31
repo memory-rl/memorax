@@ -47,7 +47,7 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# GPT-2 style configuration
+
 d_model = 64
 num_heads = 4
 context_length = 128
@@ -59,7 +59,7 @@ feature_extractor = FeatureExtractor(
     ),
 )
 
-# GPT-2 style transformer: positional embedding + (PreNorm -> Attention -> Residual, PreNorm -> FFN -> Residual) * num_layers
+
 positional_embedding = LearnablePositionalEmbedding(
     num_embeddings=512,
     features=d_model,

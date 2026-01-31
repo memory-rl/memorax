@@ -17,7 +17,6 @@ num_eval_steps = 5_000
 seed = 0
 num_seeds = 1
 
-# env, env_params = environment.make("gymnax::CartPole-v1")
 env, env_params = environment.make("brax::ant-V")
 
 
@@ -36,7 +35,6 @@ cfg = SACConfig(
     initial_alpha=1.0,
     target_entropy_scale=1.0,
     learning_starts=10_000,
-    mask=False,
     max_grad_norm=0.5,
     train_frequency=10,
 )
@@ -112,7 +110,6 @@ agent = SAC(
 logger = Logger(
     [
         DashboardLogger(title="SAC bsuite Example", total_timesteps=total_timesteps),
-        # WandbLogger(entity="noahfarr", project="memorax", name="SAC_bsuite"),
     ]
 )
 logger_state = logger.init(cfg)

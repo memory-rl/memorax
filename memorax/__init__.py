@@ -2,7 +2,6 @@
 
 __version__ = "1.0.1"
 
-# Algorithms
 from memorax.algorithms import (
     DQN,
     IPPO,
@@ -27,16 +26,13 @@ from memorax.algorithms import (
     SACState,
 )
 
-# Intrinsic Rewards
 from memorax.intrinsic_rewards import ICM, RND
 
-# Environment factory
 from memorax.environments import make
 
-# Intrinsic Rewards
 from memorax.intrinsic_rewards import ICM, RND
 
-# Loggers
+
 from memorax.loggers import (
     ConsoleLogger,
     DashboardLogger,
@@ -48,7 +44,6 @@ from memorax.loggers import (
     WandbLogger,
 )
 
-# Core network components
 from memorax.networks import (
     CNN,
     MLP,
@@ -59,9 +54,7 @@ from memorax.networks import (
 )
 
 __all__ = [
-    # Version
     "__version__",
-    # Algorithms
     "DQN",
     "DQNConfig",
     "DQNState",
@@ -83,19 +76,15 @@ __all__ = [
     "SAC",
     "SACConfig",
     "SACState",
-    # Intrinsic Rewards
     "ICM",
     "RND",
-    # Environment
     "make",
-    # Networks
     "CNN",
     "MLP",
     "Network",
     "FeatureExtractor",
     "SequenceModel",
     "SequenceModelWrapper",
-    # Loggers
     "Logger",
     "LoggerState",
     "ConsoleLogger",

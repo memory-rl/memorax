@@ -20,13 +20,13 @@ class XLandMiniGridWrapper(GymnaxWrapper):
 
     def reset(self, key, params):
         timestep = self._env.reset(params.env_params, key)
-        # Return the full timestep as state since step() expects it
+
         return timestep.observation, timestep
 
     def step(self, key, state, action, params):
-        # state is actually a TimeStep from reset/previous step
+
         timestep = self._env.step(params.env_params, state, action)
-        done = timestep.step_type == 2  # LAST step type
+        done = timestep.step_type == 2
         return timestep.observation, timestep, timestep.reward, done, {}
 
     def observation_space(self, params):

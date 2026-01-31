@@ -46,7 +46,7 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# FFM configuration
+
 d_model = 64
 memory_size = 32
 context_size = 16
@@ -59,7 +59,6 @@ feature_extractor = FeatureExtractor(
 )
 
 
-# FFM block with FFN
 ffm = Residual(
     module=PreNorm(
         module=Memoroid(

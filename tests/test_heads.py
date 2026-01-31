@@ -171,14 +171,14 @@ class TestHLGaussVNetwork:
     def test_loss_clamps_targets(self, head, params):
         x = jnp.ones((2, 8))
         v_value, aux = head.apply(params, x)
-        # Targets outside range should be clamped
+
         targets = jnp.array([[100.0], [-100.0]])
         loss = head.loss(v_value, aux, targets)
         assert loss.shape == ()
         assert jnp.isfinite(loss)
 
     def test_bin_centers(self, head, params):
-        # Verify bin centers are correctly computed (access via bind to enter module scope)
+
         bound_head = head.bind(params)
         assert bound_head.bin_centers.shape == (51,)
         assert jnp.allclose(bound_head.bin_centers[0], -5.0)
@@ -334,14 +334,14 @@ class TestGaussian:
         assert samples.shape == (4, 16, 3)
 
     def test_custom_transform(self, random_key):
-        # Test with a custom transform (tanh)
+
         head = Gaussian(action_dim=3, transform=jnp.tanh)
         x = jnp.ones((2, 8))
         params = head.init(random_key, x)
         dist, aux = head.apply(params, x)
         samples = dist.sample(seed=random_key)
         assert samples.shape == (2, 3)
-        # Tanh outputs should be in [-1, 1]
+
         assert jnp.all(samples >= -1.0)
         assert jnp.all(samples <= 1.0)
 
@@ -373,7 +373,7 @@ class TestSquashedGaussian:
     def test_samples_bounded(self, head, params, random_key):
         x = jnp.ones((2, 8))
         dist, aux = head.apply(params, x)
-        # Sample multiple times to check bounds
+
         key = random_key
         for _ in range(10):
             key, subkey = jax.random.split(key)
@@ -396,12 +396,12 @@ class TestSquashedGaussian:
 
     def test_temperature(self, head, params, random_key):
         x = jnp.ones((2, 8))
-        # Default temperature
+
         dist1, _ = head.apply(params, x)
-        # Lower temperature (should have lower variance)
+
         dist2, _ = head.apply(params, x, temperature=0.1)
 
-        # Sample many times and compare variances
+
         key = random_key
         samples1 = []
         samples2 = []
@@ -412,14 +412,14 @@ class TestSquashedGaussian:
 
         var1 = jnp.var(jnp.stack(samples1), axis=0).mean()
         var2 = jnp.var(jnp.stack(samples2), axis=0).mean()
-        # Lower temperature should have lower variance
+
         assert var2 < var1
 
     def test_log_std_clipping(self, head, params):
-        # Verify log_std is clipped to valid range
+
         x = jnp.ones((2, 8))
         dist, aux = head.apply(params, x)
-        # The distribution should produce finite log probs
+
         actions = jnp.zeros((2, 3))
         log_probs = dist.log_prob(actions)
         assert jnp.all(jnp.isfinite(log_probs))

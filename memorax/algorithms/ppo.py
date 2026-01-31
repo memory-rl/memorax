@@ -160,16 +160,7 @@ class PPO:
             state.timestep.action,
         )
         transition = Transition(
-            obs=state.timestep.obs,  # type: ignore
-            action=action,  # type: ignore
-            reward=reward,  # type: ignore
-            done=done,  # type: ignore
-            info=info,  # type: ignore
-            log_prob=log_prob,  # type: ignore
-            value=value,  # type: ignore
-            prev_action=prev_action,  # type: ignore
-            prev_reward=jnp.where(state.timestep.done, 0, state.timestep.reward),  # type: ignore
-            prev_done=state.timestep.done,
+            obs=state.timestep.obs,            action=action,            reward=reward,            done=done,            info=info,            log_prob=log_prob,            value=value,            prev_action=prev_action,            prev_reward=jnp.where(state.timestep.done, 0, state.timestep.reward),            prev_done=state.timestep.done,
         )
 
         state = state.replace(
@@ -232,10 +223,7 @@ class PPO:
                 * advantages,
             ).mean()
             return actor_loss - self.cfg.ent_coef * entropy, (
-                entropy.mean(),  # type: ignore
-                approx_kl.mean(),  # type: ignore
-                clipfrac.mean(),  # type: ignore
-            )
+                entropy.mean(),                approx_kl.mean(),                clipfrac.mean(),            )
 
         (actor_loss, aux), actor_grads = jax.value_and_grad(
             actor_loss_fn, has_aux=True
@@ -552,21 +540,12 @@ class PPO:
         return (
             key,
             PPOState(
-                step=0,  # type: ignore
-                timestep=timestep.from_sequence(),
-                actor_carry=actor_carry,  # type: ignore
-                critic_carry=critic_carry,  # type: ignore
-                env_state=env_state,  # type: ignore
-                actor_params=actor_params,  # type: ignore
-                critic_params=critic_params,  # type: ignore
-                actor_optimizer_state=actor_optimizer_state,  # type: ignore
-                critic_optimizer_state=critic_optimizer_state,  # type: ignore
-            ),
+                step=0,                timestep=timestep.from_sequence(),
+                actor_carry=actor_carry,                critic_carry=critic_carry,                env_state=env_state,                actor_params=actor_params,                critic_params=critic_params,                actor_optimizer_state=actor_optimizer_state,                critic_optimizer_state=critic_optimizer_state,            ),
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key, state, num_steps):
-        """No warmup needed for PPO"""
         return key, state
 
     @partial(jax.jit, static_argnums=(0, 3))

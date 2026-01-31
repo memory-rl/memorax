@@ -44,7 +44,6 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-# MoE configuration
 d_model = 64
 num_experts = 4
 top_k = 2
@@ -56,7 +55,6 @@ feature_extractor = FeatureExtractor(
     ),
 )
 
-# MoE block with GRU experts
 moe = Residual(
     module=PreNorm(
         module=MoE(

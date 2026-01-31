@@ -26,9 +26,9 @@ class MaskObservationWrapper(GymnaxWrapper):
         self.mask_dims = jnp.array(mask_dims, dtype=int)
 
     def observation_space(self, params) -> spaces.Box:
-        assert isinstance(self._env.observation_space(params), spaces.Box), (
-            "Only Box spaces are supported for now."
-        )
+        assert isinstance(
+            self._env.observation_space(params), spaces.Box
+        ), "Only Box spaces are supported for now."
         low = self._env.observation_space(params).low
         if isinstance(low, jnp.ndarray):
             low = low[self.mask_dims]
@@ -161,3 +161,139 @@ class ScaleRewardWrapper(GymnaxWrapper):
     def step(self, key, state, action, params=None):
         obs, env_state, reward, done, info = self._env.step(key, state, action, params)
         return obs, env_state, self.scale * reward, done, info
+
+
+@struct.dataclass
+class PufferLibEnvState:
+    step: int = 0
+
+
+class PufferLibWrapper:
+
+    def __init__(self, env):
+        self._env = env
+        self.num_envs = env.num_envs
+
+        obs_space = env.single_observation_space
+        self.obs_shape = obs_space.shape
+        self.obs_dtype = jnp.dtype(obs_space.dtype)
+
+        self.num_actions = env.single_action_space.n
+
+    @property
+    def default_params(self):
+        return None
+
+    def reset(self, key: Key, params=None) -> Tuple[Array, PufferLibEnvState]:
+
+        def _reset(key):
+            obs, _ = self._env.reset()
+            return jnp.array(obs, dtype=self.obs_dtype)
+
+        obs = jax.pure_callback(
+            _reset,
+            jax.ShapeDtypeStruct(self.obs_shape, self.obs_dtype),
+            key,
+            vmap_method="broadcast_all",
+        )
+
+        state = PufferLibEnvState(step=0)
+        return obs, state
+
+    def step(
+        self,
+        key: Key,
+        state: PufferLibEnvState,
+        action: Array,
+        params=None,
+    ) -> Tuple[Array, PufferLibEnvState, Array, Array, dict]:
+
+        def _step(action):
+            action = np.asarray(action, dtype=np.int32)
+            obs, rewards, dones, truncs, infos = self._env.step(action)
+
+            return (
+                jnp.array(obs, dtype=self.obs_dtype),
+                jnp.array(rewards, dtype=jnp.float32),
+                jnp.array(dones | truncs, dtype=jnp.bool_),
+            )
+
+        obs, rewards, dones = jax.pure_callback(
+            _step,
+            (
+                jax.ShapeDtypeStruct(self.obs_shape, self.obs_dtype),
+                jax.ShapeDtypeStruct((), jnp.float32),
+                jax.ShapeDtypeStruct((), jnp.bool_),
+            ),
+            action,
+            vmap_method="broadcast_all",
+        )
+
+        new_state = PufferLibEnvState(step=state.step + 1)
+        return obs, new_state, rewards, dones, {}
+
+    def observation_space(self, params=None) -> spaces.Box:
+        """Return the observation space."""
+        return spaces.Box(
+            low=-jnp.inf,
+            high=jnp.inf,
+            shape=self.obs_shape,
+            dtype=self.obs_dtype,
+        )
+
+    def action_space(self, params=None) -> spaces.Discrete:
+        """Return the action space."""
+        return spaces.Discrete(self.num_actions)
+
+
+class FlattenMultiAgentObservationWrapper:
+    """Wrapper that flattens multi-dimensional observations.
+
+    Useful for environments with observations like (height, width, channels)
+    that need to be flattened for MLP-based policies.
+    """
+
+    def __init__(self, env):
+        self._env = env
+        self.num_envs = env.num_envs
+        self.num_actions = env.num_actions
+
+        # Flatten observation shape
+        self._raw_obs_shape = env.obs_shape
+        self.obs_shape = (int(np.prod(env.obs_shape)),)
+        self.obs_dtype = env.obs_dtype
+
+    @property
+    def default_params(self):
+        return self._env.default_params
+
+    def _flatten_obs(self, obs: Array) -> Array:
+        """Flatten observations: (..., *obs_dims) -> (..., flat_dim)."""
+        return obs.reshape(obs.shape[:-len(self._raw_obs_shape)] + (-1,))
+
+    def reset(self, key: Key, params=None) -> Tuple[Array, PufferLibEnvState]:
+        obs, state = self._env.reset(key, params)
+        return self._flatten_obs(obs), state
+
+    def step(
+        self,
+        key: Key,
+        state: PufferLibEnvState,
+        action: Array,
+        params=None,
+    ) -> Tuple[Array, PufferLibEnvState, Array, Array, dict]:
+        obs, state, rewards, dones, info = self._env.step(key, state, action, params)
+        return self._flatten_obs(obs), state, rewards, dones, info
+
+    def observation_space(self, params=None) -> spaces.Box:
+        """Return the flattened observation space."""
+        return spaces.Box(
+            low=-jnp.inf,
+            high=jnp.inf,
+            shape=self.obs_shape,
+            dtype=self.obs_dtype,
+        )
+
+    def action_space(self, params=None) -> spaces.Discrete:
+        """Return the action space."""
+        return spaces.Discrete(self.num_actions)

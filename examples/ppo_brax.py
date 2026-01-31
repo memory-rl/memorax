@@ -9,20 +9,30 @@ from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import MLP, FeatureExtractor, Network, heads
+from memorax.utils.wrappers import (
+    ClipActionWrapper,
+    NormalizeObservationWrapper,
+    ScaleRewardWrapper,
+)
 
 total_timesteps = 50_000_000
-num_train_steps = 4_096_000
-num_eval_steps = 1_000
+num_envs = 1024
+max_steps_in_episode = 1000
+num_train_steps = num_envs * max_steps_in_episode
+num_eval_steps = 0
 
 seed = 0
 num_seeds = 1
 
-env, env_params = environment.make("brax::ant", mode="F")
+env, env_params = environment.make("brax::hopper", mode="F")
+env = NormalizeObservationWrapper(env)
+env = ClipActionWrapper(env)
+env = ScaleRewardWrapper(env, scale=10.0)
 
 cfg = PPOConfig(
     name="PPO",
-    num_envs=4096,
-    num_eval_envs=4096,
+    num_envs=num_envs,
+    num_eval_envs=num_envs,
     num_steps=5,
     gamma=0.97,
     gae_lambda=0.95,
@@ -75,9 +85,11 @@ agent = PPO(
 )
 
 logger = Logger(
-    [
-        DashboardLogger(title="PPO brax Example", total_timesteps=total_timesteps),
-    ]
+    {
+        "dashboard": DashboardLogger(
+            title="PPO brax Example", total_timesteps=total_timesteps
+        ),
+    }
 )
 logger_state = logger.init(cfg=asdict(cfg))
 
@@ -87,7 +99,7 @@ train = jax.vmap(agent.train, in_axes=(0, 0, None))
 
 keys, state = init(keys)
 
-keys, transitions = evaluate(keys, state, num_eval_steps)
+keys, transitions = evaluate(keys, state, max_steps_in_episode)
 evaluation_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
     transitions, "evaluation"
 )
@@ -113,11 +125,12 @@ for i in range(0, total_timesteps, num_train_steps):
     data = {"training/SPS": SPS, **training_statistics, **losses}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
-    keys, transitions = evaluate(keys, state, num_eval_steps)
-    evaluation_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
-        transitions, "evaluation"
-    )
-    logger_state = logger.log(
-        logger_state, evaluation_statistics, step=state.step[0].item()
-    )
+    if num_eval_steps > 0:
+        keys, transitions = evaluate(keys, state, num_eval_steps)
+        evaluation_statistics = jax.vmap(
+            Logger.get_episode_statistics, in_axes=(0, None)
+        )(transitions, "evaluation")
+        logger_state = logger.log(
+            logger_state, evaluation_statistics, step=state.step[0].item()
+        )
     logger.emit(logger_state)

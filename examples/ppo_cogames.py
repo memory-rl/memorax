@@ -51,7 +51,7 @@ cfg = PPOConfig(
     name="PPO",
     num_envs=env.num_envs,  # Use num_envs from the env as this is num_envs x num_agents
     num_eval_envs=0,
-    num_steps=128,
+    num_steps=64,
     gamma=0.99,
     gae_lambda=0.95,
     num_minibatches=4,
@@ -69,7 +69,7 @@ feature_extractor = FeatureExtractor(
     observation_extractor=ViT(features=128, num_layers=2, num_heads=4),
 )
 torso = MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
-actor_network = Network(
+actor_network = nn.remat(Network)(
     feature_extractor=feature_extractor,
     torso=torso,
     head=heads.Categorical(
@@ -78,7 +78,7 @@ actor_network = Network(
     ),
 )
 
-critic_network = Network(
+critic_network = nn.remat(Network)(
     feature_extractor=feature_extractor,
     torso=torso,
     head=heads.VNetwork(

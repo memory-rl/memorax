@@ -29,7 +29,7 @@ class FeatureExtractor(nn.Module):
         done: jnp.ndarray,
         **kwargs,
     ):
-        embeddings = {"observation": self.observation_extractor(observation)}
+        embeddings = {"observation_embedding": self.observation_extractor(observation)}
         self.extract(embeddings, "action_embedding", self.action_extractor, action)
         self.extract(embeddings, "reward_embedding", self.reward_extractor, reward)
         self.extract(

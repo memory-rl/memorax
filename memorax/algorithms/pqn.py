@@ -173,13 +173,10 @@ class PQN:
 
         minibatches = shuffle(batch)
 
-        (key, state), (loss, q_value) = jax.lax.scan(
+        (key, state), metrics = jax.lax.scan(
             self._update_minibatch, (key, state), xs=minibatches
         )
-        return (key, state, initial_hidden_state, transitions, lambda_targets), (
-            loss,
-            q_value,
-        )
+        return (key, state, initial_hidden_state, transitions, lambda_targets), metrics
 
     def _update_minibatch(
         self, carry, minibatch
@@ -224,10 +221,18 @@ class PQN:
             q_value = jnp.take_along_axis(q_values, action, axis=-1)
             q_value = remove_feature_axis(q_value)
 
-            loss = 0.5 * jnp.square(q_value - target).mean()
-            return loss, q_value.mean()
+            td_error = q_value - target
+            loss = 0.5 * jnp.square(td_error).mean()
+            return loss, (
+                q_value.mean(),
+                q_value.min(),
+                q_value.max(),
+                q_value.std(),
+                jnp.abs(td_error).mean(),
+                td_error.std(),
+            )
 
-        (loss, q_value), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
+        (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
         updates, optimizer_state = self.optimizer.update(
             grads, state.optimizer_state, state.params
         )
@@ -238,7 +243,7 @@ class PQN:
             optimizer_state=optimizer_state,
         )
 
-        return (key, state), (loss, q_value)
+        return (key, state), (loss, *aux)
 
     def _learn(
         self, carry: tuple[Key, PQNState], _
@@ -277,17 +282,30 @@ class PQN:
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
         targets = jnp.swapaxes(targets, 0, 1)
 
-        (key, state, _, transitions, _), (loss, q_value) = jax.lax.scan(
+        (key, state, _, transitions, _), metrics = jax.lax.scan(
             self._update_epoch,
             (key, state, initial_hidden_state, transitions, targets),
             None,
             self.cfg.update_epochs,
         )
 
-        transitions.info["losses/loss"] = loss
-        transitions.info["losses/q_value"] = q_value
+        loss, q_value, q_value_min, q_value_max, q_value_std, td_error, td_error_std = (
+            jax.tree.map(lambda x: jnp.expand_dims(x, axis=(0, 1)), metrics)
+        )
+        epsilon = jnp.expand_dims(self.epsilon_schedule(state.step), axis=(0, 1))
+        info = {
+            **transitions.info,
+            "losses/loss": loss,
+            "losses/q_value": q_value,
+            "losses/q_value_min": q_value_min,
+            "losses/q_value_max": q_value_max,
+            "losses/q_value_std": q_value_std,
+            "losses/td_error": td_error,
+            "losses/td_error_std": td_error_std,
+            "losses/epsilon": epsilon,
+        }
 
-        return (key, state), transitions.replace(obs=None, next_obs=None)
+        return (key, state), transitions.replace(obs=None, next_obs=None, info=info)
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key) -> tuple[Key, PQNState, Array, gymnax.EnvState]:

@@ -1,20 +1,189 @@
 import time
 from dataclasses import asdict
 from functools import partial
+from typing import Optional
 
 import flax.linen as nn
 import jax
+import jax.numpy as jnp
 import optax
 import pufferlib
 from cogames.cli.mission import get_mission
 from cogames.cogs_vs_clips.cogsguard_reward_variants import apply_reward_variants
 from mettagrid.envs.mettagrid_puffer_env import MettaGridPufferEnv
+from mettagrid.policy.policy_env_interface import PolicyEnvInterface
 from mettagrid.simulator import Simulator
 
 from memorax.algorithms import PPO, PPOConfig
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import MLP, FeatureExtractor, Network, ViT, heads
+from memorax.networks import CNN, MLP, FeatureExtractor, Network, heads
 from memorax.utils.wrappers import PufferLibWrapper
+
+
+# =============================================================================
+# Observation Shim: Token to Box Conversion
+# =============================================================================
+# MettaGrid observations are sparse token-based tensors of shape (num_tokens, 3)
+# where each token is (coord, attr_idx, attr_val) as uint8:
+#   - coord: encodes (row, col) position in a single byte (high nibble = row, low nibble = col)
+#   - attr_idx: feature/attribute index
+#   - attr_val: the value for that attribute
+#
+# This converts to dense box format (height, width, channels) suitable for CNNs.
+# =============================================================================
+
+
+class ObsTokenToBox(nn.Module):
+    """Converts token observations to dense box format for CNNs.
+
+    Args:
+        num_layers: Number of feature channels in the output (max attr_idx + 1)
+        obs_width: Width of the egocentric observation grid
+        obs_height: Height of the egocentric observation grid
+        normalize: Whether to normalize output by feature normalizations
+        feature_normalizations: Optional dict mapping attr_idx to normalization factor
+    """
+
+    num_layers: int
+    obs_width: int
+    obs_height: int
+    normalize: bool = True
+    feature_normalizations: Optional[dict[int, float]] = None
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
+        """Convert token observations to box format.
+
+        Args:
+            x: Token observations of shape (..., num_tokens, 3)
+               Each token is (coord_byte, attr_idx, attr_val) as uint8
+
+        Returns:
+            Box observations of shape (..., obs_height, obs_width, num_layers)
+            Ready for CNN processing (NHWC format for JAX convolutions)
+        """
+        # Store original shape for later reshaping
+        *batch_dims, num_tokens, token_dim = x.shape
+        batch_size = 1
+        for d in batch_dims:
+            batch_size *= d
+
+        # Flatten batch dimensions
+        x = x.reshape(batch_size, num_tokens, token_dim)
+
+        # Extract token components
+        coords_byte = x[..., 0].astype(jnp.uint8)  # (B, M)
+        attr_indices = x[..., 1].astype(jnp.int32)  # (B, M)
+        attr_values = x[..., 2].astype(jnp.float32)  # (B, M)
+
+        # Decode coordinates from packed byte (low nibble = x/col, high nibble = y/row)
+        x_coords = (coords_byte & 0x0F).astype(jnp.int32)  # Low nibble -> x/col
+        y_coords = (coords_byte >> 4).astype(jnp.int32)  # High nibble -> y/row
+
+        # Create mask for valid tokens (coord_byte != 0xFF indicates valid token)
+        valid_mask = coords_byte != 0xFF
+
+        # Apply feature normalizations if provided
+        if self.normalize and self.feature_normalizations is not None:
+            # Build normalization tensor
+            norm_factors = jnp.ones(256, dtype=jnp.float32)
+            for idx, norm in self.feature_normalizations.items():
+                norm_factors = norm_factors.at[idx].set(norm)
+
+            # Look up normalization factors for each token's attr_idx
+            token_norms = norm_factors[attr_indices]
+            attr_values = attr_values / token_norms
+
+        # Compute linear indices for scatter operation
+        # Index = attr_idx * (width * height) + x_coord * height + y_coord
+        dim_per_layer = self.obs_width * self.obs_height
+        flat_spatial_index = x_coords * self.obs_height + y_coords
+        combined_index = attr_indices * dim_per_layer + flat_spatial_index
+
+        # Mask out invalid entries
+        safe_index = jnp.where(valid_mask, combined_index, jnp.zeros_like(combined_index))
+        safe_values = jnp.where(valid_mask, attr_values, jnp.zeros_like(attr_values))
+
+        # Clamp indices to valid range to avoid out-of-bounds
+        max_index = self.num_layers * dim_per_layer - 1
+        safe_index = jnp.clip(safe_index, 0, max_index)
+
+        def scatter_single(indices, values):
+            """Scatter values to indices in a single flattened buffer."""
+            total_size = self.num_layers * dim_per_layer
+            return jnp.zeros(total_size, dtype=jnp.float32).at[indices].add(values)
+
+        # Apply scatter for each batch element
+        box_flat = jax.vmap(scatter_single)(safe_index, safe_values)
+
+        # Reshape to (B, num_layers, width, height)
+        box_obs = box_flat.reshape(batch_size, self.num_layers, self.obs_width, self.obs_height)
+
+        # Transpose to NHWC format for JAX convolutions: (B, H, W, C)
+        box_obs = jnp.transpose(box_obs, (0, 3, 2, 1))
+
+        # Restore original batch dimensions
+        output_shape = (*batch_dims, self.obs_height, self.obs_width, self.num_layers)
+        box_obs = box_obs.reshape(output_shape)
+
+        return box_obs
+
+
+class ObsShimCNN(nn.Module):
+    """Combines token-to-box conversion with a CNN feature extractor.
+
+    Args:
+        num_layers: Number of feature channels (from obs_features)
+        obs_width: Width of the egocentric observation grid
+        obs_height: Height of the egocentric observation grid
+        cnn: CNN module to apply after conversion
+        normalize_tokens: Whether to normalize token values by feature normalizations
+        feature_normalizations: Dict mapping attr_idx to normalization factor
+    """
+
+    num_layers: int
+    obs_width: int
+    obs_height: int
+    cnn: nn.Module
+    normalize_tokens: bool = True
+    feature_normalizations: Optional[dict[int, float]] = None
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
+        """Process token observations through token-to-box shim and CNN.
+
+        Args:
+            x: Token observations of shape (batch, seq, num_tokens, 3)
+
+        Returns:
+            CNN features of shape (batch, seq, feature_dim)
+        """
+        batch_size, sequence_length, *_ = x.shape
+
+        # Convert tokens to box format: (batch, seq, num_tokens, 3) -> (batch, seq, H, W, C)
+        box_obs = ObsTokenToBox(
+            num_layers=self.num_layers,
+            obs_width=self.obs_width,
+            obs_height=self.obs_height,
+            normalize=self.normalize_tokens,
+            feature_normalizations=self.feature_normalizations,
+        )(x)
+
+        # Flatten batch and sequence for CNN: (batch, seq, H, W, C) -> (batch*seq, H, W, C)
+        box_obs = box_obs.reshape(batch_size * sequence_length, *box_obs.shape[2:])
+
+        # Apply CNN (expects batch, height, width, channels)
+        features = self.cnn(box_obs, **kwargs)
+
+        # Reshape back: (batch*seq, feature_dim) -> (batch, seq, feature_dim)
+        features = features.reshape(batch_size, sequence_length, -1)
+
+        return features
+
+
+# =============================================================================
+# End Observation Shim
+# =============================================================================
 
 total_timesteps = 50_000_000
 min_steps_per_env = 10_000  # Minimum steps per env per training call
@@ -34,6 +203,18 @@ def make(env_id, variants=None, **kwargs):
 
 
 _, env_cfg, _ = get_mission("cogsguard_arena.basic")
+
+# Get policy environment interface for observation parameters
+policy_env_info = PolicyEnvInterface.from_mg_cfg(env_cfg)
+
+# Extract observation parameters for the shim
+obs_features = list(policy_env_info.obs_features)
+num_obs_layers = max((feat.id for feat in obs_features), default=-1) + 1
+feature_normalizations = {feat.id: feat.normalization for feat in obs_features}
+obs_width = policy_env_info.obs_width
+obs_height = policy_env_info.obs_height
+
+print(f"Observation parameters: layers={num_obs_layers}, width={obs_width}, height={obs_height}")
 
 simulator = Simulator()
 puffer_env = pufferlib.vector.make(
@@ -65,8 +246,28 @@ cfg = PPOConfig(
 
 num_train_steps = 10_000 * env.num_envs
 
+# CNN for processing box observations
+# Input will be (batch, seq, height, width, num_obs_layers) after shim conversion
+cnn = CNN(
+    features=(32, 64, 64),
+    kernel_sizes=((3, 3), (3, 3), (3, 3)),
+    strides=(1, 1, 1),
+    padding="SAME",
+    normalize=False,  # We normalize in the shim
+)
+
+# Observation extractor: token-to-box shim + CNN
+observation_extractor = ObsShimCNN(
+    num_layers=num_obs_layers,
+    obs_width=obs_width,
+    obs_height=obs_height,
+    cnn=cnn,
+    normalize_tokens=True,
+    feature_normalizations=feature_normalizations,
+)
+
 feature_extractor = FeatureExtractor(
-    observation_extractor=ViT(features=128, num_layers=2, num_heads=4),
+    observation_extractor=observation_extractor,
 )
 torso = MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
 actor_network = nn.remat(Network)(

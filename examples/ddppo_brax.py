@@ -93,7 +93,7 @@ logger_state = logger.init(cfg=asdict(cfg))
 key, state = agent.init(key)
 keys, state = agent.replicate(key, state)
 
-keys, transitions = agent.evaluate(keys, state, max_steps_in_episode)
+keys, transitions = agent.evaluate(keys, state, max_steps_in_episode, True)
 evaluation_statistics = jax.vmap(Logger.get_episode_statistics, in_axes=(0, None))(
     transitions, "evaluation"
 )
@@ -120,7 +120,7 @@ for i in range(0, total_timesteps, num_train_steps):
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     if num_eval_steps > 0:
-        keys, transitions = agent.evaluate(keys, state, num_eval_steps)
+        keys, transitions = agent.evaluate(keys, state, num_eval_steps, True)
         evaluation_statistics = jax.vmap(
             Logger.get_episode_statistics, in_axes=(0, None)
         )(transitions, "evaluation")

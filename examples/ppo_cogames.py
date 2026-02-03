@@ -6,6 +6,9 @@ from typing import Optional
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+
+# GPU optimization: Use TensorFloat32 for faster matmuls on modern NVIDIA GPUs (L4, A100, etc.)
+jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 import optax
 import pufferlib
 from cogames.cli.mission import get_mission
@@ -189,7 +192,7 @@ total_timesteps = 50_000_000
 min_steps_per_env = 10_000  # Minimum steps per env per training call
 
 seed = 0
-num_envs = 8  # Number of parallel environments
+num_envs = 64  # Number of parallel environments (increased for L4 GPU with 24GB VRAM)
 
 
 def make(env_id, variants=None, **kwargs):
@@ -236,7 +239,7 @@ cfg = PPOConfig(
     num_steps=64,
     gamma=0.99,
     gae_lambda=0.95,
-    num_minibatches=4,
+    num_minibatches=16,  # Increased proportionally with num_envs (keeps minibatch ~256)
     update_epochs=4,
     normalize_advantage=True,
     clip_coef=0.2,

@@ -9,6 +9,9 @@ import jax.numpy as jnp
 
 # GPU optimization: Use TensorFloat32 for faster matmuls on modern NVIDIA GPUs (L4, A100, etc.)
 jax.config.update("jax_default_matmul_precision", "tensorfloat32")
+# Disable PGLE (Profile Guided Latency Estimator) which uses CUDA graph capture
+# This is required because pure_callback and scatter operations don't support graph capture
+jax.config.update("jax_pgle_profiling_runs", 0)
 import optax
 import pufferlib
 from cogames.cli.mission import get_mission

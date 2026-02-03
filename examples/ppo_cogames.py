@@ -270,22 +270,19 @@ observation_extractor = ObsShimCNN(
 feature_extractor = FeatureExtractor(
     observation_extractor=observation_extractor,
 )
-torso = MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
+torso = MLP(features=(128,))
 actor_network = nn.remat(Network)(
     feature_extractor=feature_extractor,
     torso=torso,
     head=heads.Categorical(
         action_dim=env.num_actions,
-        kernel_init=nn.initializers.orthogonal(scale=0.01),
     ),
 )
 
 critic_network = nn.remat(Network)(
     feature_extractor=feature_extractor,
     torso=torso,
-    head=heads.VNetwork(
-        kernel_init=nn.initializers.orthogonal(scale=1.0),
-    ),
+    head=heads.VNetwork(),
 )
 
 optimizer = optax.chain(

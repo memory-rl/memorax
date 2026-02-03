@@ -41,14 +41,14 @@ class ObsTokenToBox(nn.Module):
         obs_width: Width of the egocentric observation grid
         obs_height: Height of the egocentric observation grid
         normalize: Whether to normalize output by feature normalizations
-        feature_normalizations: Optional dict mapping attr_idx to normalization factor
+        feature_normalizations: Optional tuple of (attr_idx, normalization) pairs
     """
 
     num_layers: int
     obs_width: int
     obs_height: int
     normalize: bool = True
-    feature_normalizations: Optional[dict[int, float]] = None
+    feature_normalizations: Optional[tuple[tuple[int, float], ...]] = None
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
@@ -87,7 +87,7 @@ class ObsTokenToBox(nn.Module):
         if self.normalize and self.feature_normalizations is not None:
             # Build normalization tensor
             norm_factors = jnp.ones(256, dtype=jnp.float32)
-            for idx, norm in self.feature_normalizations.items():
+            for idx, norm in self.feature_normalizations:
                 norm_factors = norm_factors.at[idx].set(norm)
 
             # Look up normalization factors for each token's attr_idx
@@ -138,7 +138,7 @@ class ObsShimCNN(nn.Module):
         obs_height: Height of the egocentric observation grid
         cnn: CNN module to apply after conversion
         normalize_tokens: Whether to normalize token values by feature normalizations
-        feature_normalizations: Dict mapping attr_idx to normalization factor
+        feature_normalizations: Tuple of (attr_idx, normalization) pairs
     """
 
     num_layers: int
@@ -146,7 +146,7 @@ class ObsShimCNN(nn.Module):
     obs_height: int
     cnn: nn.Module
     normalize_tokens: bool = True
-    feature_normalizations: Optional[dict[int, float]] = None
+    feature_normalizations: Optional[tuple[tuple[int, float], ...]] = None
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
@@ -210,7 +210,8 @@ policy_env_info = PolicyEnvInterface.from_mg_cfg(env_cfg)
 # Extract observation parameters for the shim
 obs_features = list(policy_env_info.obs_features)
 num_obs_layers = max((feat.id for feat in obs_features), default=-1) + 1
-feature_normalizations = {feat.id: feat.normalization for feat in obs_features}
+# Use tuple of tuples for hashability (required for JAX JIT with Flax modules)
+feature_normalizations = tuple((feat.id, feat.normalization) for feat in obs_features)
 obs_width = policy_env_info.obs_width
 obs_height = policy_env_info.obs_height
 

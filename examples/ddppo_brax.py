@@ -32,7 +32,7 @@ cfg = DDPPOConfig(
     name="DDPPO",
     num_envs=num_envs,
     num_eval_envs=num_envs,
-    num_steps=5,
+    num_steps=128,
     gamma=0.97,
     gae_lambda=0.95,
     num_minibatches=32,
@@ -104,7 +104,7 @@ logger.emit(logger_state)
 
 for i in range(0, total_timesteps, num_train_steps):
     start = time.perf_counter()
-    keys, state, transitions = agent.train(keys, state, num_train_steps)
+    keys, state, transitions = agent.train(keys, state, num_envs * max_steps_in_episode)
     jax.block_until_ready(state)
     end = time.perf_counter()
 

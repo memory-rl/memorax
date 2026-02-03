@@ -1,6 +1,7 @@
 import time
 from dataclasses import asdict
 
+import distrax
 import flax.linen as nn
 import jax
 import optax
@@ -16,7 +17,7 @@ from memorax.utils.wrappers import (
 )
 
 total_timesteps = 50_000_000
-num_envs = 1024
+num_envs = 4096
 max_steps_in_episode = 1000
 num_train_steps = num_envs * max_steps_in_episode
 num_eval_steps = 0
@@ -33,7 +34,7 @@ cfg = PPOConfig(
     name="PPO",
     num_envs=num_envs,
     num_eval_envs=num_envs,
-    num_steps=5,
+    num_steps=16,  # num_envs * num_steps = 65,536 total samples (matches Brax batch_size * num_minibatches)
     gamma=0.97,
     gae_lambda=0.95,
     num_minibatches=32,
@@ -45,25 +46,34 @@ cfg = PPOConfig(
     vf_coef=0.5,
 )
 
-feature_extractor = FeatureExtractor(
-    observation_extractor=MLP(
-        features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
-    ),
-)
-torso = MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
+# Brax policy network: 4 layers of 32 with swish
 actor_network = Network(
-    feature_extractor=feature_extractor,
-    torso=torso,
+    feature_extractor=FeatureExtractor(
+        observation_extractor=MLP(
+            features=(32, 32, 32, 32),
+            activation=nn.swish,
+            kernel_init=nn.initializers.lecun_uniform(),
+        ),
+    ),
+    torso=MLP(features=()),
     head=heads.Gaussian(
         action_dim=env.action_space(env_params).shape[0],
-        kernel_init=nn.initializers.orthogonal(scale=0.01),
+        kernel_init=nn.initializers.lecun_uniform(),
+        transform=distrax.Tanh(),  # Squash actions to [-1, 1] like Brax
     ),
 )
 
+# Brax value network: 5 layers of 256 with swish
 critic_network = Network(
-    feature_extractor=feature_extractor,
-    torso=torso,
-    head=heads.VNetwork(),
+    feature_extractor=FeatureExtractor(
+        observation_extractor=MLP(
+            features=(256, 256, 256, 256, 256),
+            activation=nn.swish,
+            kernel_init=nn.initializers.lecun_uniform(),
+        ),
+    ),
+    torso=MLP(features=()),
+    head=heads.VNetwork(kernel_init=nn.initializers.lecun_uniform()),
 )
 
 optimizer = optax.chain(

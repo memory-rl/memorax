@@ -322,6 +322,7 @@ for i in range(0, total_timesteps, num_train_steps):
     training_statistics = jax.tree.map(lambda x: x[None], training_statistics)
     info = jax.tree.map(lambda x: x.mean(), transitions.info)
     info = jax.tree.map(lambda x: x[None], info)
+    info = {f"training/{k}": v for k, v in info.items()}
     data = {"training/SPS": SPS, **training_statistics, **info}
     logger_state = logger.log(logger_state, data, step=state.step.item())
     logger.emit(logger_state)

@@ -78,7 +78,9 @@ class ViT(nn.Module):
     @nn.compact
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
         batch_size, sequence_length, *_ = x.shape
-        x = x.reshape(batch_size * sequence_length, *x.shape[2:])
+        # Flatten batch, seq, and any extra dims (e.g. agents) into one batch dim,
+        # keeping only (tokens, features/channels) as the spatial dims.
+        x = x.reshape(-1, *x.shape[-2:])
 
         x = self.patch_embedding(x)
         x = nn.Dense(self.features)(x)
@@ -104,5 +106,6 @@ class ViT(nn.Module):
         x = nn.LayerNorm()(x)
         x = x.mean(axis=1)
 
+        # Restore (batch, seq) and flatten everything else into features.
         x = x.reshape(batch_size, sequence_length, -1)
         return x

@@ -6,7 +6,7 @@ import jax
 import jaxmarl
 import optax
 
-from memorax.algorithms import IPPO, IPPOConfig
+from memorax.algorithms import MAPPO, MAPPOConfig
 from memorax.environments.jaxmarl import JaxMarlWrapper
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import MLP, FeatureExtractor, Network, heads
@@ -21,8 +21,8 @@ num_seeds = 1
 base_env = jaxmarl.make("MPE_simple_spread_v3")
 env = JaxMarlWrapper(base_env)
 
-cfg = IPPOConfig(
-    name="IPPO",
+cfg = MAPPOConfig(
+    name="MAPPO",
     num_envs=8,
     num_eval_envs=16,
     num_steps=128,
@@ -82,7 +82,7 @@ optimizer = optax.chain(
 key = jax.random.key(seed)
 keys = jax.random.split(key, num_seeds)
 
-agent = IPPO(
+agent = MAPPO(
     cfg=cfg,
     env=env,
     actor_network=actor_network,
@@ -92,7 +92,7 @@ agent = IPPO(
 )
 
 logger = Logger(
-    [DashboardLogger(title="IPPO MPE Simple Spread", total_timesteps=total_timesteps)]
+    [DashboardLogger(title="MAPPO MPE Simple Spread", total_timesteps=total_timesteps)]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 

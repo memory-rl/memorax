@@ -249,3 +249,23 @@ class Beta(nn.Module):
             (),
         )
         return log_beta
+
+
+class CentralizedVNetwork(nn.Module):
+    """Value network head for MAPPO that outputs values for all agents."""
+
+    num_agents: int
+    kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
+    bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray, **kwargs) -> tuple[jnp.ndarray, dict]:
+        v_values = nn.Dense(
+            self.num_agents,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+        )(x)
+        return v_values, {}
+
+    def loss(self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray) -> jnp.ndarray:
+        return 0.5 * jnp.square(output - targets).mean()

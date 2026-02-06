@@ -63,7 +63,7 @@ observation_extractor = ViT(
 feature_extractor = FeatureExtractor(
     observation_extractor=observation_extractor,
 )
-torso = MLP(features=(d_model,), kernel_init=nn.initializers.orthogonal(scale=1.414))
+torso = MLP(features=(d_model,), kernel_init=nn.initializers.he_normal())
 
 action_space = env.action_spaces[env.agents[0]]
 
@@ -80,7 +80,7 @@ actor_network = nn.remat(VmappedNetwork)(
     torso=torso,
     head=heads.Categorical(
         action_dim=action_space.n,
-        kernel_init=nn.initializers.orthogonal(scale=0.01),
+        kernel_init=nn.initializers.normal(stddev=0.01),
     ),
 )
 
@@ -89,7 +89,7 @@ critic_network = nn.remat(Network)(
     torso=torso,
     head=heads.CentralizedVNetwork(
         num_agents=env.num_agents,
-        kernel_init=nn.initializers.orthogonal(scale=1.0),
+        kernel_init=nn.initializers.xavier_normal(),
     ),
 )
 
@@ -110,7 +110,12 @@ agent = MAPPO(
 )
 
 logger = Logger(
-    [DashboardLogger(title="MAPPO CoGames CogsGuard", total_timesteps=total_timesteps)]
+    [DashboardLogger(
+        title="MAPPO CoGames CogsGuard",
+        name=cfg.name,
+        env_id="cogames:cogsguard_arena.basic",
+        total_timesteps=total_timesteps,
+    )]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 

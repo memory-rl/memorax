@@ -469,12 +469,6 @@ class MAPPO:
 
         key, permutation_key = jax.random.split(key)
 
-        if self.cfg.centralized_critic and initial_critic_carry is not None:
-            initial_critic_carry = jax.tree.map(
-                lambda x: jnp.broadcast_to(x[None], (self.env.num_agents, *x.shape)),
-                initial_critic_carry,
-            )
-
         batch = (
             initial_actor_carry,
             initial_critic_carry,
@@ -554,6 +548,12 @@ class MAPPO:
         key, state = carry
         initial_actor_carry = state.actor_carry
         initial_critic_carry = state.critic_carry
+
+        if self.cfg.centralized_critic and initial_critic_carry is not None:
+            initial_critic_carry = jax.tree.map(
+                lambda x: jnp.broadcast_to(x[None], (self.env.num_agents, *x.shape)),
+                initial_critic_carry,
+            )
 
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),

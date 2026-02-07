@@ -18,11 +18,12 @@ from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import CNN, RNN, FeatureExtractor, Network, heads
 
 total_timesteps = 10_000_000
-num_train_steps = 10_000
+num_train_steps = num_envs * num_steps
 num_eval_steps = 1_000
 
 seed = 0
 num_envs = 128
+num_steps = 256
 num_workers = 16
 
 env, env_info = pufferlib_env.make(
@@ -39,7 +40,7 @@ cfg = MAPPOConfig(
     name="MAPPO",
     num_envs=num_envs,
     num_eval_envs=num_envs,
-    num_steps=64,
+    num_steps=num_steps,
     gamma=0.99,
     gae_lambda=0.95,
     num_minibatches=16,

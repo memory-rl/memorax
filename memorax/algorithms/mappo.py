@@ -303,6 +303,10 @@ class MAPPO:
         key, memory_key, dropout_key = jax.random.split(key, 3)
 
         if self.cfg.centralized_critic:
+            # Drop the broadcast agents dim added for shuffle compatibility
+            if initial_critic_carry is not None:
+                initial_critic_carry = jax.tree.map(lambda x: x[0], initial_critic_carry)
+
             # Prepare observations for centralized critic
             # Move agents axis after seq: (agents, envs, seq, *obs) -> (envs, seq, agents, *obs)
             obs = jnp.moveaxis(transitions.obs, 0, 2)
@@ -464,6 +468,12 @@ class MAPPO:
         ) = carry
 
         key, permutation_key = jax.random.split(key)
+
+        if self.cfg.centralized_critic and initial_critic_carry is not None:
+            initial_critic_carry = jax.tree.map(
+                lambda x: jnp.broadcast_to(x[None], (self.env.num_agents, *x.shape)),
+                initial_critic_carry,
+            )
 
         batch = (
             initial_actor_carry,

@@ -18,13 +18,13 @@ from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import CNN, RNN, FeatureExtractor, Network, heads
 
 total_timesteps = 10_000_000
-num_train_steps = num_envs * num_steps
 num_eval_steps = 1_000
 
 seed = 0
 num_envs = 128
 num_steps = 256
 num_workers = 16
+num_train_steps = num_envs * num_steps
 
 env, env_info = pufferlib_env.make(
     "cogames:cogsguard_arena.basic",

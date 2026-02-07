@@ -33,6 +33,8 @@ env, env_info = pufferlib_env.make(
 env = SingleAgentBoxObsWrapper(env)
 env_params = env.default_params
 
+print(f"env.num_envs = {env.num_envs}, obs_shape = {env.obs_shape}")
+import sys; sys.exit(0)
 
 cfg = IMPALAConfig(
     name="IMPALA",

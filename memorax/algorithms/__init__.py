@@ -1,5 +1,6 @@
 from .ddppo import DDPPO, DDPPOConfig, DDPPOState
 from .dqn import DQN, DQNConfig, DQNState
+from .impala import IMPALA, IMPALAConfig, IMPALAState
 from .irppo import IRPPO, IRPPOConfig, IRPPOState
 from .mappo import MAPPO, MAPPOConfig, MAPPOState
 from .ppo import PPO, PPOConfig, PPOState

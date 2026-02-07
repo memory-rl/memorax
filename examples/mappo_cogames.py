@@ -15,14 +15,14 @@ from memorax.algorithms import MAPPO, MAPPOConfig
 from memorax.environments import pufferlib as pufferlib_env
 from memorax.environments.cogames import BoxObsWrapper
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import CNN, RNN, FeatureExtractor, Network, heads
+from memorax.networks import CNN, MLP, FeatureExtractor, Network, heads
 
 total_timesteps = 10_000_000
 num_eval_steps = 1_000
 
 seed = 0
 num_envs = 128
-num_steps = 256
+num_steps = 64
 num_workers = 16
 num_train_steps = num_envs * num_steps
 
@@ -65,7 +65,7 @@ observation_extractor = CNN(
 feature_extractor = FeatureExtractor(
     observation_extractor=observation_extractor,
 )
-torso = RNN(cell=nn.GRUCell(features=d_model))
+torso = MLP(features=(d_model,))
 
 action_space = env.action_spaces[env.agents[0]]
 

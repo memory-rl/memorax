@@ -22,7 +22,8 @@ num_train_steps = 10_000
 num_eval_steps = 1_000
 
 seed = 0
-num_envs = 8
+num_envs = 128
+num_workers = 16
 
 env, env_info = pufferlib_env.make(
     "cogames:cogsguard_arena.basic",
@@ -30,6 +31,7 @@ env, env_info = pufferlib_env.make(
     variants=["credit"],
     multi_agent=True,
     backend=pufferlib.vector.Multiprocessing,
+    num_workers=num_workers,
 )
 env = BoxObsWrapper(env)
 
@@ -40,7 +42,7 @@ cfg = MAPPOConfig(
     num_steps=64,
     gamma=0.99,
     gae_lambda=0.95,
-    num_minibatches=4,
+    num_minibatches=16,
     update_epochs=4,
     normalize_advantage=True,
     clip_coef=0.2,

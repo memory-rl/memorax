@@ -23,7 +23,7 @@ total_timesteps = 50_000_000
 min_steps_per_env = 10_000  # Minimum steps per env per training call
 
 seed = 0
-num_envs = 4
+num_envs = 64
 
 env, env_info = pufferlib_env.make(
     "cogames:cogsguard_arena.basic",
@@ -41,13 +41,13 @@ cfg = IMPALAConfig(
     num_steps=64,
     gamma=0.99,
     gae_lambda=0.95,
-    num_minibatches=4,
+    num_minibatches=16,
     normalize_advantage=True,
     ent_coef=0.01,
     vf_coef=0.5,
 )
 
-num_train_steps = 640 * env.num_envs  # 10 update steps per train call
+num_train_steps = cfg.num_steps * cfg.num_envs  # 1 update step per train call
 
 d_model = 128
 

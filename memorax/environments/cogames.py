@@ -35,7 +35,8 @@ class BoxObsWrapper:
         self._grid_w = grid_w
         self._num_layers = num_layers
         self._grid_shape = (grid_h, grid_w, num_layers)
-        self._token_obs_shape = env._obs_shape
+        import math
+        self._token_obs_size = math.prod(env._obs_shape)
 
     def _tokens_to_grid(self, tokens: jnp.ndarray) -> jnp.ndarray:
         """Convert flat token array to spatial grid using JAX ops (GPU).
@@ -127,7 +128,7 @@ class BoxObsWrapper:
             obs = np.moveaxis(obs, 1, 0)
             return jnp.array(obs, dtype=jnp.int32)
 
-        token_shape = (self._env._num_agents, self._env._num_envs, *self._token_obs_shape)
+        token_shape = (self._env._num_agents, self._env._num_envs, self._token_obs_size)
 
         tokens = jax.pure_callback(
             _reset,
@@ -172,7 +173,7 @@ class BoxObsWrapper:
                 jnp.array(combined_dones, dtype=jnp.bool_),
             )
 
-        token_shape = (self._env._num_agents, self._env._num_envs, *self._token_obs_shape)
+        token_shape = (self._env._num_agents, self._env._num_envs, self._token_obs_size)
         scalar_shape = (self._env._num_agents, self._env._num_envs)
 
         tokens, rewards, dones = jax.pure_callback(

@@ -1,4 +1,6 @@
+import math
 from collections import defaultdict
+import jax.numpy as jnp
 from dataclasses import field
 from typing import Any, DefaultDict, Optional
 
@@ -97,13 +99,13 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
             )
 
             state.stats["losses"].update(
-                {k: v.mean() for k, v in data.items() if k.startswith("losses/")}
+                {k: v.mean() for k, v in data.items() if k.startswith("losses/") and not jnp.isnan(v.mean())}
             )
             state.stats["metrics"].update(
                 {
                     k: v.mean()
                     for k, v in data.items()
-                    if k.startswith("training/") or k.startswith("evaluation/")
+                    if (k.startswith("training/") or k.startswith("evaluation/")) and not jnp.isnan(v.mean())
                 }
             )
 

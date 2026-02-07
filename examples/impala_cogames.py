@@ -1,6 +1,5 @@
 import time
 from dataclasses import asdict
-from functools import partial
 
 import flax.linen as nn
 import jax
@@ -11,50 +10,33 @@ jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 # This is required because pure_callback and scatter operations don't support graph capture
 jax.config.update("jax_pgle_profiling_runs", 0)
 import optax
-import pufferlib
-from cogames.cli.mission import get_mission
-from cogames.cogs_vs_clips.cogsguard_reward_variants import apply_reward_variants
-from mettagrid.envs.mettagrid_puffer_env import MettaGridPufferEnv
-from mettagrid.simulator import Simulator
 
+import memorax.environments.cogames  # registers "cogames"
 from memorax.algorithms import IMPALA, IMPALAConfig
+from memorax.environments import pufferlib as pufferlib_env
+from memorax.environments.cogames import SingleAgentBoxObsWrapper
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import MLP, FeatureExtractor, Network, TokenEmbedding, ViT, heads
-from memorax.utils.wrappers import PufferLibWrapper
+from memorax.networks import CNN, MLP, FeatureExtractor, Network, heads
 
 
 total_timesteps = 50_000_000
 min_steps_per_env = 10_000  # Minimum steps per env per training call
 
 seed = 0
-num_envs = 64  # Number of parallel environments (increased for L4 GPU with 24GB VRAM)
+num_envs = 64
 
-
-def make(env_id, variants=None, **kwargs):
-    _, cfg, _ = get_mission(env_id)
-
-    if variants:
-        apply_reward_variants(cfg, variants=variants)
-
-    simulator = Simulator()
-    return MettaGridPufferEnv(simulator, cfg, **kwargs)
-
-
-simulator = Simulator()
-puffer_env = pufferlib.vector.make(
-    partial(make, variants=["credit"]),
+env, env_info = pufferlib_env.make(
+    "cogames:cogsguard_arena.basic",
     num_envs=num_envs,
-    backend=pufferlib.vector.Serial,
-    env_kwargs={"env_id": "cogsguard_arena.basic"},
+    variants=["credit"],
 )
-
-env = PufferLibWrapper(puffer_env)
+env = SingleAgentBoxObsWrapper(env)
 env_params = env.default_params
 
 
 cfg = IMPALAConfig(
     name="IMPALA",
-    num_envs=env.num_envs,  # Use num_envs from the env as this is num_envs x num_agents
+    num_envs=env.num_envs,  # num_envs * agents_per_env (PufferLib flattens agents into env dim)
     num_eval_envs=0,
     num_steps=64,
     gamma=0.99,
@@ -68,15 +50,12 @@ cfg = IMPALAConfig(
 num_train_steps = 10_000 * env.num_envs
 
 d_model = 128
-d_embed = 32
 
-token_embedding = TokenEmbedding(features=d_embed, num_features=3, num_embeddings=256)
-observation_extractor = ViT(
-    features=d_model,
-    num_layers=2,
-    num_heads=4,
-    expansion_factor=4,
-    patch_embedding=token_embedding,
+observation_extractor = CNN(
+    features=(128, 128),
+    kernel_sizes=((5, 5), (3, 3)),
+    strides=(3, 1),
+    normalize=False,  # SingleAgentBoxObsWrapper already normalizes to [0, 1]
 )
 
 feature_extractor = FeatureExtractor(

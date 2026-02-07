@@ -13,8 +13,9 @@ import pufferlib
 import memorax.environments.cogames  # registers "cogames"
 from memorax.algorithms import MAPPO, MAPPOConfig
 from memorax.environments import pufferlib as pufferlib_env
+from memorax.environments.cogames import BoxObsWrapper
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import MLP, FeatureExtractor, Network, TokenEmbedding, ViT, heads
+from memorax.networks import CNN, RNN, FeatureExtractor, Network, heads
 
 total_timesteps = 10_000_000
 num_train_steps = 10_000
@@ -30,6 +31,7 @@ env, env_info = pufferlib_env.make(
     multi_agent=True,
     backend=pufferlib.vector.Multiprocessing,
 )
+env = BoxObsWrapper(env)
 
 cfg = MAPPOConfig(
     name="MAPPO",
@@ -49,21 +51,18 @@ cfg = MAPPOConfig(
 )
 
 d_model = 128
-d_embed = 32
 
-token_embedding = TokenEmbedding(features=d_embed, num_features=3, num_embeddings=256)
-observation_extractor = ViT(
-    features=d_model,
-    num_layers=2,
-    num_heads=4,
-    expansion_factor=4,
-    patch_embedding=token_embedding,
+observation_extractor = CNN(
+    features=(128, 128),
+    kernel_sizes=((5, 5), (3, 3)),
+    strides=(3, 1),
+    normalize=False,  # BoxObsWrapper already normalizes to [0, 1]
 )
 
 feature_extractor = FeatureExtractor(
     observation_extractor=observation_extractor,
 )
-torso = MLP(features=(d_model,), kernel_init=nn.initializers.he_normal())
+torso = RNN(cell=nn.GRUCell(features=d_model))
 
 action_space = env.action_spaces[env.agents[0]]
 

@@ -238,6 +238,7 @@ def _cogames_factory(
         num_envs=num_envs,
         backend=backend,
         env_kwargs={"env_id": env_id},
+        **kwargs,
     )
 
     if multi_agent:

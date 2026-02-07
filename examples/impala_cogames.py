@@ -23,7 +23,7 @@ total_timesteps = 50_000_000
 min_steps_per_env = 10_000  # Minimum steps per env per training call
 
 seed = 0
-num_envs = 4  # Each env has ~100 agents, so effective batch = num_envs * agents_per_env
+num_envs = 4
 
 env, env_info = pufferlib_env.make(
     "cogames:cogsguard_arena.basic",
@@ -33,8 +33,6 @@ env, env_info = pufferlib_env.make(
 env = SingleAgentBoxObsWrapper(env)
 env_params = env.default_params
 
-print(f"env.num_envs = {env.num_envs}, obs_shape = {env.obs_shape}")
-import sys; sys.exit(0)
 
 cfg = IMPALAConfig(
     name="IMPALA",

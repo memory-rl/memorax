@@ -35,12 +35,13 @@ class BoxObsWrapper:
         self._grid_w = grid_w
         self._num_layers = num_layers
         self._grid_shape = (grid_h, grid_w, num_layers)
+        self._token_obs_shape = env._obs_shape
 
-    def _tokens_to_grid(self, tokens: np.ndarray) -> np.ndarray:
-        """Convert flat token array to spatial grid.
+    def _tokens_to_grid(self, tokens: jnp.ndarray) -> jnp.ndarray:
+        """Convert flat token array to spatial grid using JAX ops (GPU).
 
         Args:
-            tokens: uint8 array of shape (*batch, num_tokens * 3).
+            tokens: int32 array of shape (*batch, num_tokens * 3).
 
         Returns:
             float32 array of shape (*batch, H, W, num_layers).
@@ -49,25 +50,39 @@ class BoxObsWrapper:
         flat = tokens.reshape(-1, tokens.shape[-1])
 
         num_samples = flat.shape[0]
-        grids = np.zeros(
-            (num_samples, self._grid_h, self._grid_w, self._num_layers),
-            dtype=np.float32,
+        num_triplets = flat.shape[-1] // 3
+
+        triplets = flat.reshape(num_samples, num_triplets, 3)
+        coords = triplets[:, :, 0]
+        attr_idx = triplets[:, :, 1]
+        attr_val = triplets[:, :, 2]
+
+        x = coords & 0x0F
+        y = coords >> 4
+        layer = attr_idx.astype(jnp.int32)
+
+        valid = (
+            (coords != 0xFF)
+            & (x < self._grid_w)
+            & (y < self._grid_h)
+            & (layer < self._num_layers)
         )
 
-        for i in range(num_samples):
-            row = flat[i]
-            num_triplets = len(row) // 3
-            for t in range(num_triplets):
-                coord = row[t * 3]
-                attr_idx = row[t * 3 + 1]
-                attr_val = row[t * 3 + 2]
-                if coord == 0xFF:
-                    continue
-                x = int(coord & 0x0F)
-                y = int(coord >> 4)
-                layer = int(attr_idx)
-                if x < self._grid_w and y < self._grid_h and layer < self._num_layers:
-                    grids[i, y, x, layer] = float(attr_val) / 255.0
+        # Out-of-bounds indices for invalid triplets (ignored by mode='drop')
+        x = jnp.where(valid, x, self._grid_w)
+        y = jnp.where(valid, y, self._grid_h)
+        layer = jnp.where(valid, layer, self._num_layers)
+
+        grids = jnp.zeros(
+            (num_samples, self._grid_h, self._grid_w, self._num_layers),
+            dtype=jnp.float32,
+        )
+
+        sample_idx = jnp.broadcast_to(
+            jnp.arange(num_samples)[:, None], (num_samples, num_triplets)
+        )
+        values = attr_val.astype(jnp.float32) / 255.0
+        grids = grids.at[sample_idx, y, x, layer].set(values, mode="drop")
 
         return grids.reshape(*batch_shape, *self._grid_shape)
 
@@ -108,21 +123,19 @@ class BoxObsWrapper:
 
         def _reset(key):
             obs, _ = self._env._env.reset()
-            # obs: (num_envs * num_agents, *token_obs_shape)
             obs = obs.reshape(self._env._num_envs, self._env._num_agents, -1)
             obs = np.moveaxis(obs, 1, 0)
-            # obs: (num_agents, num_envs, num_tokens*3)
-            grids = self._tokens_to_grid(obs)
-            return jnp.array(grids, dtype=jnp.float32)
+            return jnp.array(obs, dtype=jnp.int32)
 
-        output_shape = (self._env._num_agents, self._env._num_envs, *self._grid_shape)
+        token_shape = (self._env._num_agents, self._env._num_envs, *self._token_obs_shape)
 
-        obs = jax.pure_callback(
+        tokens = jax.pure_callback(
             _reset,
-            jax.ShapeDtypeStruct(output_shape, jnp.float32),
+            jax.ShapeDtypeStruct(token_shape, jnp.int32),
             key,
             vmap_method="broadcast_all",
         )
+        obs = self._tokens_to_grid(tokens)
 
         state = PufferLibEnvState(step=0)
         return obs, state
@@ -143,7 +156,6 @@ class BoxObsWrapper:
 
             obs = obs.reshape(self._env._num_envs, self._env._num_agents, -1)
             obs = np.moveaxis(obs, 1, 0)
-            grids = self._tokens_to_grid(obs)
 
             rewards = rewards.reshape(self._env._num_envs, self._env._num_agents)
             rewards = np.moveaxis(rewards, 1, 0)
@@ -155,24 +167,25 @@ class BoxObsWrapper:
             combined_dones = np.moveaxis(combined_dones, 1, 0)
 
             return (
-                jnp.array(grids, dtype=jnp.float32),
+                jnp.array(obs, dtype=jnp.int32),
                 jnp.array(rewards, dtype=jnp.float32),
                 jnp.array(combined_dones, dtype=jnp.bool_),
             )
 
-        obs_shape = (self._env._num_agents, self._env._num_envs, *self._grid_shape)
+        token_shape = (self._env._num_agents, self._env._num_envs, *self._token_obs_shape)
         scalar_shape = (self._env._num_agents, self._env._num_envs)
 
-        obs, rewards, dones = jax.pure_callback(
+        tokens, rewards, dones = jax.pure_callback(
             _step,
             (
-                jax.ShapeDtypeStruct(obs_shape, jnp.float32),
+                jax.ShapeDtypeStruct(token_shape, jnp.int32),
                 jax.ShapeDtypeStruct(scalar_shape, jnp.float32),
                 jax.ShapeDtypeStruct(scalar_shape, jnp.bool_),
             ),
             actions,
             vmap_method="broadcast_all",
         )
+        obs = self._tokens_to_grid(tokens)
 
         new_state = PufferLibEnvState(step=state.step + 1)
         return obs, new_state, rewards, dones, {}

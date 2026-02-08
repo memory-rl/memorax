@@ -35,7 +35,7 @@ class Block(nn.Module):
 
     @nn.compact
     def __call__(self, carry, _):
-        x = carry
+        x, mask = carry
         head_dim = self.features // self.num_heads
 
         projection = partial(nn.DenseGeneral, features=(self.num_heads, head_dim))
@@ -52,6 +52,7 @@ class Block(nn.Module):
             query.astype(attention_dtype),
             key.astype(attention_dtype),
             value.astype(attention_dtype),
+            mask=mask,
             implementation=implementation,
         ).astype(query.dtype)
 
@@ -63,7 +64,7 @@ class Block(nn.Module):
         _, x = FFN(features=self.features, expansion_factor=self.expansion_factor)(x)
         x = skip + x
 
-        return x, None
+        return (x, mask), None
 
 
 class ViT(nn.Module):
@@ -74,6 +75,7 @@ class ViT(nn.Module):
     num_heads: int = 4
     expansion_factor: int = 4
     patch_embedding: nn.Module = Identity()
+    pad_multiple: int = 64
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
@@ -82,8 +84,18 @@ class ViT(nn.Module):
         # keeping only (tokens, features/channels) as the spatial dims.
         x = x.reshape(-1, *x.shape[-2:])
 
+        # Identify valid tokens before embedding: location byte != 0xFF (empty).
+        valid_tokens = x[..., 0] != 255  # (flat_batch, tokens)
+
         x = self.patch_embedding(x)
         x = nn.Dense(self.features)(x)
+
+        # Pad sequence to a multiple of pad_multiple for cuDNN compatibility.
+        seq_len = x.shape[1]
+        pad_len = (-seq_len % self.pad_multiple) % self.pad_multiple
+        if pad_len > 0:
+            x = jnp.pad(x, ((0, 0), (0, pad_len), (0, 0)))
+            valid_tokens = jnp.pad(valid_tokens, ((0, 0), (0, pad_len)))
 
         positional_embedding = self.param(
             "positional_embedding",
@@ -92,7 +104,10 @@ class ViT(nn.Module):
         )
         x = x + positional_embedding
 
-        x, _ = nn.scan(
+        # Attention mask: queries attend only to valid (non-empty) keys.
+        mask = valid_tokens[:, None, None, :]  # (batch, 1, 1, padded_seq)
+
+        (x, _), _ = nn.scan(
             Block,
             variable_axes={"params": 0},
             split_rngs={"params": True},
@@ -101,10 +116,13 @@ class ViT(nn.Module):
             features=self.features,
             num_heads=self.num_heads,
             expansion_factor=self.expansion_factor,
-        )(x, None)
+        )((x, mask), None)
 
         x = nn.LayerNorm()(x)
-        x = x.mean(axis=1)
+
+        # Pool over valid tokens only.
+        valid_mask = valid_tokens[:, :, None]  # (batch, padded_seq, 1)
+        x = (x * valid_mask).sum(axis=1) / jnp.maximum(valid_mask.sum(axis=1), 1)
 
         # Restore (batch, seq) and flatten everything else into features.
         x = x.reshape(batch_size, sequence_length, -1)

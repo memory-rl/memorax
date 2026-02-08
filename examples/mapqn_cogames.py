@@ -29,7 +29,7 @@ num_train_steps = num_envs * num_steps
 env, env_info = pufferlib_env.make(
     "cogames:cogsguard_arena.basic",
     num_envs=num_envs,
-    variants=["credit"],
+    variants=["credit", "milestones"],
     multi_agent=True,
     backend=pufferlib.vector.Multiprocessing,
     num_workers=num_workers,

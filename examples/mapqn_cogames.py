@@ -10,26 +10,11 @@ jax.config.update("jax_pgle_profiling_runs", 0)
 import optax
 import pufferlib
 
-import jax.numpy as jnp
-
 import memorax.environments.cogames  # registers "cogames"
 from memorax.algorithms import MAPQN, MAPQNConfig
 from memorax.environments import pufferlib as pufferlib_env
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import MLP, FeatureExtractor, Network, TokenEmbedding, ViT, heads
-
-
-class TokenReshape(nn.Module):
-    """Reshapes flat token obs (..., N*3) to (..., N, 3) then runs inner module."""
-
-    inner: nn.Module
-    num_features: int = 3
-
-    @nn.compact
-    def __call__(self, x, **kwargs):
-        num_tokens = x.shape[-1] // self.num_features
-        x = x.reshape(*x.shape[:-1], num_tokens, self.num_features)
-        return self.inner(x, **kwargs)
 
 total_timesteps = 10_000_000
 num_eval_steps = 1_000
@@ -56,7 +41,7 @@ cfg = MAPQNConfig(
     num_steps=num_steps,
     gamma=0.99,
     td_lambda=0.95,
-    num_minibatches=16,
+    num_minibatches=32,
     update_epochs=4,
 )
 
@@ -64,14 +49,13 @@ d_embed = 32
 d_model = 128
 
 token_embedding = TokenEmbedding(features=d_embed, num_features=3, num_embeddings=256)
-vit = ViT(
+observation_extractor = ViT(
     features=d_model,
     num_layers=2,
     num_heads=4,
     expansion_factor=4,
     patch_embedding=token_embedding,
 )
-observation_extractor = TokenReshape(inner=vit)
 
 feature_extractor = FeatureExtractor(
     observation_extractor=observation_extractor,

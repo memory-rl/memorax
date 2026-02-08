@@ -52,7 +52,7 @@ token_embedding = TokenEmbedding(features=d_embed, num_features=3, num_embedding
 observation_extractor = ViT(
     features=d_model,
     num_layers=2,
-    num_heads=4,
+    num_heads=2,
     expansion_factor=4,
     patch_embedding=token_embedding,
 )
@@ -72,7 +72,7 @@ VmappedNetwork = nn.vmap(
     out_axes=(0, 0),
 )
 
-q_network = nn.remat(VmappedNetwork)(
+q_network = VmappedNetwork(
     feature_extractor=feature_extractor,
     torso=torso,
     head=heads.DiscreteQNetwork(

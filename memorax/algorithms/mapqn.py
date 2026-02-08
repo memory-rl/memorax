@@ -165,8 +165,8 @@ class MAPQN:
     def _td_lambda(self, carry, transition):
         lambda_return, next_q_value = carry
 
-        reward = jnp.sum(transition.reward, axis=0)
-        done = transition.done[0]
+        reward = transition.reward
+        done = transition.done
 
         target_bootstrap = (
             reward + self.cfg.gamma * (1.0 - done) * next_q_value
@@ -176,7 +176,7 @@ class MAPQN:
         lambda_return = target_bootstrap + self.cfg.gamma * self.cfg.td_lambda * delta
         lambda_return = (1.0 - done) * lambda_return + done * reward
 
-        q_value = jnp.sum(jnp.max(transition.value, axis=-1), axis=0)
+        q_value = jnp.max(transition.value, axis=-1)
         return (lambda_return, q_value), lambda_return
 
     def _update_epoch(self, carry, _):
@@ -255,8 +255,6 @@ class MAPQN:
             )
             target = target[:, :, self.cfg.burn_in_length :]
 
-        target = target[0]
-
         def loss_fn(params):
             _, (q_values, aux) = self.q_network.apply(
                 params,
@@ -271,7 +269,6 @@ class MAPQN:
             action = add_feature_axis(transitions.action)
             q_value = jnp.take_along_axis(q_values, action, axis=-1)
             q_value = remove_feature_axis(q_value)
-            q_value = jnp.sum(q_value, axis=0)
 
             td_error = q_value - target
             loss = 0.5 * jnp.square(td_error).mean()
@@ -324,16 +321,12 @@ class MAPQN:
         )
         q_value = jnp.max(q_values, axis=-1) * (1.0 - timestep.done)
         q_value = jax.vmap(remove_time_axis)(q_value)
-        q_value = jnp.sum(q_value, axis=0)
 
         _, targets = jax.lax.scan(
             self._td_lambda,
             (q_value, q_value),
             transitions,
             reverse=True,
-        )
-        targets = jnp.broadcast_to(
-            targets[:, None, :], (targets.shape[0], self.env.num_agents, targets.shape[1])
         )
 
         # (time, agents, envs, ...) -> (agents, envs, time, ...)

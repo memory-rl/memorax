@@ -13,9 +13,8 @@ import pufferlib
 import memorax.environments.cogames  # registers "cogames"
 from memorax.algorithms import MAPQN, MAPQNConfig
 from memorax.environments import pufferlib as pufferlib_env
-from memorax.environments.cogames import BoxObsWrapper
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import CNN, MLP, FeatureExtractor, Network, heads
+from memorax.networks import MLP, FeatureExtractor, Network, TokenEmbedding, ViT, heads
 
 total_timesteps = 10_000_000
 num_eval_steps = 1_000
@@ -30,12 +29,11 @@ env, env_info = pufferlib_env.make(
     "cogames:cogsguard_arena.basic",
     num_envs=num_envs,
     variants=["credit", "milestones"],
+    difficulty="easy",
     multi_agent=True,
     backend=pufferlib.vector.Multiprocessing,
     num_workers=num_workers,
 )
-env = BoxObsWrapper(env)
-
 cfg = MAPQNConfig(
     name="MAPQN",
     num_envs=num_envs,
@@ -47,13 +45,16 @@ cfg = MAPQNConfig(
     update_epochs=4,
 )
 
+d_embed = 32
 d_model = 128
 
-observation_extractor = CNN(
-    features=(128, 128),
-    kernel_sizes=((5, 5), (3, 3)),
-    strides=(3, 1),
-    normalize=False,  # BoxObsWrapper already normalizes to [0, 1]
+token_embedding = TokenEmbedding(features=d_embed, num_features=3, num_embeddings=256)
+observation_extractor = ViT(
+    features=d_model,
+    num_layers=2,
+    num_heads=4,
+    expansion_factor=4,
+    patch_embedding=token_embedding,
 )
 
 feature_extractor = FeatureExtractor(
@@ -79,15 +80,14 @@ q_network = nn.remat(VmappedNetwork)(
     ),
 )
 
-optimizer = optax.chain(
-    optax.clip_by_global_norm(1.0),
-    optax.adam(learning_rate=3e-4, eps=1e-5),
+optimizer = optax.contrib.muon(
+    learning_rate=3e-4,
 )
 
 epsilon_schedule = optax.linear_schedule(
     1.0,
     0.05,
-    int(0.1 * total_timesteps),
+    int(0.5 * total_timesteps),
 )
 
 key = jax.random.key(seed)

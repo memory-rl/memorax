@@ -203,9 +203,14 @@ class BoxObsWrapper:
         return spaces.Discrete(self.num_actions)
 
 
-def _make_single(env_id: str, variants: Optional[Sequence[str]] = None, **kwargs):
+def _make_single(
+    env_id: str,
+    variants: Optional[Sequence[str]] = None,
+    difficulty: Optional[str] = None,
+    **kwargs,
+):
     """Create a single MettaGrid environment."""
-    _, cfg, _ = get_mission(env_id)
+    _, cfg, _ = get_mission(env_id, difficulty=difficulty) if difficulty else get_mission(env_id)
 
     if variants:
         try:
@@ -225,16 +230,17 @@ def _cogames_factory(
     env_id: str,
     num_envs: int,
     variants: Optional[Sequence[str]] = None,
+    difficulty: Optional[str] = None,
     multi_agent: bool = False,
     backend=pufferlib.vector.Serial,
     **kwargs,
 ):
     """Factory registered under the 'cogames' namespace."""
-    _, cfg, _ = get_mission(env_id)
+    _, cfg, _ = get_mission(env_id, difficulty=difficulty) if difficulty else get_mission(env_id)
     num_agents = cfg.game.num_agents
 
     puffer_env = pufferlib.vector.make(
-        partial(_make_single, variants=variants),
+        partial(_make_single, variants=variants, difficulty=difficulty),
         num_envs=num_envs,
         backend=backend,
         env_kwargs={"env_id": env_id},

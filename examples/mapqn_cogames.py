@@ -41,7 +41,7 @@ cfg = MAPQNConfig(
     num_steps=num_steps,
     gamma=0.99,
     td_lambda=0.95,
-    num_minibatches=32,
+    num_minibatches=64,
     update_epochs=4,
 )
 

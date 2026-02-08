@@ -20,7 +20,7 @@ total_timesteps = 10_000_000
 num_eval_steps = 1_000
 
 seed = 0
-num_envs = 128
+num_envs = 64
 num_steps = 64
 num_workers = 16
 num_train_steps = num_envs * num_steps
@@ -41,7 +41,7 @@ cfg = MAPQNConfig(
     num_steps=num_steps,
     gamma=0.99,
     td_lambda=0.95,
-    num_minibatches=64,
+    num_minibatches=32,
     update_epochs=4,
 )
 
@@ -124,6 +124,8 @@ for i in range(0, total_timesteps, num_train_steps):
     training_statistics = jax.tree.map(lambda x: x[None], training_statistics)
     losses = jax.tree.map(lambda x: x.mean(), transitions.losses)
     losses = jax.tree.map(lambda x: x[None], losses)
-    data = {"training/SPS": SPS, **training_statistics, **losses}
-    logger_state = logger.log(logger_state, data, step=state.step.item())
+    data = jax.device_get({"training/SPS": SPS, **training_statistics, **losses})
+    step = state.step.item()
+    del transitions
+    logger_state = logger.log(logger_state, data, step=step)
     logger.emit(logger_state)

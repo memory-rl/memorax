@@ -11,16 +11,17 @@ import optax
 import pufferlib
 
 import memorax.environments.cogames  # registers "cogames"
+from memorax.environments.cogames import BoxObsWrapper
 from memorax.algorithms import MAPQN, MAPQNConfig
 from memorax.environments import pufferlib as pufferlib_env
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import MLP, FeatureExtractor, Network, TokenEmbedding, ViT, heads
+from memorax.networks import CNN, MLP, FeatureExtractor, Network, heads
 
 total_timesteps = 10_000_000
 num_eval_steps = 1_000
 
 seed = 0
-num_envs = 64
+num_envs = 128
 num_steps = 64
 num_workers = 16
 num_train_steps = num_envs * num_steps
@@ -34,6 +35,8 @@ env, env_info = pufferlib_env.make(
     backend=pufferlib.vector.Multiprocessing,
     num_workers=num_workers,
 )
+# Wrap to convert token obs to spatial grid (11, 11, 24)
+env = BoxObsWrapper(env)
 cfg = MAPQNConfig(
     name="MAPQN",
     num_envs=num_envs,
@@ -41,20 +44,18 @@ cfg = MAPQNConfig(
     num_steps=num_steps,
     gamma=0.99,
     td_lambda=0.95,
-    num_minibatches=32,
-    update_epochs=4,
+    num_minibatches=8,   # larger batches = better GPU utilization
+    update_epochs=2,     # fewer epochs = faster
 )
 
-d_embed = 32
 d_model = 128
 
-token_embedding = TokenEmbedding(features=d_embed, num_features=3, num_embeddings=256)
-observation_extractor = ViT(
-    features=d_model,
-    num_layers=2,
-    num_heads=2,
-    expansion_factor=4,
-    patch_embedding=token_embedding,
+# CNN for spatial grid observations (11, 11, 24)
+observation_extractor = CNN(
+    features=(32, d_model),
+    kernel_sizes=((3, 3), (3, 3)),
+    strides=(2, 2),  # stride 2 = smaller output, faster
+    padding="SAME",
 )
 
 feature_extractor = FeatureExtractor(
@@ -101,12 +102,14 @@ agent = MAPQN(
 )
 
 logger = Logger(
-    [DashboardLogger(
-        title="MAPQN CoGames CogsGuard",
-        name=cfg.name,
-        env_id="cogames:cogsguard_arena.basic",
-        total_timesteps=total_timesteps,
-    )]
+    [
+        DashboardLogger(
+            title="MAPQN CoGames CogsGuard",
+            name=cfg.name,
+            env_id="cogames:cogsguard_arena.basic",
+            total_timesteps=total_timesteps,
+        )
+    ]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 

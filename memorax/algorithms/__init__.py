@@ -1,8 +1,8 @@
 from .ddppo import DDPPO, DDPPOConfig, DDPPOState
 from .dqn import DQN, DQNConfig, DQNState
-from .impala import IMPALA, IMPALAConfig, IMPALAState
 from .irppo import IRPPO, IRPPOConfig, IRPPOState
 from .mappo import MAPPO, MAPPOConfig, MAPPOState
+from .mapqn import MAPQN, MAPQNConfig, MAPQNState
 from .ppo import PPO, PPOConfig, PPOState
 from .pqn import PQN, PQNConfig, PQNState
 from .r2d2 import R2D2, R2D2Config, R2D2State

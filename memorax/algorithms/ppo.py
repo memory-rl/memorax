@@ -160,7 +160,16 @@ class PPO:
             state.timestep.action,
         )
         transition = Transition(
-            obs=state.timestep.obs,            action=action,            reward=reward,            done=done,            info=info,            log_prob=log_prob,            value=value,            prev_action=prev_action,            prev_reward=jnp.where(state.timestep.done, 0, state.timestep.reward),            prev_done=state.timestep.done,
+            obs=state.timestep.obs,
+            action=action,
+            reward=reward,
+            done=done,
+            info=info,
+            log_prob=log_prob,
+            value=value,
+            prev_action=prev_action,
+            prev_reward=jnp.where(state.timestep.done, 0, state.timestep.reward),
+            prev_done=state.timestep.done,
         )
 
         state = state.replace(
@@ -223,7 +232,10 @@ class PPO:
                 * advantages,
             ).mean()
             return actor_loss - self.cfg.ent_coef * entropy, (
-                entropy.mean(),                approx_kl.mean(),                clipfrac.mean(),            )
+                entropy.mean(),
+                approx_kl.mean(),
+                clipfrac.mean(),
+            )
 
         (actor_loss, aux), actor_grads = jax.value_and_grad(
             actor_loss_fn, has_aux=True
@@ -540,8 +552,16 @@ class PPO:
         return (
             key,
             PPOState(
-                step=0,                timestep=timestep.from_sequence(),
-                actor_carry=actor_carry,                critic_carry=critic_carry,                env_state=env_state,                actor_params=actor_params,                critic_params=critic_params,                actor_optimizer_state=actor_optimizer_state,                critic_optimizer_state=critic_optimizer_state,            ),
+                step=0,
+                timestep=timestep.from_sequence(),
+                actor_carry=actor_carry,
+                critic_carry=critic_carry,
+                env_state=env_state,
+                actor_params=actor_params,
+                critic_params=critic_params,
+                actor_optimizer_state=actor_optimizer_state,
+                critic_optimizer_state=critic_optimizer_state,
+            ),
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
@@ -557,7 +577,8 @@ class PPO:
         )
 
         transitions = jax.tree.map(
-            lambda x: x.swapaxes(1, 2).reshape((-1,) + x.shape[2:]), transitions
+            lambda x: (y := x.swapaxes(1, 2)).reshape((-1,) + y.shape[2:]),
+            transitions,
         )
 
         return key, state, transitions

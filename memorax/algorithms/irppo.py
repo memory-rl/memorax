@@ -645,7 +645,8 @@ class IRPPO:
         )
 
         transitions = jax.tree.map(
-            lambda x: x.swapaxes(1, 2).reshape((-1,) + x.shape[2:]), transitions
+            lambda x: (y := x.swapaxes(1, 2)).reshape((-1,) + y.shape[2:]),
+            transitions,
         )
 
         return key, state, transitions

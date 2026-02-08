@@ -9,9 +9,11 @@ import optax
 from flax import core, struct
 
 from memorax.networks import SequenceModelWrapper
-from memorax.networks.sequence_models.utils import (add_feature_axis,
-                                                    remove_feature_axis,
-                                                    remove_time_axis)
+from memorax.networks.sequence_models.utils import (
+    add_feature_axis,
+    remove_feature_axis,
+    remove_time_axis,
+)
 from memorax.utils import Timestep, Transition
 from memorax.utils.typing import Array, Environment, EnvParams, EnvState, Key
 
@@ -118,11 +120,23 @@ class PQN:
             state.timestep.reward,
         )
         transition = Transition(
-            obs=state.timestep.obs,            action=action,            reward=reward,            done=done,            info=info,            value=q_values,            next_obs=next_obs,            prev_action=prev_action,            prev_reward=prev_reward,            prev_done=state.timestep.done,        )
+            obs=state.timestep.obs,
+            action=action,
+            reward=reward,
+            done=done,
+            info=info,
+            value=q_values,
+            next_obs=next_obs,
+            prev_action=prev_action,
+            prev_reward=prev_reward,
+            prev_done=state.timestep.done,
+        )
 
         state = state.replace(
             step=state.step + self.cfg.num_envs,
-            timestep=Timestep(obs=next_obs, action=action, reward=reward, done=done),            env_state=env_state,        )
+            timestep=Timestep(obs=next_obs, action=action, reward=reward, done=done),
+            env_state=env_state,
+        )
         return (key, state), transition
 
     def _td_lambda(self, carry, transition):
@@ -340,7 +354,13 @@ class PQN:
         return (
             key,
             PQNState(
-                step=0,                timestep=timestep.from_sequence(),                hidden_state=hidden_state,                env_state=env_state,                params=params,                optimizer_state=optimizer_state,            ),
+                step=0,
+                timestep=timestep.from_sequence(),
+                hidden_state=hidden_state,
+                env_state=env_state,
+                params=params,
+                optimizer_state=optimizer_state,
+            ),
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
@@ -360,7 +380,8 @@ class PQN:
             length=(num_steps // (self.cfg.num_steps * self.cfg.num_envs)),
         )
         transitions = jax.tree.map(
-            lambda x: x.swapaxes(1, 2).reshape((-1,) + x.shape[2:]), transitions
+            lambda x: (y := x.swapaxes(1, 2)).reshape((-1,) + y.shape[2:]),
+            transitions,
         )
 
         return key, state, transitions

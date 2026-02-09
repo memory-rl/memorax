@@ -20,6 +20,10 @@ to_sequence = lambda timestep: jax.tree.map(
     lambda x: jax.vmap(add_time_axis)(x), timestep
 )
 
+from_sequence = lambda timestep: jax.tree.map(
+    lambda x: jax.vmap(remove_time_axis)(x), timestep
+)
+
 
 @struct.dataclass(frozen=True)
 class IPPOConfig:
@@ -524,9 +528,9 @@ class IPPO:
         reward = jnp.zeros((num_agents, self.cfg.num_envs), dtype=jnp.float32)
         done = jnp.ones((num_agents, self.cfg.num_envs), dtype=jnp.bool)
 
-        timestep = Timestep(
-            obs=obs, action=action, reward=reward, done=done
-        ).to_sequence()
+        timestep = to_sequence(
+            Timestep(obs=obs, action=action, reward=reward, done=done)
+        )
 
         actor_carry = self.actor_network.initialize_carry(
             (num_agents, self.cfg.num_envs, None)
@@ -566,7 +570,7 @@ class IPPO:
             key,
             IPPOState(
                 step=0,
-                timestep=timestep.from_sequence(),
+                timestep=from_sequence(timestep),
                 env_state=env_state,
                 actor_params=actor_params,
                 critic_params=critic_params,

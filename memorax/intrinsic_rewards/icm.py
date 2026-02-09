@@ -80,7 +80,9 @@ class ICM(nn.Module):
         predicted_next_features = self.forward_model.apply(
             {"params": params["forward_model"]}, forward_input
         )
-        forward_loss = jnp.square(next_features - predicted_next_features).mean()
+        forward_loss = jnp.square(
+            jax.lax.stop_gradient(next_features) - predicted_next_features
+        ).mean()
 
         inverse_input = jnp.concatenate([features, next_features], axis=-1)
         predicted_action_logits = self.inverse_model.apply(

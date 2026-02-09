@@ -334,7 +334,7 @@ class PQN:
             dtype=self.env.action_space(self.env_params).dtype,
         )
         reward = jnp.zeros((self.cfg.num_envs,), dtype=jnp.float32)
-        done = jnp.zeros(self.cfg.num_envs, dtype=jnp.bool)
+        done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
         timestep = Timestep(
             obs=obs, action=action, reward=reward, done=done
         ).to_sequence()
@@ -398,7 +398,7 @@ class PQN:
             dtype=self.env.action_space(self.env_params).dtype,
         )
         reward = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.float32)
-        done = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.bool)
+        done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
         hidden_state = self.q_network.initialize_carry((self.cfg.num_eval_envs, None))
 

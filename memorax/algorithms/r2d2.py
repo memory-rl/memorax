@@ -155,6 +155,13 @@ class R2D2:
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
 
+        prev_action = jnp.where(
+            state.timestep.done,
+            jnp.zeros_like(state.timestep.action),
+            state.timestep.action,
+        )
+        prev_reward = jnp.where(state.timestep.done, 0, state.timestep.reward)
+
         transition = Transition(
             obs=state.timestep.obs,
             action=action,
@@ -162,6 +169,8 @@ class R2D2:
             next_obs=next_obs,
             done=done,
             info=info,
+            prev_action=prev_action,
+            prev_reward=prev_reward,
             prev_done=state.timestep.done,
         )
 
@@ -198,8 +207,8 @@ class R2D2:
                 jax.lax.stop_gradient(state.params),
                 burn_in.obs,
                 burn_in.prev_done,
-                burn_in.action,
-                add_feature_axis(burn_in.reward),
+                burn_in.prev_action,
+                add_feature_axis(burn_in.prev_reward),
                 burn_in.prev_done,
             )
             initial_carry = jax.lax.stop_gradient(initial_carry)
@@ -281,8 +290,8 @@ class R2D2:
                 params,
                 experience.obs,
                 experience.prev_done,
-                experience.action,
-                add_feature_axis(experience.reward),
+                experience.prev_action,
+                add_feature_axis(experience.prev_reward),
                 experience.prev_done,
                 initial_carry,
                 rngs={"memory": memory_key},
@@ -336,11 +345,14 @@ class R2D2:
         key, update_key = jax.random.split(key)
         state, loss, q_value, td_error = self._update(update_key, state)
 
-        transitions.info["losses/loss"] = loss
-        transitions.info["losses/q_value"] = q_value
-        transitions.info["losses/td_error"] = td_error
+        info = {
+            **transitions.info,
+            "losses/loss": jnp.expand_dims(loss, axis=(0, 1)),
+            "losses/q_value": jnp.expand_dims(q_value, axis=(0, 1)),
+            "losses/td_error": jnp.expand_dims(td_error, axis=(0, 1)),
+        }
 
-        return (key, state), transitions.replace(obs=None, next_obs=None)
+        return (key, state), transitions.replace(obs=None, next_obs=None, info=info)
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -389,6 +401,8 @@ class R2D2:
             next_obs=obs,
             done=done,
             info=info,
+            prev_action=action,
+            prev_reward=reward,
             prev_done=done,
         )
         buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
@@ -453,7 +467,7 @@ class R2D2:
         action_space = self.env.action_space(self.env_params)
         action = jnp.zeros((self.cfg.num_eval_envs,), dtype=action_space.dtype)
         reward = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.float32)
-        done = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.bool_)
+        done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool_)
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
         hidden_state = self.q_network.initialize_carry(obs.shape)
 

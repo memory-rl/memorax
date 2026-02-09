@@ -66,7 +66,7 @@ class PPO:
 
     def _deterministic_action(
         self, key: Key, state: PPOState
-    ) -> tuple[Key, PPOState, Array, Array]:
+    ) -> tuple[Key, PPOState, Array, Array, None]:
         timestep = state.timestep.to_sequence()
         actor_carry, (probs, _) = self.actor_network.apply(
             state.actor_params,
@@ -95,7 +95,7 @@ class PPO:
 
     def _stochastic_action(
         self, key: Key, state: PPOState
-    ) -> tuple[Key, PPOState, Array, Array]:
+    ) -> tuple[Key, PPOState, Array, Array, Array]:
         (
             key,
             action_key,

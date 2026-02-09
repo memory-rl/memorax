@@ -10,7 +10,7 @@ def periodic_incremental_update(
     old_tensors: base.Params,
     steps: Array,
     update_period: int,
-    step_size: int,
+    step_size: float,
 ) -> base.Params:
     """Periodically perform Polyak-style incremental updates.
 

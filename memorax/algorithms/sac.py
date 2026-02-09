@@ -118,7 +118,7 @@ class SAC:
         key, state = carry
         key, policy_key, env_key = jax.random.split(key, 3)
 
-        key, (action, next_actor_hidden_state) = policy(policy_key, state)
+        _, (action, next_actor_hidden_state) = policy(policy_key, state)
 
         num_envs = state.timestep.obs.shape[0]
         env_keys = jax.random.split(env_key, num_envs)
@@ -126,9 +126,18 @@ class SAC:
             self.env.step, in_axes=(0, 0, 0, None)
         )(env_keys, state.env_state, action, self.env_params)
 
+        prev_action = jnp.where(
+            jnp.expand_dims(state.timestep.done, axis=tuple(range(state.timestep.done.ndim, state.timestep.action.ndim))),
+            jnp.zeros_like(state.timestep.action),
+            state.timestep.action,
+        )
+        prev_reward = jnp.where(state.timestep.done, 0, state.timestep.reward)
+
         transition = Transition(
             obs=state.timestep.obs,
             prev_done=state.timestep.done,
+            prev_action=prev_action,
+            prev_reward=prev_reward,
             action=action,
             reward=reward,
             next_obs=next_obs,
@@ -210,6 +219,8 @@ class SAC:
         transition = Transition(
             obs=obs,
             prev_done=done,
+            prev_action=action,
+            prev_reward=reward,
             action=action,
             reward=reward,
             next_obs=obs,
@@ -237,18 +248,24 @@ class SAC:
         )
 
     @partial(jax.jit, static_argnames=["self"])
-    def _update_alpha(self, key, state: SACState):
+    def _update_alpha(
+        self,
+        key,
+        state: SACState,
+        batch,
+        initial_actor_carry=None,
+    ):
         action_dim = self.env.action_space(self.env_params).shape[0]
         target_entropy = -self.cfg.target_entropy_scale * action_dim
 
-        timestep = state.timestep
         _, (dist, _) = self.actor_network.apply(
             state.actor_params,
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
+            batch.obs,
+            batch.prev_done,
+            batch.prev_action,
+            add_feature_axis(batch.prev_reward),
+            batch.prev_done,
+            initial_actor_carry,
         )
 
         key, sample_key = jax.random.split(key)
@@ -292,8 +309,8 @@ class SAC:
                 actor_params,
                 batch.obs,
                 batch.prev_done,
-                batch.action,
-                add_feature_axis(batch.reward),
+                batch.prev_action,
+                add_feature_axis(batch.prev_reward),
                 batch.prev_done,
                 initial_actor_carry,
             )
@@ -424,8 +441,8 @@ class SAC:
                 jax.lax.stop_gradient(state.actor_params),
                 burn_in.obs,
                 burn_in.prev_done,
-                burn_in.action,
-                add_feature_axis(burn_in.reward),
+                burn_in.prev_action,
+                add_feature_axis(burn_in.prev_reward),
                 burn_in.prev_done,
             )
             initial_actor_carry = jax.lax.stop_gradient(initial_actor_carry)
@@ -434,8 +451,8 @@ class SAC:
                 jax.lax.stop_gradient(state.critic_params),
                 burn_in.obs,
                 burn_in.prev_done,
-                burn_in.action,
-                add_feature_axis(burn_in.reward),
+                burn_in.prev_action,
+                add_feature_axis(burn_in.prev_reward),
                 burn_in.prev_done,
             )
             initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
@@ -469,7 +486,9 @@ class SAC:
             initial_actor_carry,
             initial_critic_carry,
         )
-        state, alpha_info = self._update_alpha(alpha_key, state)
+        state, alpha_info = self._update_alpha(
+            alpha_key, state, batch, initial_actor_carry
+        )
 
         info = {**critic_info, **actor_info, **alpha_info}
         return state, info
@@ -484,9 +503,12 @@ class SAC:
         key, update_key = jax.random.split(key)
         state, update_info = self._update(update_key, state)
 
-        transitions.info.update(update_info)
+        info = {
+            **transitions.info,
+            **{k: jnp.expand_dims(v, axis=(0, 1)) for k, v in update_info.items()},
+        }
 
-        return (key, state), transitions
+        return (key, state), transitions.replace(obs=None, next_obs=None, info=info)
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key, state: SACState, num_steps: int) -> tuple[Key, SACState]:
@@ -524,7 +546,7 @@ class SAC:
             (self.cfg.num_eval_envs,) + action_space.shape, dtype=jnp.float32
         )
         reward = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.float32)
-        done = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.bool_)
+        done = jnp.ones((self.cfg.num_eval_envs,), dtype=jnp.bool_)
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
         hidden_state = self.actor_network.initialize_carry(obs.shape)
 
@@ -543,7 +565,7 @@ class SAC:
                 write_to_buffer=False,
             ),
             (key, eval_state),
-            length=num_steps // self.cfg.num_eval_envs,
+            length=num_steps,
         )
 
         return key, transitions.replace(obs=None, next_obs=None)

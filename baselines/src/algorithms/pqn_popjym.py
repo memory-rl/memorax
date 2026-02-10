@@ -1,8 +1,12 @@
+from functools import partial
+
+import flax.linen as nn
+import jax
 import optax
 from hydra.utils import instantiate
 from memorax.algorithms import PQN
 from memorax.networks import (
-    FFN, Embedding, FeatureExtractor, GatedResidual, MLP, Network, PreNorm,
+    FFN, FeatureExtractor, GatedResidual, Network, PreNorm,
     Stack, heads,
 )
 
@@ -13,8 +17,8 @@ def make(cfg, env, env_params):
 
 
     feature_extractor = FeatureExtractor(
-        observation_extractor=MLP(features=(features,)),
-        action_extractor=Embedding(num_embeddings=action_dim, features=32),
+        observation_extractor=nn.Sequential([nn.Dense(features), nn.LayerNorm(), nn.relu]),
+        action_extractor=partial(jax.nn.one_hot, num_classes=action_dim),
         features=features,
     )
 

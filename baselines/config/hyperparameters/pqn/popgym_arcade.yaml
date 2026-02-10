@@ -25,28 +25,5 @@ optimizer:
     end_value: 5e-7
     transition_steps: ${eval:"0.10 * ${total_timesteps}"}
 
-feature_extractor:
-  observation_extractor:
-    _target_: memorax.networks.CNN
-    features: [64, 128, 256, 512]
-    kernel_sizes: [[5, 5], [3, 3], [3, 3], [1, 1]]
-    strides: [2, 2, 2, 1]
-    poolings: 
-      - _target_: flax.linen.max_pool
-        _partial_: true
-        window_shape: [2, 2]
-        strides: [2, 2]
-      - _target_: flax.linen.max_pool
-        _partial_: true
-        window_shape: [2, 2]
-        strides: [2, 2]
-      - _target_: flax.linen.max_pool
-        _partial_: true
-        window_shape: [2, 2]
-        strides: [2, 2]
-  action_extractor:
-    _target_: memorax.networks.Embedding
-    num_embeddings: ${get_action_dim:${environment}}
-    features: 5
 torso:
   features: 256

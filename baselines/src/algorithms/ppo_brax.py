@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import optax
 from hydra.utils import instantiate
 from memorax.algorithms.ppo import PPO
-from memorax.networks import MLP, FeatureExtractor, Network, heads
+from memorax.networks import FeatureExtractor, Network, heads
 
 
 def make(cfg, env, env_params):
@@ -11,16 +11,16 @@ def make(cfg, env, env_params):
     torso = instantiate(cfg.torso)
 
     feature_extractor = FeatureExtractor(
-        observation_extractor=MLP(
-            features=[256, 256],
-            activation=nn.tanh,
-            kernel_init=nn.initializers.orthogonal(jnp.sqrt(2)),
-        ),
-        action_extractor=MLP(
-            features=[64],
-            activation=nn.tanh,
-            kernel_init=nn.initializers.orthogonal(jnp.sqrt(2)),
-        ),
+        observation_extractor=nn.Sequential([
+            nn.Dense(256, kernel_init=nn.initializers.orthogonal(jnp.sqrt(2))),
+            nn.tanh,
+            nn.Dense(256, kernel_init=nn.initializers.orthogonal(jnp.sqrt(2))),
+            nn.tanh,
+        ]),
+        action_extractor=nn.Sequential([
+            nn.Dense(64, kernel_init=nn.initializers.orthogonal(jnp.sqrt(2))),
+            nn.tanh,
+        ]),
     )
 
     actor_network = Network(

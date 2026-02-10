@@ -1,10 +1,10 @@
-from src.algorithms import ppo_brax, ppo_popjym, pqn_popjym, r2d2_popjym
+from src.algorithms import ppo_brax, ppo_popjym, pqn_popgym_arcade, pqn_popjym, r2d2_popjym
 
 register = {
     ("ppo", "brax"): ppo_brax.make,
     ("ppo", "popjym"): ppo_popjym.make,
     ("pqn", "popjym"): pqn_popjym.make,
-    ("pqn", "popgym_arcade"): pqn_popjym.make,
+    ("pqn", "popgym_arcade"): pqn_popgym_arcade.make,
     ("r2d2", "popjym"): r2d2_popjym.make,
 }
 

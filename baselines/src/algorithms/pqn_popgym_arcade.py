@@ -4,7 +4,7 @@ import flax.linen as nn
 import jax
 import optax
 from hydra.utils import instantiate
-from memorax.algorithms import PPO
+from memorax.algorithms import PQN
 from memorax.networks import (
     FFN, FeatureExtractor, GatedResidual, Network, PreNorm,
     Stack, heads,
@@ -15,9 +15,22 @@ def make(cfg, env, env_params):
     action_dim = env.action_space(env_params).n
     features = cfg.torso.features
 
-
     feature_extractor = FeatureExtractor(
-        observation_extractor=nn.Sequential([nn.Dense(features), nn.LayerNorm(), nn.relu]),
+        observation_extractor=nn.Sequential([
+            nn.Conv(64, kernel_size=(5, 5), strides=(2,)),
+            nn.relu,
+            lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
+            nn.Conv(128, kernel_size=(3, 3), strides=(2,)),
+            nn.relu,
+            lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
+            nn.Conv(256, kernel_size=(3, 3), strides=(2,)),
+            nn.relu,
+            lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
+            nn.Conv(512, kernel_size=(1, 1), strides=(1,)),
+            nn.relu,
+            lambda x: x.reshape((x.shape[0], x.shape[1], -1)),
+            nn.LayerNorm(),
+        ]),
         action_extractor=partial(jax.nn.one_hot, num_classes=action_dim),
         features=features,
     )
@@ -29,16 +42,12 @@ def make(cfg, env, env_params):
 
     torso = Stack(blocks=tuple(blocks))
 
-    actor = Network(
+    network = Network(
         feature_extractor=feature_extractor,
         torso=torso,
-        head=heads.Categorical(action_dim=action_dim),
+        head=heads.DiscreteQNetwork(action_dim=action_dim),
     )
-    critic = Network(
-        feature_extractor=feature_extractor,
-        torso=torso,
-        head=heads.VNetwork(),
-    )
+
     lr_schedule = optax.linear_schedule(
         init_value=cfg.optimizer.learning_rate,
         end_value=0.0,
@@ -49,12 +58,16 @@ def make(cfg, env, env_params):
         optax.clip_by_global_norm(0.5),
         optax.adam(learning_rate=lr_schedule, eps=1e-5),
     )
-    return PPO(
+
+    epsilon_schedule = optax.linear_schedule(
+        init_value=1.0, end_value=0.05, transition_steps=0.25 * cfg.total_timesteps
+    )
+
+    return PQN(
         cfg=instantiate(cfg.algorithm),
         env=env,
         env_params=env_params,
-        actor_network=actor,
-        critic_network=critic,
-        actor_optimizer=optimizer,
-        critic_optimizer=optimizer,
+        q_network=network,
+        optimizer=optimizer,
+        epsilon_schedule=epsilon_schedule,
     )

@@ -1,2 +1,3 @@
-_target_: memorax.networks.MLP
+_target_: memorax.networks.FFN
 features: 128
+expansion_factor: 1

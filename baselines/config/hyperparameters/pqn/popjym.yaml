@@ -8,7 +8,7 @@ algorithm:
   num_envs: 128
   num_eval_envs: 0
   num_steps: 128
-  num_minibatches: 32
+  num_minibatches: 8
   update_epochs: 4
   gamma: 0.99
   td_lambda: 0.95

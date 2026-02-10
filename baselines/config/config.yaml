@@ -9,7 +9,7 @@ defaults:
   - _self_
   - algorithm: ppo
   - torso: gru
-  - environment: gymnax/cartpole
+  - environment: popjym/autoencode/easy
   - optional hyperparameters: ${cascading_fallback:${algorithm},${environment}}
   - logger: default
 

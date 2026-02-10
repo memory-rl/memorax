@@ -1,0 +1,21 @@
+# @package _global_
+
+total_timesteps: 50_000_000
+
+algorithm:
+  num_envs: 4096
+  num_steps: 8
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 32
+  update_epochs: 4
+  normalize_advantage: True
+  clip_coef: 0.2
+  clip_vloss: False
+  ent_coef: 0.0
+  vf_coef: 0.5
+  target_kl: 0.01
+
+environment:
+  wrappers:
+    - _target_: memorax.utils.wrappers.ClipActionWrapper

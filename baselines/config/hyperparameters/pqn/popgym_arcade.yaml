@@ -1,0 +1,52 @@
+# @package _global_
+
+total_timesteps: 10_000_000
+num_train_steps: 250_000
+num_eval_steps: 50_000
+
+algorithm:
+  num_envs: 16
+  num_eval_envs: 32
+  num_steps: 128
+  num_minibatches: 16
+  update_epochs: 4
+  gamma: 0.99
+  td_lambda: 0.95
+
+epsilon_schedule:
+  init_value: 1.0
+  end_value: 0.05
+  transition_steps: ${eval:"0.25 * ${total_timesteps}"}
+
+optimizer:
+  learning_rate:
+    _target_: optax.linear_schedule
+    init_value: 5e-5
+    end_value: 5e-7
+    transition_steps: ${eval:"0.10 * ${total_timesteps}"}
+
+feature_extractor:
+  observation_extractor:
+    _target_: memorax.networks.CNN
+    features: [64, 128, 256, 512]
+    kernel_sizes: [[5, 5], [3, 3], [3, 3], [1, 1]]
+    strides: [2, 2, 2, 1]
+    poolings: 
+      - _target_: flax.linen.max_pool
+        _partial_: true
+        window_shape: [2, 2]
+        strides: [2, 2]
+      - _target_: flax.linen.max_pool
+        _partial_: true
+        window_shape: [2, 2]
+        strides: [2, 2]
+      - _target_: flax.linen.max_pool
+        _partial_: true
+        window_shape: [2, 2]
+        strides: [2, 2]
+  action_extractor:
+    _target_: memorax.networks.Embedding
+    num_embeddings: ${get_action_dim:${environment}}
+    features: 5
+torso:
+  features: 256

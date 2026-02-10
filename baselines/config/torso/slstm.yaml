@@ -1,0 +1,5 @@
+_target_: memorax.networks.RNN
+cell:
+  _target_: memorax.networks.sLSTMCell
+  features: 256
+  hidden_dim: 64

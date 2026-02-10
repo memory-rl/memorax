@@ -1,0 +1,5 @@
+_target_: memorax.networks.Memoroid
+cell:
+  _target_: memorax.networks.S5Cell
+  features: 256
+  state_size: 128

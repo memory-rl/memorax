@@ -1,0 +1,5 @@
+_target_: memorax.networks.Memoroid
+cell:
+  _target_: memorax.networks.MambaCell
+  features: 256
+  num_heads: 2

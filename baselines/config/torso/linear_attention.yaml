@@ -1,0 +1,5 @@
+_target_: memorax.networks.Memoroid
+cell:
+  _target_: memorax.networks.LinearAttentionCell
+  num_heads: 2
+  head_dim: 16

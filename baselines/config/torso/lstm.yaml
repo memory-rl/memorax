@@ -1,0 +1,4 @@
+_target_: memorax.networks.RNN
+cell:
+  _target_: flax.linen.OptimizedLSTMCell
+  features: 256

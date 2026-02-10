@@ -1,0 +1,6 @@
+_target_: memorax.networks.Memoroid
+cell:
+  _target_: memorax.networks.FFMCell
+  features: 256
+  memory_size: 16
+  context_size: 16

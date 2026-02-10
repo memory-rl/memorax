@@ -1,0 +1,4 @@
+namespace: popgym_arcade
+env_id: CountRecallEasy
+kwargs:
+  partial_obs: False

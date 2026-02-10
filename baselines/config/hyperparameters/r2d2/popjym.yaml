@@ -1,0 +1,10 @@
+# @package _global_
+
+total_timesteps: 20_000_000
+num_train_steps: 500_000
+num_eval_steps: 10_000
+
+optimizer:
+  learning_rate: 5e-5
+torso:
+  features: 256

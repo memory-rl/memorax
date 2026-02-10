@@ -1,0 +1,5 @@
+_target_: memorax.networks.RNN
+cell:
+  _target_: flax.linen.GRUCell
+  features: 512
+features: 256

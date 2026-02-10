@@ -1,0 +1,6 @@
+_target_: memorax.networks.Memoroid
+cell:
+  _target_: memorax.networks.mLSTMCell
+  features: 256
+  hidden_dim: 32
+  num_heads: 2

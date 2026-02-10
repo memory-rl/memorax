@@ -1,0 +1,8 @@
+# @package logger.loggers.wandb
+_target_: memorax.loggers.WandbLogger
+entity: huterguier
+project: baselines
+name: ${algorithm.name}_${environment.namespace}_${environment.env_id}_${seed}_${now:%Y%m%d_%H%M%S}
+group: ${get_group:}
+mode: online
+num_seeds: ${num_seeds}

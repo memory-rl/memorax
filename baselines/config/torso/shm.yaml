@@ -1,0 +1,5 @@
+_target_: memorax.networks.RNN
+cell:
+  _target_: memorax.networks.SHMCell
+  features: 23
+  output_features: 256

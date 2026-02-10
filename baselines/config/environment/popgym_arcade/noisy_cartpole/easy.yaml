@@ -1,0 +1,4 @@
+namespace: popgym_arcade
+env_id: NoisyCartPoleEasy
+kwargs:
+  partial_obs: False

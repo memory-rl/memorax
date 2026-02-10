@@ -1,0 +1,5 @@
+_target_: memorax.networks.Memoroid
+cell:
+  _target_: memorax.networks.LRUCell
+  features: 256
+  hidden_dim: 128

@@ -270,12 +270,12 @@ class SAC:
 
         key, sample_key = jax.random.split(key)
         actions = dist.sample(seed=sample_key)
-        entropy = (-dist.log_prob(actions)).mean()
+        log_probs = dist.log_prob(actions)
 
         def alpha_loss_fn(alpha_params):
             log_alpha = self.alpha_network.apply(alpha_params)
             alpha = jnp.exp(log_alpha)
-            alpha_loss = alpha * (entropy - target_entropy).mean()
+            alpha_loss = (alpha * (-log_probs - target_entropy)).mean()
             return alpha_loss, {"alpha": alpha, "alpha_loss": alpha_loss}
 
         (_, info), grads = jax.value_and_grad(alpha_loss_fn, has_aux=True)(
@@ -320,7 +320,7 @@ class SAC:
                 batch.obs,
                 batch.prev_done,
                 actions,
-                add_feature_axis(batch.reward),
+                add_feature_axis(batch.prev_reward),
                 batch.prev_done,
                 initial_critic_carry,
             )
@@ -388,7 +388,7 @@ class SAC:
                 batch.obs,
                 batch.prev_done,
                 batch.action,
-                add_feature_axis(batch.reward),
+                add_feature_axis(batch.prev_reward),
                 batch.prev_done,
                 initial_critic_carry,
             )

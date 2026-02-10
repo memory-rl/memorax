@@ -56,8 +56,7 @@ mamba = Residual(
                 features=d_model,
                 num_heads=num_heads,
                 head_dim=head_dim,
-                hidden_dim=hidden_dim,
-                expansion_factor=2,
+                state_dim=hidden_dim,
             )
         )
     )

@@ -205,7 +205,7 @@ class TestMamba:
             features=16,
             num_heads=4,
             head_dim=8,
-            hidden_dim=16,
+            state_dim=16,
         )
 
     @pytest.fixture
@@ -217,7 +217,7 @@ class TestMamba:
             features=16,
             num_heads=4,
             head_dim=8,
-            hidden_dim=16,
+            state_dim=16,
         )
         return Memoroid(cell=algebra)
 
@@ -228,7 +228,7 @@ class TestMamba:
 
         carry = mamba_algebra.initialize_carry(key, input_shape)
         assert carry is not None
-        assert len(carry) == 4
+        assert len(carry) == 2
 
     def test_algebra_call(self, mamba_algebra):
         """Test the algebra's __call__ directly."""
@@ -241,7 +241,7 @@ class TestMamba:
         carry = mamba_algebra.apply(params, x)
 
         assert carry is not None
-        assert len(carry) == 4
+        assert len(carry) == 2
 
     def test_binary_operator(self, mamba_algebra):
         """Test the binary_operator operation."""
@@ -256,7 +256,7 @@ class TestMamba:
 
         combined = mamba_algebra.binary_operator(carry_a, carry_b)
         assert combined is not None
-        assert len(combined) == 4
+        assert len(combined) == 2
 
     def test_memoroid_call(self, mamba):
         """Test Mamba through the Memoroid wrapper."""
@@ -440,7 +440,7 @@ class TestMLSTM:
         carry = mlstm.initialize_carry(key, input_shape)
         assert carry is not None
 
-        assert len(carry) == 4
+        assert len(carry) == 2
 
     def test_call(self, mlstm):
         key = jax.random.key(0)
@@ -676,7 +676,7 @@ class TestAlgebraBinaryOperator:
             features=16,
             num_heads=4,
             head_dim=8,
-            hidden_dim=16,
+            state_dim=16,
         )
 
         key = jax.random.key(0)
@@ -689,7 +689,7 @@ class TestAlgebraBinaryOperator:
 
         combined = algebra.binary_operator(carry_a, carry_b)
         assert combined is not None
-        assert len(combined) == 4
+        assert len(combined) == 2
 
     def test_linear_attention_binary_operator(self):
         from memorax.networks.sequence_models import LinearAttentionCell

@@ -134,6 +134,43 @@ def associative_scan(cell, z, initial_carry, mask):
     return h, next_carry
 
 
+def associative_scan(cell, z, initial_carry, mask):
+    """Original scan using jax.lax.associative_scan.
+
+    Prepends initial_carry, builds reset signals, runs parallel scan,
+    then strips the prepended element.
+    """
+    z = jax.tree.map(
+        lambda c, e: jnp.concatenate([c, e], axis=1),
+        initial_carry,
+        z,
+    )
+
+    reset = jnp.concatenate([jnp.zeros((mask.shape[0], 1)), mask], axis=1)
+    reset = reset[..., None]
+
+    @jax.vmap
+    def binary_operator(lhs, rhs):
+        lhs_carry, lhs_reset = lhs
+        rhs_carry, rhs_reset = rhs
+
+        combined = cell.binary_operator(lhs_carry, rhs_carry)
+
+        out = jax.tree.map(
+            lambda rc, c: jnp.where(broadcast_mask(rhs_reset, rc), rc, c),
+            rhs_carry,
+            combined,
+        )
+
+        return out, jnp.maximum(lhs_reset, rhs_reset)
+
+    h, _ = jax.lax.associative_scan(binary_operator, (z, reset), axis=1)
+
+    next_carry = jax.tree.map(lambda s: s[:, -1:], h)
+    h = jax.tree.map(lambda s: s[:, 1:], h)
+    return h, next_carry
+
+
 class Memoroid(SequenceModel):
     cell: MemoroidCellBase
     scan_fn: Callable = associative_scan

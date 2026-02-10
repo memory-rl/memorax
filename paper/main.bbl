@@ -1,0 +1,280 @@
+\begin{thebibliography}{34}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{DOI: #1}\else
+  \providecommand{\doi}{DOI: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Agarwal et~al.(2021)Agarwal, Schwarzer, Castro, Courville, and
+  Bellemare]{agarwal2021rliable}
+Rishabh Agarwal, Max Schwarzer, Pablo~Samuel Castro, Aaron~C. Courville, and
+  Marc~G. Bellemare.
+\newblock Deep reinforcement learning at the edge of the statistical precipice.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~34, 2021.
+\newblock URL \url{https://arxiv.org/abs/2108.13264}.
+
+\bibitem[Beck et~al.(2024)Beck, P{\"o}ppel, Spanring, Auer, Prudnikova, Kopp,
+  Klambauer, Brandstetter, and Hochreiter]{beck2024xlstm}
+Maximilian Beck, Korbinian P{\"o}ppel, Markus Spanring, Andreas Auer,
+  Oleksandra Prudnikova, Michael Kopp, G{\"u}nter Klambauer, Johannes
+  Brandstetter, and Sepp Hochreiter.
+\newblock {xLSTM}: Extended long short-term memory.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~37, 2024.
+\newblock URL \url{https://arxiv.org/abs/2405.04517}.
+
+\bibitem[Blelloch(1990)]{blelloch1990prefix}
+Guy~E. Blelloch.
+\newblock Prefix sums and their applications.
+\newblock Technical Report CMU-CS-90-190, School of Computer Science, Carnegie
+  Mellon University, 1990.
+\newblock URL \url{https://www.cs.cmu.edu/~guyb/papers/Ble93.pdf}.
+
+\bibitem[Bradbury et~al.(2018)Bradbury, Frostig, Hawkins, Johnson, Leary,
+  Maclaurin, Necula, Paszke, Vander{P}las, Wanderman-{M}ilne, and
+  Zhang]{jax2018github}
+James Bradbury, Roy Frostig, Peter Hawkins, Matthew~James Johnson, Chris Leary,
+  Dougal Maclaurin, George Necula, Adam Paszke, Jake Vander{P}las, Skye
+  Wanderman-{M}ilne, and Qiao Zhang.
+\newblock {JAX}: Composable transformations of {P}ython+{N}um{P}y programs,
+  2018.
+\newblock URL \url{http://github.com/jax-ml/jax}.
+
+\bibitem[Cho et~al.(2014)Cho, van Merri{\"e}nboer, Gulcehre, Bahdanau,
+  Bougares, Schwenk, and Bengio]{cho2014gru}
+Kyunghyun Cho, Bart van Merri{\"e}nboer, Caglar Gulcehre, Dzmitry Bahdanau,
+  Fethi Bougares, Holger Schwenk, and Yoshua Bengio.
+\newblock Learning phrase representations using {RNN} encoder-decoder for
+  statistical machine translation.
+\newblock In \emph{Proceedings of the 2014 Conference on Empirical Methods in
+  Natural Language Processing}, pp.\  1724--1734, 2014.
+\newblock \doi{10.3115/v1/D14-1179}.
+
+\bibitem[Feng et~al.(2024)Feng, Tung, Ahmed, Bengio, and
+  Hajimirsadeghi]{feng2024minGRU}
+Leo Feng, Frederick Tung, Mohamed~Osama Ahmed, Yoshua Bengio, and Hossein
+  Hajimirsadeghi.
+\newblock Were {RNNs} all we needed?
+\newblock \emph{arXiv preprint arXiv:2410.01201}, 2024.
+\newblock URL \url{https://arxiv.org/abs/2410.01201}.
+
+\bibitem[Gallici et~al.(2025)Gallici, Fellows, Ellis, Pou, Masmitja, Foerster,
+  and Martin]{gallici2025pqn}
+Matteo Gallici, Mattie Fellows, Benjamin Ellis, Bartomeu Pou, Ivan Masmitja,
+  Jakob~Nicolaus Foerster, and Mario Martin.
+\newblock Simplifying deep temporal difference learning.
+\newblock In \emph{The Thirteenth International Conference on Learning
+  Representations}, 2025.
+\newblock URL \url{https://arxiv.org/abs/2407.04811}.
+
+\bibitem[Gu \& Dao(2024)Gu and Dao]{gu2024mamba}
+Albert Gu and Tri Dao.
+\newblock Mamba: Linear-time sequence modeling with selective state spaces.
+\newblock In \emph{Proceedings of the 41st International Conference on Machine
+  Learning}, 2024.
+\newblock URL \url{https://arxiv.org/abs/2312.00752}.
+
+\bibitem[Gu et~al.(2022)Gu, Goel, and R{\'e}]{gu2022s4}
+Albert Gu, Karan Goel, and Christopher R{\'e}.
+\newblock Efficiently modeling long sequences with structured state spaces.
+\newblock In \emph{The Tenth International Conference on Learning
+  Representations}, 2022.
+\newblock URL \url{https://arxiv.org/abs/2111.00396}.
+
+\bibitem[Haarnoja et~al.(2018)Haarnoja, Zhou, Abbeel, and
+  Levine]{haarnoja2018sac}
+Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine.
+\newblock Soft actor-critic: Off-policy maximum entropy deep reinforcement
+  learning with a stochastic actor.
+\newblock In \emph{Proceedings of the 35th International Conference on Machine
+  Learning}, pp.\  1861--1870, 2018.
+
+\bibitem[Hausknecht \& Stone(2015)Hausknecht and Stone]{hausknecht2015drqn}
+Matthew Hausknecht and Peter Stone.
+\newblock Deep recurrent {Q}-learning for partially observable {MDPs}.
+\newblock In \emph{AAAI Fall Symposium on Sequential Decision Making for
+  Intelligent Agents}, 2015.
+\newblock URL \url{https://arxiv.org/abs/1507.06527}.
+
+\bibitem[Heek et~al.(2024)Heek, Levskaya, Oliver, Ritter, Rondepierre, Steiner,
+  and van Zee]{flax2024github}
+Jonathan Heek, Anselm Levskaya, Avital Oliver, Marvin Ritter, Bertrand
+  Rondepierre, Andreas Steiner, and Marc van Zee.
+\newblock Flax: A neural network library and ecosystem for {JAX}, 2024.
+\newblock URL \url{http://github.com/google/flax}.
+
+\bibitem[Hochreiter \& Schmidhuber(1997)Hochreiter and
+  Schmidhuber]{hochreiter1997lstm}
+Sepp Hochreiter and J{\"u}rgen Schmidhuber.
+\newblock Long short-term memory.
+\newblock \emph{Neural Computation}, 9\penalty0 (8):\penalty0 1735--1780, 1997.
+\newblock \doi{10.1162/neco.1997.9.8.1735}.
+
+\bibitem[Huang et~al.(2022)Huang, Dossa, Ye, Braga, Chakraborty, Mehta, and
+  Ara{\'u}jo]{huang2022cleanrl}
+Shengyi Huang, Rousslan Fernand~Julien Dossa, Chang Ye, Jeff Braga, Dipam
+  Chakraborty, Kinal Mehta, and Jo{\~a}o~G.M. Ara{\'u}jo.
+\newblock {CleanRL}: High-quality single-file implementations of deep
+  reinforcement learning algorithms.
+\newblock \emph{Journal of Machine Learning Research}, 23\penalty0
+  (274):\penalty0 1--18, 2022.
+\newblock URL \url{http://jmlr.org/papers/v23/21-1342.html}.
+
+\bibitem[Kaelbling et~al.(1998)Kaelbling, Littman, and
+  Cassandra]{kaelbling1998pomdp}
+Leslie~Pack Kaelbling, Michael~L. Littman, and Anthony~R. Cassandra.
+\newblock Planning and acting in partially observable stochastic domains.
+\newblock \emph{Artificial Intelligence}, 101\penalty0 (1--2):\penalty0
+  99--134, 1998.
+\newblock \doi{10.1016/S0004-3702(98)00023-X}.
+
+\bibitem[Kapturowski et~al.(2019)Kapturowski, Ostrovski, Quan, Munos, and
+  Dabney]{kapturowski2019r2d2}
+Steven Kapturowski, Georg Ostrovski, John Quan, Remi Munos, and Will Dabney.
+\newblock Recurrent experience replay in distributed reinforcement learning.
+\newblock In \emph{The Seventh International Conference on Learning
+  Representations}, 2019.
+\newblock URL \url{https://openreview.net/forum?id=r1lyTjAqYX}.
+
+\bibitem[Katharopoulos et~al.(2020)Katharopoulos, Vyas, Pappas, and
+  Fleuret]{katharopoulos2020lineartransformers}
+Angelos Katharopoulos, Apoorv Vyas, Nikolaos Pappas, and Fran{\c{c}}ois
+  Fleuret.
+\newblock Transformers are {RNNs}: Fast autoregressive transformers with linear
+  attention.
+\newblock In \emph{Proceedings of the 37th International Conference on Machine
+  Learning}, 2020.
+\newblock URL \url{https://arxiv.org/abs/2006.16236}.
+
+\bibitem[Le et~al.(2025)Le, Do, Nguyen, Gupta, and Venkatesh]{le2025shm}
+Hung Le, Kien Do, Dung Nguyen, Sunil Gupta, and Svetha Venkatesh.
+\newblock Stable {Hadamard} memory: Revitalizing memory-augmented agents for
+  reinforcement learning.
+\newblock In \emph{The Thirteenth International Conference on Learning
+  Representations}, 2025.
+\newblock URL \url{https://arxiv.org/abs/2410.10132}.
+
+\bibitem[Lu(2023)]{lu2023purejaxrl}
+Chris Lu.
+\newblock {PureJaxRL}: Really fast end-to-end {JAX} {RL} implementations, 2023.
+\newblock URL \url{https://github.com/luchris429/purejaxrl}.
+
+\bibitem[Mnih et~al.(2015)Mnih, Kavukcuoglu, Silver, Rusu, Veness, Bellemare,
+  Graves, Riesenhuber, Fidjeland, Ostrovski, et~al.]{mnih2015dqn}
+Volodymyr Mnih, Koray Kavukcuoglu, David Silver, Andrei~A Rusu, Joel Veness,
+  Marc~G Bellemare, Alex Graves, Martin Riesenhuber, Andreas~K Fidjeland, Georg
+  Ostrovski, et~al.
+\newblock Human-level control through deep reinforcement learning.
+\newblock \emph{Nature}, 518\penalty0 (7540):\penalty0 529--533, 2015.
+
+\bibitem[Morad et~al.(2023{\natexlab{a}})Morad, Kortvelesy, Bettini, Liwicki,
+  and Prorok]{morad2023popgym}
+Steven Morad, Ryan Kortvelesy, Matteo Bettini, Stephan Liwicki, and Amanda
+  Prorok.
+\newblock {POPGym}: Benchmarking partially observable reinforcement learning.
+\newblock In \emph{The Eleventh International Conference on Learning
+  Representations}, 2023{\natexlab{a}}.
+\newblock URL \url{https://openreview.net/forum?id=chDrutUTs0K}.
+
+\bibitem[Morad et~al.(2023{\natexlab{b}})Morad, Kortvelesy, Liwicki, and
+  Prorok]{morad2023ffm}
+Steven Morad, Ryan Kortvelesy, Stephan Liwicki, and Amanda Prorok.
+\newblock Reinforcement learning with fast and forgetful memory.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~36, 2023{\natexlab{b}}.
+\newblock URL \url{https://arxiv.org/abs/2310.04128}.
+
+\bibitem[Morad et~al.(2025)Morad, Toledo, Kortvelesy, and He]{morad2025memax}
+Steven Morad, Edan Toledo, Ryan Kortvelesy, and Zhe He.
+\newblock Memax: Deep memory and sequence models in {JAX}, 2025.
+\newblock URL \url{https://github.com/smorad/memax}.
+
+\bibitem[Orvieto et~al.(2023)Orvieto, Smith, Gu, Fernando, Gulcehre, Pascanu,
+  and De]{orvieto2023lru}
+Antonio Orvieto, Samuel~L. Smith, Albert Gu, Anushan Fernando, Caglar Gulcehre,
+  Razvan Pascanu, and Soham De.
+\newblock Resurrecting recurrent neural networks for long sequences.
+\newblock In \emph{Proceedings of the 40th International Conference on Machine
+  Learning}, 2023.
+\newblock URL \url{https://arxiv.org/abs/2303.06349}.
+
+\bibitem[Parisotto et~al.(2020)Parisotto, Song, Rae, Pascanu, Gulcehre,
+  Jayakumar, Jaderberg, Kaufman, Clark, Noury, Botvinick, Heess, and
+  Hadsell]{parisotto2020gtrxl}
+Emilio Parisotto, H.~Francis Song, Jack~W. Rae, Razvan Pascanu, Caglar
+  Gulcehre, Siddhant~M. Jayakumar, Max Jaderberg, Raphael~Lopez Kaufman, Aidan
+  Clark, Seb Noury, Matthew~M. Botvinick, Nicolas Heess, and Raia Hadsell.
+\newblock Stabilizing transformers for reinforcement learning.
+\newblock In \emph{Proceedings of the 37th International Conference on Machine
+  Learning}, 2020.
+\newblock URL \url{https://arxiv.org/abs/1910.06764}.
+
+\bibitem[Schulman et~al.(2016)Schulman, Moritz, Levine, Jordan, and
+  Abbeel]{schulman2016gae}
+John Schulman, Philipp Moritz, Sergey Levine, Michael Jordan, and Pieter
+  Abbeel.
+\newblock High-dimensional continuous control using generalized advantage
+  estimation.
+\newblock \emph{arXiv preprint arXiv:1506.02438}, 2016.
+\newblock URL \url{https://arxiv.org/abs/1506.02438}.
+
+\bibitem[Schulman et~al.(2017)Schulman, Wolski, Dhariwal, Radford, and
+  Klimov]{schulman2017ppo}
+John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov.
+\newblock Proximal policy optimization algorithms.
+\newblock \emph{arXiv preprint arXiv:1707.06347}, 2017.
+\newblock URL \url{https://arxiv.org/abs/1707.06347}.
+
+\bibitem[Smith et~al.(2023)Smith, Warrington, and Linderman]{smith2023s5}
+Jimmy~T.H. Smith, Andrew Warrington, and Scott Linderman.
+\newblock Simplified state space layers for sequence modeling.
+\newblock In \emph{The Eleventh International Conference on Learning
+  Representations}, 2023.
+\newblock URL \url{https://openreview.net/forum?id=Ai8Hw3AXqks}.
+
+\bibitem[Suarez(2024)]{suarez2024pufferlib}
+Joseph Suarez.
+\newblock {PufferLib}: Making reinforcement learning libraries and environments
+  play nice.
+\newblock \emph{arXiv preprint arXiv:2406.12905}, 2024.
+\newblock URL \url{https://arxiv.org/abs/2406.12905}.
+
+\bibitem[Sullivan et~al.(2024)Sullivan, P{\'e}goud, Rehman, Yang, Huang, Verma,
+  Mitra, and Dickerson]{sullivan2024syllabus}
+Ryan Sullivan, Ryan P{\'e}goud, Ameen~Ur Rehman, Xinchen Yang, Junyun Huang,
+  Aayush Verma, Nistha Mitra, and John~P. Dickerson.
+\newblock Syllabus: Portable curricula for reinforcement learning agents.
+\newblock \emph{arXiv preprint arXiv:2411.11318}, 2024.
+\newblock URL \url{https://arxiv.org/abs/2411.11318}.
+
+\bibitem[Tao et~al.(2025)Tao, Guo, Allen, and Konidaris]{tao2025pobax}
+Ruo~Yu Tao, Kaicheng Guo, Cameron Allen, and George Konidaris.
+\newblock Benchmarking partial observability in reinforcement learning with a
+  suite of memory-improvable domains.
+\newblock \emph{Reinforcement Learning Journal}, 2025.
+\newblock URL \url{https://arxiv.org/abs/2508.00046}.
+
+\bibitem[Toledo(2024)]{toledo2024stoix}
+Edan Toledo.
+\newblock Stoix: A research-friendly codebase for fast experimentation of
+  single-agent reinforcement learning in {JAX}, 2024.
+\newblock URL \url{https://github.com/EdanToledo/Stoix}.
+
+\bibitem[Vaswani et~al.(2017)Vaswani, Shazeer, Parmar, Uszkoreit, Jones, Gomez,
+  Kaiser, and Polosukhin]{vaswani2017attention}
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones,
+  Aidan~N. Gomez, {\L}ukasz Kaiser, and Illia Polosukhin.
+\newblock Attention is all you need.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~30, 2017.
+\newblock URL \url{https://arxiv.org/abs/1706.03762}.
+
+\bibitem[Wang et~al.(2025)Wang, He, Zhang, Toledo, and
+  Morad]{wang2025popgymarcade}
+Zekang Wang, Zhe He, Borong Zhang, Edan Toledo, and Steven Morad.
+\newblock Investigating memory in {RL} with {POPGym} arcade.
+\newblock \emph{arXiv preprint arXiv:2503.01450}, 2025.
+\newblock URL \url{https://arxiv.org/abs/2503.01450}.
+
+\end{thebibliography}

@@ -1,0 +1,144 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{kaelbling1998pomdp}
+\citation{hochreiter1997lstm}
+\citation{cho2014gru}
+\citation{hausknecht2015drqn}
+\citation{kapturowski2019r2d2}
+\citation{vaswani2017attention}
+\citation{parisotto2020gtrxl}
+\citation{gu2022s4}
+\citation{smith2023s5}
+\citation{gu2024mamba}
+\citation{katharopoulos2020lineartransformers}
+\citation{feng2024minGRU}
+\citation{beck2024xlstm}
+\citation{morad2023ffm}
+\citation{morad2023popgym}
+\citation{tao2025pobax}
+\citation{jax2018github}
+\citation{flax2024github}
+\citation{schulman2017ppo}
+\citation{mnih2015dqn}
+\citation{haarnoja2018sac}
+\citation{gallici2025pqn}
+\citation{kapturowski2019r2d2}
+\newlabel{sec:introduction}{{1}{1}{Introduction}{section.1}{}}
+\citation{morad2023popgym}
+\citation{morad2023popgym}
+\citation{wang2025popgymarcade}
+\citation{tao2025pobax}
+\citation{hausknecht2015drqn}
+\citation{kapturowski2019r2d2}
+\citation{parisotto2020gtrxl}
+\citation{huang2022cleanrl}
+\citation{suarez2024pufferlib}
+\citation{toledo2024stoix}
+\citation{lu2023purejaxrl}
+\citation{sullivan2024syllabus}
+\citation{morad2025memax}
+\newlabel{sec:related}{{2}{2}{Related Work}{section.2}{}}
+\newlabel{sec:library}{{3}{2}{The \memorax Library}{section.3}{}}
+\newlabel{sec:architecture}{{3.1}{2}{Architecture}{subsection.3.1}{}}
+\citation{beck2024xlstm}
+\citation{cho2014gru}
+\citation{hochreiter1997lstm}
+\citation{beck2024xlstm}
+\citation{le2025shm}
+\citation{smith2023s5}
+\citation{orvieto2023lru}
+\citation{gu2024mamba}
+\citation{feng2024minGRU}
+\citation{beck2024xlstm}
+\citation{morad2023ffm}
+\citation{vaswani2017attention}
+\citation{katharopoulos2020lineartransformers}
+\citation{cho2014gru}
+\citation{hochreiter1997lstm}
+\citation{beck2024xlstm}
+\citation{le2025shm}
+\citation{smith2023s5}
+\citation{orvieto2023lru}
+\citation{gu2024mamba}
+\citation{feng2024minGRU}
+\citation{beck2024xlstm}
+\citation{morad2023ffm}
+\citation{vaswani2017attention}
+\citation{katharopoulos2020lineartransformers}
+\citation{blelloch1990prefix}
+\newlabel{sec:sequence_models}{{3.2}{3}{Sequence Models}{subsection.3.2}{}}
+\newlabel{sec:memoroid}{{3.3}{3}{The \memoroid Abstraction}{subsection.3.3}{}}
+\citation{wang2025popgymarcade}
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{tab:models}{{1}{4}{Sequence models in \memorax . \textbf {Family}: architectural category. \textbf {Computation}: sequential scan or parallel associative scan. \textbf {State size}: hidden state elements for our benchmark configuration (${\sim }512$ target). Models marked $\star $ implement the \memoroid interface}{table.caption.4}{}}
+\newlabel{sec:fair_comparison}{{3.4}{4}{Fair Comparison Protocol}{subsection.3.4}{}}
+\citation{morad2023popgym}
+\citation{gallici2025pqn}
+\newlabel{tab:algebras}{{2}{5}{Algebraic formulations of \memoroid cells. All SSMs share a diagonal linear recurrence; gated models and attention use distinct combination rules. Notation: $\text {sp}(\cdot ) = \text {softplus}$, $\text {lse} = \text {logaddexp}$, $\phi (\cdot ) = \text {ELU}+1$}{table.caption.5}{}}
+\newlabel{sec:experiments}{{4}{5}{Experimental Setup}{section.4}{}}
+\newlabel{sec:envs}{{4.1}{5}{Environments}{subsection.4.1}{}}
+\newlabel{sec:algorithms}{{4.2}{5}{Algorithms}{subsection.4.2}{}}
+\citation{schulman2017ppo}
+\citation{schulman2016gae}
+\citation{kapturowski2019r2d2}
+\citation{agarwal2021rliable}
+\newlabel{sec:models_eval}{{4.3}{6}{Models}{subsection.4.3}{}}
+\newlabel{sec:protocol}{{4.4}{6}{Protocol}{subsection.4.4}{}}
+\newlabel{sec:metrics}{{4.5}{6}{Metrics}{subsection.4.5}{}}
+\newlabel{sec:results}{{5}{6}{Results}{section.5}{}}
+\newlabel{fig:aggregate}{{1}{7}{Aggregate performance profiles across all 15 \popjym environments, comparing model families. Higher curves indicate better performance. Shaded regions show 95\% stratified bootstrap confidence intervals}{figure.caption.6}{}}
+\newlabel{fig:heatmap}{{2}{7}{Normalized mean return for each model across all 15 environments (averaged over algorithms and seeds). Darker colors indicate higher performance. Models are sorted by aggregate IQM}{figure.caption.7}{}}
+\newlabel{sec:aggregate}{{5.1}{7}{Aggregate Performance}{subsection.5.1}{}}
+\newlabel{sec:per_env}{{5.2}{7}{Per-Environment Analysis}{subsection.5.2}{}}
+\newlabel{sec:algorithm_sensitivity}{{5.3}{7}{Algorithm Sensitivity}{subsection.5.3}{}}
+\newlabel{sec:efficiency}{{5.4}{7}{Computational Efficiency}{subsection.5.4}{}}
+\newlabel{sec:discussion}{{6}{7}{Discussion}{section.6}{}}
+\bibstyle{rlc}
+\bibdata{references}
+\bibcite{agarwal2021rliable}{{1}{2021}{{Agarwal et~al.}}{{Agarwal, Schwarzer, Castro, Courville, and Bellemare}}}
+\newlabel{fig:algorithm_comparison}{{3}{8}{Model rankings disaggregated by algorithm. Left: PQN. Center: PPO. Right: R2D2. Rank changes across algorithms indicate algorithm-sensitive models}{figure.caption.8}{}}
+\newlabel{fig:efficiency}{{4}{8}{Steps per second (SPS) for each model during PQN training, measured on a single GPU. \memoroid models (parallel scan) are compared against sequential RNN baselines}{figure.caption.9}{}}
+\newlabel{sec:conclusion}{{7}{8}{Conclusion}{section.7}{}}
+\bibcite{beck2024xlstm}{{2}{2024}{{Beck et~al.}}{{Beck, P{\"o}ppel, Spanring, Auer, Prudnikova, Kopp, Klambauer, Brandstetter, and Hochreiter}}}
+\bibcite{blelloch1990prefix}{{3}{1990}{{Blelloch}}{{}}}
+\bibcite{jax2018github}{{4}{2018}{{Bradbury et~al.}}{{Bradbury, Frostig, Hawkins, Johnson, Leary, Maclaurin, Necula, Paszke, Vander{P}las, Wanderman-{M}ilne, and Zhang}}}
+\bibcite{cho2014gru}{{5}{2014}{{Cho et~al.}}{{Cho, van Merri{\"e}nboer, Gulcehre, Bahdanau, Bougares, Schwenk, and Bengio}}}
+\bibcite{feng2024minGRU}{{6}{2024}{{Feng et~al.}}{{Feng, Tung, Ahmed, Bengio, and Hajimirsadeghi}}}
+\bibcite{gallici2025pqn}{{7}{2025}{{Gallici et~al.}}{{Gallici, Fellows, Ellis, Pou, Masmitja, Foerster, and Martin}}}
+\bibcite{gu2024mamba}{{8}{2024}{{Gu \& Dao}}{{Gu and Dao}}}
+\bibcite{gu2022s4}{{9}{2022}{{Gu et~al.}}{{Gu, Goel, and R{\'e}}}}
+\bibcite{haarnoja2018sac}{{10}{2018}{{Haarnoja et~al.}}{{Haarnoja, Zhou, Abbeel, and Levine}}}
+\bibcite{hausknecht2015drqn}{{11}{2015}{{Hausknecht \& Stone}}{{Hausknecht and Stone}}}
+\bibcite{flax2024github}{{12}{2024}{{Heek et~al.}}{{Heek, Levskaya, Oliver, Ritter, Rondepierre, Steiner, and van Zee}}}
+\bibcite{hochreiter1997lstm}{{13}{1997}{{Hochreiter \& Schmidhuber}}{{Hochreiter and Schmidhuber}}}
+\bibcite{huang2022cleanrl}{{14}{2022}{{Huang et~al.}}{{Huang, Dossa, Ye, Braga, Chakraborty, Mehta, and Ara{\'u}jo}}}
+\bibcite{kaelbling1998pomdp}{{15}{1998}{{Kaelbling et~al.}}{{Kaelbling, Littman, and Cassandra}}}
+\bibcite{kapturowski2019r2d2}{{16}{2019}{{Kapturowski et~al.}}{{Kapturowski, Ostrovski, Quan, Munos, and Dabney}}}
+\bibcite{katharopoulos2020lineartransformers}{{17}{2020}{{Katharopoulos et~al.}}{{Katharopoulos, Vyas, Pappas, and Fleuret}}}
+\bibcite{le2025shm}{{18}{2025}{{Le et~al.}}{{Le, Do, Nguyen, Gupta, and Venkatesh}}}
+\bibcite{lu2023purejaxrl}{{19}{2023}{{Lu}}{{}}}
+\bibcite{mnih2015dqn}{{20}{2015}{{Mnih et~al.}}{{Mnih, Kavukcuoglu, Silver, Rusu, Veness, Bellemare, Graves, Riesenhuber, Fidjeland, Ostrovski, et~al.}}}
+\bibcite{morad2023popgym}{{21}{2023{a}}{{Morad et~al.}}{{Morad, Kortvelesy, Bettini, Liwicki, and Prorok}}}
+\bibcite{morad2023ffm}{{22}{2023{b}}{{Morad et~al.}}{{Morad, Kortvelesy, Liwicki, and Prorok}}}
+\bibcite{morad2025memax}{{23}{2025}{{Morad et~al.}}{{Morad, Toledo, Kortvelesy, and He}}}
+\bibcite{orvieto2023lru}{{24}{2023}{{Orvieto et~al.}}{{Orvieto, Smith, Gu, Fernando, Gulcehre, Pascanu, and De}}}
+\bibcite{parisotto2020gtrxl}{{25}{2020}{{Parisotto et~al.}}{{Parisotto, Song, Rae, Pascanu, Gulcehre, Jayakumar, Jaderberg, Kaufman, Clark, Noury, Botvinick, Heess, and Hadsell}}}
+\bibcite{schulman2016gae}{{26}{2016}{{Schulman et~al.}}{{Schulman, Moritz, Levine, Jordan, and Abbeel}}}
+\bibcite{schulman2017ppo}{{27}{2017}{{Schulman et~al.}}{{Schulman, Wolski, Dhariwal, Radford, and Klimov}}}
+\bibcite{smith2023s5}{{28}{2023}{{Smith et~al.}}{{Smith, Warrington, and Linderman}}}
+\bibcite{suarez2024pufferlib}{{29}{2024}{{Suarez}}{{}}}
+\bibcite{sullivan2024syllabus}{{30}{2024}{{Sullivan et~al.}}{{Sullivan, P{\'e}goud, Rehman, Yang, Huang, Verma, Mitra, and Dickerson}}}
+\bibcite{tao2025pobax}{{31}{2025}{{Tao et~al.}}{{Tao, Guo, Allen, and Konidaris}}}
+\bibcite{toledo2024stoix}{{32}{2024}{{Toledo}}{{}}}
+\bibcite{vaswani2017attention}{{33}{2017}{{Vaswani et~al.}}{{Vaswani, Shazeer, Parmar, Uszkoreit, Jones, Gomez, Kaiser, and Polosukhin}}}
+\bibcite{wang2025popgymarcade}{{34}{2025}{{Wang et~al.}}{{Wang, He, Zhang, Toledo, and Morad}}}
+\newlabel{app:hyperparameters}{{A}{12}{Hyperparameter Tables}{appendix.A}{}}
+\newlabel{tab:pqn_hparams}{{3}{12}{PQN hyperparameters}{table.caption.14}{}}
+\newlabel{tab:ppo_hparams}{{4}{12}{PPO hyperparameters}{table.caption.15}{}}
+\newlabel{app:model_configs}{{B}{12}{Model Configuration Details}{appendix.B}{}}
+\newlabel{app:learning_curves}{{C}{12}{Full Learning Curves}{appendix.C}{}}
+\newlabel{tab:r2d2_hparams}{{5}{13}{R2D2 hyperparameters}{table.caption.16}{}}
+\newlabel{tab:model_configs}{{6}{13}{Detailed configuration for each model, showing how the ${\sim }512$ hidden state size target is achieved. Complex-valued elements are counted as 2 real elements}{table.caption.17}{}}
+\gdef \@abspage@last{14}

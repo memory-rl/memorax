@@ -1,0 +1,558 @@
+\documentclass[10pt]{article}
+\usepackage{rlc}
+
+% Packages (only those NOT already loaded by rlc.sty)
+\usepackage{amssymb,mathtools}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{xspace}
+
+% Custom commands
+\newcommand{\memorax}{\textsc{Memorax}\xspace}
+\newcommand{\memoroid}{\textsc{Memoroid}\xspace}
+\newcommand{\popjym}{\textsc{PopJym}\xspace}
+
+\title{Memorax: Benchmarking Sequence Models for Memory in Reinforcement Learning}
+\author{Anonymous Author(s)}
+
+\keywords{reinforcement learning, POMDPs, sequence models, state space models, benchmarks}
+\setrunningtitle{Memorax: Benchmarking Sequence Models for Memory in RL}
+
+\summary{Memory is critical for solving partially observable tasks in reinforcement learning (RL), yet modern sequence models---state space models (SSMs), linear attention, and gated recurrent variants---have not been systematically evaluated in this setting.
+Existing POMDP benchmarks compare only a handful of memory architectures (typically GRU, LSTM, and Transformer) across a single algorithm.
+We introduce \memorax, an open-source JAX library providing 13 sequence models in a unified interface, supporting 5 RL algorithms across 15 POMDP environments, with additional support for multi-agent RL and intrinsic rewards.
+All models share a common \texttt{SequenceModel} interface; models amenable to parallel computation further implement the \memoroid abstraction, which expresses their recurrence as an associative algebra for $O(\log n)$ training via prefix scan.
+We present a comprehensive benchmark comparing all 13 models with matched hidden state sizes (${\sim}512$ elements) across PQN, PPO, and R2D2 on 15 \popjym tasks, totaling 2{,}925 runs.
+Our results provide practical guidance on which memory architectures suit which problem types, and reveal that model rankings can shift substantially across algorithms.}
+
+\contribution{\memorax: an open-source JAX library with 13 sequence models in a unified \texttt{SequenceModel} interface, supporting 5 RL algorithms (PPO, DQN, SAC, PQN, R2D2), multi-agent RL, and intrinsic rewards.}{We provide a modular, JAX-native library that enables fair comparison of memory architectures for RL by standardizing the network architecture, training protocol, and evaluation across diverse sequence models and algorithms.}
+
+\contribution{The \memoroid abstraction: enables $O(\log n)$ parallel training of SSMs, linear recurrences, and linear attention via associative scan, unifying 8 architectures under a single algebraic interface.}{By expressing parallelizable recurrent models as associative algebras, we enable efficient training via prefix scan while revealing structural similarities across seemingly different architectures.}
+
+\contribution{A comprehensive benchmark: fair comparison of 13 models $\times$ 3 algorithms $\times$ 15 environments with matched hidden state sizes (${\sim}512$ elements), totaling 2{,}925 runs with 5 seeds each.}{This is the most comprehensive evaluation of sequence models for memory in RL to date, revealing that model rankings shift substantially across algorithms and providing practical guidance for practitioners.}
+
+\begin{document}
+
+\makeCover
+\maketitle
+
+\begin{abstract}
+Memory is critical for solving partially observable tasks in reinforcement learning (RL), yet modern sequence models---state space models (SSMs), linear attention, and gated recurrent variants---have not been systematically evaluated in this setting.
+Existing POMDP benchmarks compare only a handful of memory architectures (typically GRU, LSTM, and Transformer) across a single algorithm.
+We introduce \memorax, an open-source JAX library providing 13 sequence models in a unified interface, supporting 5 RL algorithms across 15 POMDP environments, with additional support for multi-agent RL and intrinsic rewards.
+All models share a common \texttt{SequenceModel} interface; models amenable to parallel computation further implement the \memoroid abstraction, which expresses their recurrence as an associative algebra for $O(\log n)$ training via prefix scan.
+We present a comprehensive benchmark comparing all 13 models with matched hidden state sizes (${\sim}512$ elements) across PQN, PPO, and R2D2 on 15 \popjym tasks, totaling 2{,}925 runs.
+Our results provide practical guidance on which memory architectures suit which problem types, and reveal that model rankings can shift substantially across algorithms.
+\end{abstract}
+
+
+% ============================================================================
+% 1. INTRODUCTION
+% ============================================================================
+\section{Introduction}
+\label{sec:introduction}
+
+Many real-world reinforcement learning (RL) problems are partially observable: the agent must integrate information over time to infer the true state of the environment \citep{kaelbling1998pomdp}.
+This memory requirement has traditionally been addressed by augmenting RL agents with recurrent neural networks such as LSTMs \citep{hochreiter1997lstm} and GRUs \citep{cho2014gru}, as in deep recurrent Q-learning \citep{hausknecht2015drqn} and R2D2 \citep{kapturowski2019r2d2}.
+More recently, Transformers \citep{vaswani2017attention} and their gated variants like GTrXL \citep{parisotto2020gtrxl} have been applied to RL, offering richer memory through attention over past observations.
+
+Meanwhile, the supervised learning community has witnessed a revolution in sequence modeling.
+State space models (SSMs) such as S4 \citep{gu2022s4}, S5 \citep{smith2023s5}, and Mamba \citep{gu2024mamba} achieve strong performance on long-range tasks while scaling efficiently via parallel scan.
+Linear attention variants \citep{katharopoulos2020lineartransformers} and modernized gated recurrences like MinGRU \citep{feng2024minGRU}, mLSTM \citep{beck2024xlstm}, and Fast and Forgetful Memory \citep{morad2023ffm} further expand the design space.
+Despite their promise, these models remain under-explored in RL.
+
+Existing POMDP benchmarks have not kept pace with this rapid development.
+POPGym \citep{morad2023popgym} introduced a diverse set of memory tasks but evaluated only 4 classical architectures (MLP, GRU, LSTM, Transformer).
+POBAX \citep{tao2025pobax} added memory-improvability analysis but tested only 4 models with a single algorithm (PPO).
+Neither benchmark includes SSMs, linear attention, or modern gated recurrences, and neither examines how model rankings change across different RL algorithms.
+
+We present \memorax, a JAX \citep{jax2018github} library that addresses these gaps.
+\memorax provides 13 sequence models---spanning RNNs, SSMs, attention, and modern gated architectures---in a unified \texttt{SequenceModel} interface built on Flax \citep{flax2024github}.
+All models share a common network architecture (feature extractor $\to$ torso $\to$ head) and can be paired with any of 5 RL algorithms: PPO \citep{schulman2017ppo}, DQN \citep{mnih2015dqn}, SAC \citep{haarnoja2018sac}, PQN \citep{gallici2025pqn}, and R2D2 \citep{kapturowski2019r2d2}, with additional support for multi-agent RL and intrinsic rewards.
+Models amenable to parallel computation further implement the \memoroid abstraction, which expresses 8 of the 13 models as associative algebras, enabling $O(\log n)$ parallel training via \texttt{jax.lax.associative\_scan}.
+
+We benchmark all 13 models across 15 \popjym environments \citep{morad2023popgym} with 3 RL algorithms, using matched hidden state sizes (${\sim}512$ elements) and standardized hyperparameters.
+The resulting 2{,}925 runs (with 5 seeds each) constitute, to our knowledge, the most comprehensive evaluation of sequence models for memory in RL to date.
+
+
+% ============================================================================
+% 2. RELATED WORK
+% ============================================================================
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{POMDP Benchmarks.}
+POPGym \citep{morad2023popgym} introduced a suite of partially observable environments targeting specific memory capabilities including recall, retention, and pattern matching.
+The original benchmark evaluated GRU, LSTM, and Transformer architectures alongside several specialized memory modules, establishing baseline results across 15 task families.
+POPGym Arcade \citep{wang2025popgymarcade} extended this effort to pixel observations, requiring visual feature extraction before memory processing.
+POBAX \citep{tao2025pobax} contributed a formal analysis of memory improvability---characterizing which environments genuinely benefit from memory---and evaluated 4 models (MLP, GRU, S5, Transformer) with PPO.
+Our work is complementary: we adopt the \popjym (JAX-native) variant of POPGym environments and extend the evaluation from 4 to 13 models across 3 distinct RL algorithms.
+
+\paragraph{Sequence Models in RL.}
+The use of recurrent memory in RL has a long history, from LSTM-based deep Q-learning \citep{hausknecht2015drqn} to R2D2's burn-in and stored-state techniques for stabilizing recurrent replay \citep{kapturowski2019r2d2}.
+GTrXL \citep{parisotto2020gtrxl} introduced gated Transformer-XL for RL, demonstrating improved stability over vanilla Transformers through gated identity map connections.
+Individual SSMs have been explored in RL---S5 and Mamba have shown promise on specific domains---but no prior work systematically compares the full range of modern SSMs (Mamba, LRU, S5), gated recurrences (MinGRU, sLSTM, mLSTM, SHM), and attention variants (self-attention, linear attention) in a controlled setting with multiple RL algorithms.
+
+\paragraph{RL Libraries.}
+CleanRL \citep{huang2022cleanrl} provides clean single-file implementations of RL algorithms for reproducibility.
+PufferLib \citep{suarez2024pufferlib} focuses on environment compatibility and vectorization speed.
+Stoix \citep{toledo2024stoix} and PureJaxRL \citep{lu2023purejaxrl} offer JAX-native RL implementations emphasizing hardware acceleration.
+Syllabus \citep{sullivan2024syllabus} provides curriculum learning infrastructure for RL.
+None of these libraries focus on systematic memory architecture comparison.
+memax \citep{morad2025memax} provides a similar algebraic interface for sequence models in equinox, but does not include RL algorithms or benchmarking infrastructure.
+\memorax is the first library to combine a broad range of sequence models, multiple RL algorithms (including multi-agent and intrinsic reward variants), and a standardized benchmarking protocol in a single framework.
+
+% ============================================================================
+% 3. MEMORAX LIBRARY
+% ============================================================================
+\section{The \memorax Library}
+\label{sec:library}
+
+\subsection{Architecture}
+\label{sec:architecture}
+
+\memorax follows a modular architecture where every agent's neural network is composed of three stages:
+\begin{enumerate}[nosep]
+    \item \textbf{Feature Extractor}: processes raw observations (and optionally previous actions, rewards, and done signals) into a fixed-size embedding vector. \memorax supports MLP, CNN, and Vision Transformer extractors, with optional embedding layers for discrete inputs.
+    \item \textbf{Torso}: the sequence model that maintains memory across time. The torso is composed as a \texttt{Stack} of interleaved \texttt{GatedResidual(PreNorm(SequenceModel))} and \texttt{GatedResidual(PreNorm(FFN))} blocks, following the architecture patterns established by modern language models. The gated residual connections \citep{beck2024xlstm} stabilize training and the pre-normalization allows for stable gradient flow through deep stacks.
+    \item \textbf{Head}: a task-specific output layer producing Q-values (\texttt{DiscreteQNetwork}), policy distributions (\texttt{Categorical}, \texttt{Gaussian}), value estimates (\texttt{VNetwork}), or distributional outputs (\texttt{C51QNetwork}).
+\end{enumerate}
+This decomposition cleanly separates representation learning from temporal memory processing and task-specific outputs, enabling any sequence model to be combined with any RL algorithm through a shared \texttt{Network(feature\_extractor, torso, head)} interface.
+In our benchmark, the feature extractor projects observations to 256 dimensions and embeds previous actions via a 32-dimensional embedding layer, concatenated and projected to the torso's input dimension.
+
+\subsection{Sequence Models}
+\label{sec:sequence_models}
+
+Table~\ref{tab:models} lists all 13 sequence models implemented in \memorax, organized by architectural family.
+Each model implements a common \texttt{SequenceModel} interface with a uniform signature: given input features, an episode-boundary mask, and an optional hidden state (carry), the model returns the updated carry and a sequence of output features.
+This interface enables seamless swapping of any memory architecture into any RL algorithm.
+Models marked with $\star$ implement the \memoroid interface (Section~\ref{sec:memoroid}), enabling parallel training via associative scan.
+
+The four architectural families are:
+
+\textbf{Traditional RNNs.} GRU \citep{cho2014gru} and LSTM \citep{hochreiter1997lstm} are wrapped via Flax's \texttt{nn.RNN} module and processed sequentially. sLSTM \citep{beck2024xlstm} extends LSTM with exponential gating and multi-head layer normalization. SHM \citep{le2025shm} uses Hadamard-product-based recurrence with learnable rotation matrices.
+
+\textbf{State Space Models.} S5 \citep{smith2023s5} uses HIPPO-initialized diagonal state matrices with zero-order-hold discretization. LRU \citep{orvieto2023lru} parameterizes eigenvalues in polar form for stable complex-valued recurrence. Mamba \citep{gu2024mamba} introduces input-dependent (selective) state transitions with a multi-head architecture.
+
+\textbf{Modern Gated Recurrences.} MinGRU \citep{feng2024minGRU} reformulates GRU in log-space for numerical stability over long sequences. mLSTM \citep{beck2024xlstm} uses gated linear attention with a matrix-valued memory, combining key-value outer products with learned forget gates. FFM \citep{morad2023ffm} uses complex exponential basis functions with per-step decay for position-relative memory.
+
+\textbf{Attention.} Self-Attention \citep{vaswani2017attention} operates over a fixed context window with RoPE positional embeddings and causal masking.
+Linear Attention \citep{katharopoulos2020lineartransformers} replaces softmax with an ELU+1 feature map, enabling linear-time recurrent computation.
+
+\begin{table}[t]
+\centering
+\caption{Sequence models in \memorax. \textbf{Family}: architectural category. \textbf{Computation}: sequential scan or parallel associative scan. \textbf{State size}: hidden state elements for our benchmark configuration (${\sim}512$ target). Models marked $\star$ implement the \memoroid interface.}
+\label{tab:models}
+\vspace{0.5em}
+\small
+\begin{tabular}{@{}llllr@{}}
+\toprule
+\textbf{Model} & \textbf{Family} & \textbf{Computation} & \textbf{Reference} & \textbf{State Size} \\
+\midrule
+GRU            & RNN       & Sequential  & \citet{cho2014gru}              & 512 \\
+LSTM           & RNN       & Sequential  & \citet{hochreiter1997lstm}            & 512 \\
+sLSTM          & RNN       & Sequential  & \citet{beck2024xlstm}                & 512 \\
+SHM            & RNN       & Sequential  & \citet{le2025shm}                & 529 \\
+\midrule
+S5 $\star$     & SSM       & Parallel    & \citet{smith2023s5}           & 512 \\
+LRU $\star$    & SSM       & Parallel    & \citet{orvieto2023lru}       & 512 \\
+Mamba $\star$  & SSM       & Parallel    & \citet{gu2024mamba}                   & 512 \\
+\midrule
+MinGRU $\star$ & Gated     & Parallel    & \citet{feng2024minGRU}                  & 256 \\
+mLSTM $\star$  & Gated     & Parallel    & \citet{beck2024xlstm}                 & 544 \\
+FFM $\star$    & Gated     & Parallel    & \citet{morad2023ffm}           & 512 \\
+\midrule
+Self-Attention & Attention & Parallel    & \citet{vaswani2017attention}          & --- \\
+Linear Attn. $\star$   & Attention & Parallel    & \citet{katharopoulos2020lineartransformers} & 512 \\
+\midrule
+MLP            & None      & ---         & ---                                   & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{The \memoroid Abstraction}
+\label{sec:memoroid}
+
+While all models in \memorax share the same \texttt{SequenceModel} interface, a subset of models---SSMs, linear recurrences, and linear attention---admit an additional optimization: their recurrence can be formulated as an \emph{associative algebra} over carry states, enabling efficient parallel computation via prefix scan \citep{blelloch1990prefix}.
+The \memoroid abstraction captures this structure.
+
+Formally, a \memoroid is defined by a tuple $(S, f, \oplus, \text{read})$ where:
+\begin{itemize}[nosep]
+    \item $S$ is the set of carry states;
+    \item $f : X \to S$ maps each input to a carry element;
+    \item $\oplus : S \times S \to S$ is an associative binary operator;
+    \item $\text{read} : S \times X \to Y$ maps accumulated state and input to output.
+\end{itemize}
+
+Given a sequence of inputs $x_1, \ldots, x_T$, the model first maps each input to a carry element $z_t = f(x_t)$, then computes the prefix scan:
+\begin{equation}
+    h_t = z_1 \oplus z_2 \oplus \cdots \oplus z_t
+\end{equation}
+using \texttt{jax.lax.associative\_scan}, which executes in $O(\log T)$ parallel depth instead of $O(T)$ sequential steps.
+The output at each timestep is then $y_t = \text{read}(h_t, x_t)$.
+
+Episode boundaries are handled by incorporating a reset signal into the binary operator: when a done flag is encountered at position $t$, the operator replaces the combined carry with the fresh element $z_t$, effectively restarting memory at episode boundaries without breaking the associative scan structure.
+
+In code, each \memoroid cell implements three methods:
+\begin{itemize}[nosep]
+    \item \texttt{\_\_call\_\_(x)} $\to$ carry: map input to algebra element $z_t = f(x_t)$
+    \item \texttt{binary\_operator(a, b)} $\to$ carry: the associative combination $a \oplus b$
+    \item \texttt{read(h, x)} $\to$ output: extract output from accumulated state
+\end{itemize}
+
+Table~\ref{tab:algebras} shows the specific algebras for each \memoroid model.
+A striking pattern emerges: the SSMs (S5, LRU, Mamba) and FFM all share the \emph{same} diagonal linear recurrence structure with combine rule $(\alpha_b \cdot \alpha_a,\; \alpha_b \cdot s_a + s_b)$, where $\alpha$ is a decay factor and $s$ is the accumulated state.
+They differ only in how the decay and state are parameterized from the input.
+MinGRU uses the logaddexp operation for numerically stable log-space combination, while mLSTM uses a more complex 4-tuple with log-space stabilization for its matrix-valued memory.
+Linear Attention is the simplest algebra: pure additive accumulation of key-value outer products.
+
+\begin{table}[t]
+\centering
+\caption{Algebraic formulations of \memoroid cells. All SSMs share a diagonal linear recurrence; gated models and attention use distinct combination rules. Notation: $\text{sp}(\cdot) = \text{softplus}$, $\text{lse} = \text{logaddexp}$, $\phi(\cdot) = \text{ELU}+1$.}
+\label{tab:algebras}
+\vspace{0.5em}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Model} & \textbf{Element} $(z_t)$ & \textbf{Combine} $(a \oplus b)$ \\
+\midrule
+S5, LRU & $(\bar{\Lambda}, \bar{B} x_t)$ & $(\alpha_b \cdot \alpha_a,\; \alpha_b \cdot s_a + s_b)$ \\
+Mamba   & $(e^{\Delta_t A},\; B_t x_t \Delta_t)$ & $(\alpha_b \cdot \alpha_a,\; \alpha_b \cdot s_a + s_b)$ \\
+FFM     & $(e^{-\beta + i\omega},\; B x_t)$ & $(\alpha_b \cdot \alpha_a,\; \alpha_b \cdot s_a + s_b)$ \\
+MinGRU  & $(\log z_t + \log \tilde{h}_t,\; {-}\text{sp}(z_t))$ & $(\text{lse}(d_b + s_a, s_b),\; d_a + d_b)$ \\
+mLSTM   & $(\log f_t, i_t k_t v_t^\top, i_t k_t, m_t)$ & \emph{decay-weighted accumulation} \\
+Linear Attn. & $(\phi(k_t) v_t^\top,\; \phi(k_t))$ & $(S_a + S_b,\; n_a + n_b)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsection{Fair Comparison Protocol}
+\label{sec:fair_comparison}
+
+A meaningful benchmark requires controlled comparisons.
+We follow the protocol established by PopGym Arcade \citep{wang2025popgymarcade} and extend it to multiple algorithms:
+\begin{itemize}[nosep]
+    \item \textbf{Matched hidden state size}: All models are configured to have approximately 512 hidden state elements (Table~\ref{tab:models}), controlling for memory capacity across architectures. For complex-valued models (S5, LRU, FFM), we count each complex number as 2 real elements.
+    \item \textbf{Shared network architecture}: Every model uses the same feature extractor (single-layer MLP with 256 units plus a 32-dimensional action embedding), the same torso template (2 layers of GatedResidual(PreNorm(SequenceModel)) interleaved with GatedResidual(PreNorm(FFN))), and the same output head appropriate for each algorithm.
+    \item \textbf{Standardized hyperparameters}: Learning rate $5 \times 10^{-5}$ with linear decay to 0, gradient clipping at 0.5 (global norm), and Adam optimizer with $\epsilon = 10^{-5}$. These values follow the PopGym Arcade protocol.
+    \item \textbf{Fixed training budget}: 20M environment timesteps per run.
+    \item \textbf{Multiple seeds}: 5 independent random seeds per configuration.
+\end{itemize}
+All experiments use Hydra-based configuration management, ensuring exact reproducibility. The complete hyperparameter tables are provided in Appendix~\ref{app:hyperparameters}.
+
+% ============================================================================
+% 4. EXPERIMENTAL SETUP
+% ============================================================================
+\section{Experimental Setup}
+\label{sec:experiments}
+
+\subsection{Environments}
+\label{sec:envs}
+
+We evaluate on 15 \popjym environments \citep{morad2023popgym} spanning 5 task families, each with Easy, Medium, and Hard difficulty levels:
+
+\begin{itemize}[nosep]
+    \item \textbf{Autoencode}: The agent observes a sequence of symbols and must reproduce them in order after a delay. Tests sequential recall with increasing sequence lengths.
+    \item \textbf{Count Recall}: The agent tracks occurrences of symbols and must report the count when queried. Tests counting and selective recall under increasing vocabulary sizes.
+    \item \textbf{Repeat First}: The agent must remember and repeat the very first observation in an episode. Tests long-term retention as episode length increases.
+    \item \textbf{Repeat Previous}: The agent must repeat the observation from $k$ steps ago, where $k$ varies by difficulty. Tests fixed-delay recall with increasing delay.
+    \item \textbf{Concentration}: A card-matching game where the agent must remember card locations revealed during play. Tests associative memory with increasing board sizes.
+\end{itemize}
+Difficulty levels increase the sequence length, vocabulary size, or board size, placing progressively greater demands on memory capacity and precision. All environments are implemented in JAX, enabling full GPU vectorization across parallel environments without CPU-GPU synchronization overhead.
+
+\subsection{Algorithms}
+\label{sec:algorithms}
+
+We evaluate three RL algorithms representing distinct paradigms for training recurrent agents:
+
+\begin{itemize}[nosep]
+    \item \textbf{PQN} \citep{gallici2025pqn}: Parallelized Q-Network, an on-policy value-based method that uses vectorized environments with TD($\lambda$) targets and $\epsilon$-greedy exploration. PQN avoids replay buffers entirely, making it the simplest algorithm in our comparison and the most directly comparable to prior PopGym benchmarks that use on-policy methods.
+    \item \textbf{PPO} \citep{schulman2017ppo}: Proximal Policy Optimization, an on-policy policy gradient method with generalized advantage estimation \citep[GAE;][]{schulman2016gae}. PPO uses separate actor and critic networks that share the same torso architecture, providing a test of whether memory models can simultaneously support policy and value estimation.
+    \item \textbf{R2D2} \citep{kapturowski2019r2d2}: Recurrent Experience Replay in Distributed RL, an off-policy value-based method with prioritized sequence replay, burn-in, and stored hidden states. R2D2 tests whether sequence models maintain useful representations when trained on replayed, potentially off-distribution sequences---a challenge that disproportionately affects models with complex internal dynamics.
+\end{itemize}
+
+\subsection{Models}
+\label{sec:models_eval}
+
+We evaluate all 13 models from Table~\ref{tab:models} plus an MLP baseline with no temporal memory, serving as a lower bound that indicates how much performance can be achieved from single-step observations alone.
+All recurrent models use the same torso architecture: 2 layers of GatedResidual(PreNorm(SequenceModel)) interleaved with GatedResidual(PreNorm(FFN)) blocks, with an expansion factor of 4 for the FFN and a total output dimension of 256.
+Hyperparameters are held constant across all models within each algorithm; we deliberately do not perform per-model tuning, as this better reflects the practical scenario where a practitioner selects a memory architecture without extensive architecture-specific search.
+
+\subsection{Protocol}
+\label{sec:protocol}
+
+Each of the 13 models is paired with each of the 3 algorithms across all 15 environments, yielding $13 \times 3 \times 15 = 585$ unique configurations.
+Each configuration is run with 5 independent random seeds, for a total of 2{,}925 training runs.
+For PQN and PPO, we use 128 parallel environments with 128-step rollouts. For R2D2, we use 128 parallel environments feeding into a prioritized replay buffer of 1M transitions, with 32-step burn-in and 128-step training sequences.
+All runs train for 20M environment timesteps.
+Results are logged to Weights \& Biases for tracking and analysis.
+
+\subsection{Metrics}
+\label{sec:metrics}
+
+Following the recommendations of \citet{agarwal2021rliable} for reliable evaluation of RL algorithms, we report:
+\begin{itemize}[nosep]
+    \item \textbf{Mean episodic return}: the primary performance measure, averaged over the final 10\% of training timesteps across 5 seeds. This captures final performance after convergence.
+    \item \textbf{Interquartile mean (IQM)}: the mean of the middle 50\% of runs, providing a robust aggregate measure that is less sensitive to outlier runs than the mean.
+    \item \textbf{Performance profiles}: the empirical cumulative distribution of normalized scores across all tasks, enabling visual comparison of model robustness. A model whose curve is consistently above another's is better across more tasks.
+\end{itemize}
+Scores are min-max normalized per environment using the MLP baseline (no memory) as the lower bound, so a score of 0 indicates no benefit from memory and a score of 1 indicates the best performance observed for that environment.
+
+
+% ============================================================================
+% 5. RESULTS
+% ============================================================================
+\section{Results}
+\label{sec:results}
+
+\textit{Results will be populated once experiments complete. The sections below describe the planned analyses.}
+
+\subsection{Aggregate Performance}
+\label{sec:aggregate}
+
+We first examine aggregate performance across all 15 environments.
+Figure~\ref{fig:aggregate} shows the IQM performance profile for each model family, averaged across algorithms.
+
+% Placeholder for aggregate figure
+\begin{figure}[t]
+    \centering
+    % \includegraphics[width=\linewidth]{figures/aggregate_performance.pdf}
+    \fbox{\parbox{0.9\linewidth}{\centering\vspace{3em}\textit{Aggregate performance profiles (IQM) across all environments.}\vspace{3em}}}
+    \caption{Aggregate performance profiles across all 15 \popjym environments, comparing model families. Higher curves indicate better performance. Shaded regions show 95\% stratified bootstrap confidence intervals.}
+    \label{fig:aggregate}
+\end{figure}
+
+\subsection{Per-Environment Analysis}
+\label{sec:per_env}
+
+Figure~\ref{fig:heatmap} presents a heatmap of normalized performance (model $\times$ environment), revealing which memory types suit which tasks.
+
+% Placeholder for heatmap figure
+\begin{figure}[t]
+    \centering
+    % \includegraphics[width=\linewidth]{figures/heatmap.pdf}
+    \fbox{\parbox{0.9\linewidth}{\centering\vspace{3em}\textit{Performance heatmap: model $\times$ environment.}\vspace{3em}}}
+    \caption{Normalized mean return for each model across all 15 environments (averaged over algorithms and seeds). Darker colors indicate higher performance. Models are sorted by aggregate IQM.}
+    \label{fig:heatmap}
+\end{figure}
+
+\subsection{Algorithm Sensitivity}
+\label{sec:algorithm_sensitivity}
+
+A key question is whether model rankings are stable across RL algorithms, or whether the choice of algorithm confounds architecture comparisons.
+Figure~\ref{fig:algorithm_comparison} compares rankings under PQN, PPO, and R2D2 separately.
+
+% Placeholder for algorithm comparison figure
+\begin{figure}[t]
+    \centering
+    % \includegraphics[width=\linewidth]{figures/algorithm_comparison.pdf}
+    \fbox{\parbox{0.9\linewidth}{\centering\vspace{3em}\textit{Model rankings across PQN, PPO, and R2D2.}\vspace{3em}}}
+    \caption{Model rankings disaggregated by algorithm. Left: PQN. Center: PPO. Right: R2D2. Rank changes across algorithms indicate algorithm-sensitive models.}
+    \label{fig:algorithm_comparison}
+\end{figure}
+
+\subsection{Computational Efficiency}
+\label{sec:efficiency}
+
+We compare wall-clock training time for \memoroid models (parallel scan) versus sequential RNN models to quantify the practical benefit of the associative scan formulation.
+
+% Placeholder for efficiency figure
+\begin{figure}[t]
+    \centering
+    % \includegraphics[width=\linewidth]{figures/efficiency.pdf}
+    \fbox{\parbox{0.9\linewidth}{\centering\vspace{3em}\textit{Wall-clock time comparison.}\vspace{3em}}}
+    \caption{Steps per second (SPS) for each model during PQN training, measured on a single GPU. \memoroid models (parallel scan) are compared against sequential RNN baselines.}
+    \label{fig:efficiency}
+\end{figure}
+
+
+% ============================================================================
+% 6. DISCUSSION
+% ============================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{Key Findings.}
+\textit{To be completed once results are available. We anticipate discussing:}
+\begin{itemize}[nosep]
+    \item Which model families dominate overall and in which task categories.
+    \item Whether SSMs outperform classical RNNs, and whether attention still provides an advantage.
+    \item The degree to which model rankings shift across PQN, PPO, and R2D2.
+    \item Practical recommendations for practitioners choosing a memory architecture.
+\end{itemize}
+
+\paragraph{Limitations.}
+Several limitations should be noted.
+First, \popjym environments are relatively simple compared to real-world POMDPs---they isolate specific memory capabilities (recall, retention, pattern matching) rather than testing complex multi-step reasoning or long-horizon planning.
+Second, hidden state size matching is approximate: while all models target ${\sim}512$ state elements, the effective information capacity may differ due to architectural features.
+Complex-valued states (S5, LRU, FFM) encode phase information that has no real-valued analog, and structured states (mLSTM's matrix memory) may have different representational capacity per element than flat vectors.
+Third, hyperparameters are standardized rather than individually tuned per model, which may disadvantage architectures that are particularly sensitive to learning rate or other settings.
+Finally, we evaluate only discrete-action environments; continuous control POMDPs may yield different rankings, especially for policy gradient methods where the policy parameterization interacts with the memory architecture.
+
+\paragraph{Future Work.}
+Natural extensions include PopGym Arcade environments (pixel observations requiring CNN or ViT feature extractors), continuous control POMDPs (e.g., partially observable MuJoCo via proprioceptive masking), and multi-agent POMDPs (where communication and coordination create additional memory demands).
+Ablation studies on hidden state size (256 vs.\ 512 vs.\ 1024) and the number of stacked layers would further illuminate the interaction between memory capacity and task difficulty.
+The \memoroid abstraction could also be extended to incorporate chunked or segmented scan variants for improved memory efficiency in extremely long sequences.
+
+
+% ============================================================================
+% 7. CONCLUSION
+% ============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented \memorax, an open-source JAX library for benchmarking sequence models in memory-dependent reinforcement learning.
+By providing 13 models in a unified \texttt{SequenceModel} interface, 5 RL algorithms with support for multi-agent RL and intrinsic rewards, and a standardized evaluation protocol across 15 POMDP environments, \memorax enables the most comprehensive comparison of memory architectures for RL to date.
+Our benchmark of 2{,}925 runs reveals \textit{[key finding to be filled in]} and provides actionable guidance for practitioners selecting memory architectures.
+We release all code, configurations, and experiment logs to facilitate reproducibility and future research at \texttt{[anonymous URL]}.
+
+
+% ============================================================================
+% REFERENCES
+% ============================================================================
+\bibliographystyle{rlc}
+\bibliography{references}
+
+
+% ============================================================================
+% SUPPLEMENTARY MATERIAL (unlimited pages, after references)
+% ============================================================================
+\beginSupplementaryMaterials
+\appendix
+\section{Hyperparameter Tables}
+\label{app:hyperparameters}
+
+Tables~\ref{tab:pqn_hparams}--\ref{tab:r2d2_hparams} list the complete hyperparameters for each algorithm. These are held constant across all memory architectures.
+
+\begin{table}[ht]
+\centering
+\caption{PQN hyperparameters.}
+\label{tab:pqn_hparams}
+\vspace{0.5em}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Hyperparameter} & \textbf{Value} \\
+\midrule
+Number of environments & 128 \\
+Rollout length & 128 steps \\
+Number of minibatches & 32 \\
+Update epochs & 4 \\
+Discount ($\gamma$) & 0.99 \\
+TD($\lambda$) & 0.95 \\
+Learning rate & $5 \times 10^{-5}$ (linear decay to 0) \\
+Optimizer & Adam ($\epsilon = 10^{-5}$) \\
+Gradient clip (global norm) & 0.5 \\
+Epsilon schedule & $1.0 \to 0.05$ over 25\% of training \\
+Total timesteps & 20M \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{PPO hyperparameters.}
+\label{tab:ppo_hparams}
+\vspace{0.5em}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Hyperparameter} & \textbf{Value} \\
+\midrule
+Number of environments & 128 \\
+Rollout length & 128 steps \\
+Number of minibatches & 32 \\
+Update epochs & 4 \\
+Discount ($\gamma$) & 0.99 \\
+GAE $\lambda$ & 0.95 \\
+Clip coefficient & 0.2 \\
+Value loss clipping & True \\
+Entropy coefficient & 0.01 \\
+Value function coefficient & 0.5 \\
+Advantage normalization & True \\
+Learning rate & $5 \times 10^{-5}$ (linear decay to 0) \\
+Optimizer & Adam ($\epsilon = 10^{-5}$) \\
+Gradient clip (global norm) & 0.5 \\
+Total timesteps & 20M \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\caption{R2D2 hyperparameters.}
+\label{tab:r2d2_hparams}
+\vspace{0.5em}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Hyperparameter} & \textbf{Value} \\
+\midrule
+Number of environments & 128 \\
+Replay buffer size & 1M transitions \\
+Batch size & 128 sequences \\
+Burn-in length & 32 steps \\
+Training sequence length & 128 steps \\
+Discount ($\gamma$) & 0.99 \\
+Target network update ($\tau$) & 0.005 (Polyak averaging) \\
+Epsilon schedule & $1.0 \to 0.01$ over 25\% of training \\
+Priority exponent ($\alpha$) & 0.9 \\
+IS exponent ($\beta$) & $0.6 \to 1.0$ (linear anneal) \\
+Learning starts & 5{,}000 environment steps \\
+Train frequency & every 4 environment steps \\
+Learning rate & $5 \times 10^{-5}$ (linear decay to 0) \\
+Optimizer & Adam \\
+Gradient clip (global norm) & 0.5 \\
+Total timesteps & 20M \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Model Configuration Details}
+\label{app:model_configs}
+
+Table~\ref{tab:model_configs} shows the exact configuration parameters for each model and how the ${\sim}512$ hidden state size target is achieved.
+All models use \texttt{features=256} as their output dimension (input to the head), with internal dimensions adjusted to reach the target state size.
+
+\begin{table}[ht]
+\centering
+\caption{Detailed configuration for each model, showing how the ${\sim}512$ hidden state size target is achieved. Complex-valued elements are counted as 2 real elements.}
+\label{tab:model_configs}
+\vspace{0.5em}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Model} & \textbf{Key Parameters} & \textbf{State Size Calculation} \\
+\midrule
+GRU & features=512 & $512$ \\
+LSTM & features=256 & $256 \times 2 = 512$ (cell + hidden) \\
+sLSTM & features=256, hidden\_dim=64 & $256 + 256 = 512$ \\
+SHM & features=23, output\_features=256 & $23^2 = 529$ \\
+\midrule
+S5 & features=256, state\_size=128 & $128 \times 2 = 256$ (complex) $= 512$ real \\
+LRU & features=256, hidden\_dim=128 & $128 \times 2 = 256$ (complex) $= 512$ real \\
+Mamba & features=256, heads=2, head\_dim=16, state\_dim=16 & $2 \times 16 \times 16 = 512$ \\
+\midrule
+MinGRU & features=256 & $256$ \\
+mLSTM & features=256, hidden\_dim=32, heads=2 & $2 \times 16 \times (16 + 1) + 2 = 546$ \\
+FFM & features=256, memory=16, context=16 & $16 \times 16 \times 2 = 512$ real \\
+\midrule
+Self-Attention & features=256, heads=4, ctx=128 & $256 \times 128$ (KV cache) \\
+Linear Attn. & heads=2, head\_dim=16 & $2 \times 16 \times 16 + 2 \times 16 = 544$ \\
+\midrule
+MLP & features=256 & $0$ (stateless) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Full Learning Curves}
+\label{app:learning_curves}
+
+\textit{Complete learning curves for all model $\times$ algorithm $\times$ environment combinations will be included in the final version.}
+
+\end{document}

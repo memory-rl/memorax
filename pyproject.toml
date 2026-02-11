@@ -13,6 +13,21 @@ description = "A unified JAX/Flax framework for memory-augmented reinforcement l
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12,<3.13"
+authors = [{ name = "Noah Farr" }]
+keywords = ["jax", "flax", "reinforcement-learning", "memory", "rnn", "ssm", "transformer", "pomdp"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/memory-rl/memorax"
+Repository = "https://github.com/memory-rl/memorax"
+Documentation = "https://memorax.readthedocs.io"
+"Bug Tracker" = "https://github.com/memory-rl/memorax/issues"
 dependencies = [
     "jax>=0.7.2",
     "flax>=0.10.7",

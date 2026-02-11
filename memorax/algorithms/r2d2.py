@@ -187,7 +187,7 @@ class R2D2:
 
         state = state.replace(
             step=state.step + self.cfg.num_envs,
-            timestep=Timestep(obs=next_obs, action=action, reward=reward, done=done),
+            timestep=Timestep(obs=next_obs, action=action, reward=jnp.asarray(reward, dtype=jnp.float32), done=done),
             env_state=env_state,
             buffer_state=buffer_state,
         )

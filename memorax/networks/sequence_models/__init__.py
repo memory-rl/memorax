@@ -12,4 +12,4 @@ from .self_attention import SelfAttention
 from .sequence_model import SequenceModel
 from .shm import SHMCell
 from .slstm import sLSTMCell
-from .wrappers import MetaMaskWrapper, SequenceModelWrapper
+from .wrappers import RL2Wrapper, SequenceModelWrapper

@@ -45,7 +45,7 @@ Wrappers
 
 :class:`SequenceModelWrapper` - Wraps non-recurrent models.
 
-:class:`MetaMaskWrapper` - Wrapper for meta-learning with episode boundaries.
+:class:`RL2Wrapper` - RL² wrapper that preserves hidden state across episode boundaries within a trial.
 
 .. autosummary::
    :toctree: generated
@@ -65,4 +65,4 @@ Wrappers
    LinearAttentionCell
    SelfAttention
    SequenceModelWrapper
-   MetaMaskWrapper
+   RL2Wrapper

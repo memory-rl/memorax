@@ -20,12 +20,12 @@ class SequenceModelWrapper(SequenceModel, nn.Module):
 
 
 @struct.dataclass
-class MetaMaskState:
+class RL2State:
     carry: jnp.ndarray
     step: jnp.ndarray
 
 
-class MetaMaskWrapper(SequenceModel, nn.Module):
+class RL2Wrapper(SequenceModel, nn.Module):
     sequence_model: nn.Module
     steps_per_trial: int
 
@@ -42,12 +42,12 @@ class MetaMaskWrapper(SequenceModel, nn.Module):
         mask = steps % self.steps_per_trial == 0
 
         carry, outputs = self.sequence_model(inputs, mask, initial_carry.carry)
-        carry = MetaMaskState(carry=carry, step=initial_carry.step + sequence_length)
+        carry = RL2State(carry=carry, step=initial_carry.step + sequence_length)
         return carry, outputs
 
     def initialize_carry(self, key, input_shape):
         batch_size, *_, features = input_shape
-        return MetaMaskState(
+        return RL2State(
             carry=self.sequence_model.initialize_carry(key, (batch_size, features)),
             step=jnp.zeros((batch_size,), dtype=jnp.int32),
         )

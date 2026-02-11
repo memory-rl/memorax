@@ -9,7 +9,7 @@ from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import (RNN, Embedding, FeatureExtractor,
-                              MetaMaskWrapper, Network, heads)
+                              RL2Wrapper, Network, heads)
 
 total_timesteps = 1_000_000
 num_train_steps = 100_000
@@ -56,7 +56,7 @@ actor_network = Network(
             num_embeddings=2,
         ),
     ),
-    torso=MetaMaskWrapper(
+    torso=RL2Wrapper(
         sequence_model=RNN(cell=nn.GRUCell(features=256)), steps_per_trial=1000
     ),
     head=heads.Categorical(
@@ -85,7 +85,7 @@ critic_network = Network(
             num_embeddings=2,
         ),
     ),
-    torso=MetaMaskWrapper(
+    torso=RL2Wrapper(
         sequence_model=RNN(cell=nn.GRUCell(features=256)), steps_per_trial=1000
     ),
     head=heads.VNetwork(),

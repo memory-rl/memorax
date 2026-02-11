@@ -8,5 +8,5 @@ uv run main.py -m \
   algorithm=pqn \
   environment=$ENVS \
   torso=$TORSOS \
-  num_seeds=5 \
-  logger=wandb
+  num_seeds=1 \
+  logger=[dashboard,wandb]

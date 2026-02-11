@@ -93,8 +93,12 @@ class MemoroidCellBase(nn.Module):
         """
         return None
 
+    def get_param_indices(self):
+        """Return dict mapping parameter names to index arrays for compressed jacobians."""
+        return {}
+
     def initialize_sensitivity(self, key, input_shape):
-        """Return (sensitivity_dict, param_indices_dict) or None if RTRL unsupported."""
+        """Return sensitivity_dict or None if RTRL unsupported."""
         return None
 
 
@@ -158,11 +162,11 @@ class Memoroid(SequenceModel):
     @nn.compact
     def local_jacobian(self, inputs, mask, carry, sensitivity=None, **kwargs):
         z = self.cell(inputs, **kwargs)
+        param_indices = self.cell.get_param_indices()
 
         if sensitivity is not None:
-            sens_dict, param_indices = sensitivity
             params = self.variables['params']['cell']
-            phantom = _compute_phantom(sens_dict, param_indices, params)
+            phantom = _compute_phantom(sensitivity, param_indices, params)
             if phantom is not None:
                 carry = (carry[0] + phantom.reshape(carry[0].shape), *carry[1:])
 
@@ -171,17 +175,15 @@ class Memoroid(SequenceModel):
 
         next_sensitivity = None
         if sensitivity is not None:
-            sens_dict, param_indices = sensitivity
             prev_carry = jax.tree.map(
                 lambda c, hh: jnp.concatenate([c, hh[:, :-1]], axis=1),
                 carry, h,
             )
             decay, jacobians = self.cell.local_jacobian(prev_carry, z, inputs)
             if jacobians:
-                next_sens_dict = _propagate_sensitivities(decay, jacobians, sens_dict, mask)
+                next_sensitivity = _propagate_sensitivities(decay, jacobians, sensitivity, mask)
             else:
-                next_sens_dict = sens_dict
-            next_sensitivity = (next_sens_dict, param_indices)
+                next_sensitivity = sensitivity
 
         return next_carry, y, next_sensitivity
 

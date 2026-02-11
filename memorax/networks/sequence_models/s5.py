@@ -197,10 +197,10 @@ class S5Cell(MemoroidCellBase):
         *batch_dims, _ = input_shape
         H = self.state_size
         z = lambda *s: jnp.zeros((*batch_dims, 1, *s), dtype=jnp.complex64)
-        sens = {
+        sensitivity = {
             "lambda_real": z(H),
             "lambda_imag": z(H),
             "b": z(H, self.features, 2),
             "log_step": z(H),
         }
-        return sens, {}
+        return sensitivity

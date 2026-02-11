@@ -313,12 +313,15 @@ class mLSTMCell(MemoroidCellBase):
             "i_gate/bias": J_igate,
         }
 
+    def get_param_indices(self):
+        head_dim = self.hidden_dim // self.num_heads
+        H = self.num_heads * head_dim * head_dim
+        idx = jnp.arange(H) // (head_dim * head_dim)
+        return {"f_gate/bias": idx, "i_gate/bias": idx}
+
     def initialize_sensitivity(self, key, input_shape):
         *batch_dims, _ = input_shape
         head_dim = self.hidden_dim // self.num_heads
         H = self.num_heads * head_dim * head_dim
         z = jnp.zeros((*batch_dims, 1, H))
-        sens = {"f_gate/bias": z, "i_gate/bias": z}
-        idx = jnp.arange(H) // (head_dim * head_dim)
-        indices = {"f_gate/bias": idx, "i_gate/bias": idx}
-        return sens, indices
+        return {"f_gate/bias": z, "i_gate/bias": z}

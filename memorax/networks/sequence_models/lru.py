@@ -130,11 +130,11 @@ class LRUCell(MemoroidCellBase):
         *batch_dims, _ = input_shape
         H = self.hidden_dim
         z = lambda *s: jnp.zeros((*batch_dims, 1, *s), dtype=jnp.complex64)
-        sens = {
+        sensitivity = {
             "nu_log": z(H),
             "theta_log": z(H),
             "gamma_log": z(H),
             "B_real": z(H, self.features),
             "B_imag": z(H, self.features),
         }
-        return sens, {}
+        return sensitivity

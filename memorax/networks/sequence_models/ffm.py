@@ -163,13 +163,15 @@ class FFMCell(MemoroidCellBase):
 
         return decay, {"a": J_a, "b": J_b}
 
+    def get_param_indices(self):
+        H = self.memory_size * self.context_size
+        return {
+            "a": jnp.arange(H) // self.context_size,
+            "b": jnp.arange(H) % self.context_size,
+        }
+
     def initialize_sensitivity(self, key, input_shape):
         *batch_dims, _ = input_shape
         H = self.memory_size * self.context_size
         z = jnp.zeros((*batch_dims, 1, H), dtype=self._complex_dtype())
-        sens = {"a": z, "b": z}
-        indices = {
-            "a": jnp.arange(H) // self.context_size,
-            "b": jnp.arange(H) % self.context_size,
-        }
-        return sens, indices
+        return {"a": z, "b": z}

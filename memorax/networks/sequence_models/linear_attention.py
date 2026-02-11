@@ -145,4 +145,4 @@ class LinearAttentionCell(MemoroidCellBase):
         return decay, {}
 
     def initialize_sensitivity(self, key, input_shape):
-        return {}, {}
+        return {}

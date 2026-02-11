@@ -183,11 +183,13 @@ class MambaCell(MemoroidCellBase):
 
         return decay_flat, {"A_log": J_Alog, "dt_bias": J_dtbias}
 
+    def get_param_indices(self):
+        H = self.num_heads * self.state_dim * self.head_dim
+        idx = jnp.arange(H) // (self.state_dim * self.head_dim)
+        return {"A_log": idx, "dt_bias": idx}
+
     def initialize_sensitivity(self, key, input_shape):
         *batch_dims, _ = input_shape
         H = self.num_heads * self.state_dim * self.head_dim
         z = jnp.zeros((*batch_dims, 1, H), dtype=self.dtype)
-        sens = {"A_log": z, "dt_bias": z}
-        idx = jnp.arange(H) // (self.state_dim * self.head_dim)
-        indices = {"A_log": idx, "dt_bias": idx}
-        return sens, indices
+        return {"A_log": z, "dt_bias": z}

@@ -10,7 +10,7 @@
   <a href="https://memorax.readthedocs.io/"><img src="https://img.shields.io/readthedocs/memorax" /></a>
 </p>
 
-Most JAX RL libraries treat memory as an afterthought, bolting an LSTM onto an existing agent and calling it done. `Memorax` makes memory a first-class citizen. It provides a composable set of sequence model primitives (attention, SSMs, linear RNNs, and more) that snap together into full architectures like GTrXL or xLSTM, paired with algorithms and replay buffers designed from the ground up for recurrent training. Whether you're benchmarking a new memory architecture on POMDPs or scaling recurrent agents across environments, Memorax gives you the building blocks to do it entirely in JAX.
+Most JAX RL libraries treat memory as an afterthought, bolting an LSTM onto an existing agent and calling it done. `Memorax` makes memory a first-class citizen. It provides a composable set of sequence model primitives (attention, SSMs, linear RNNs, and more) that snap together into full architectures like `GTrXL` or `xLSTM`, paired with algorithms and replay buffers designed from the ground up for recurrent training. Whether you're benchmarking a new memory architecture on POMDPs or scaling recurrent agents across environments, `Memorax` gives you the building blocks to do it entirely in JAX.
 
 ## ✨ Features
 
@@ -25,13 +25,13 @@ Most JAX RL libraries treat memory as an afterthought, bolting an LSTM onto an e
 
 ## 📥 Installation
 
-Install Memorax using pip:
+Install `Memorax` using pip:
 
 ```bash
 pip install memorax
 ```
 
-Optionally you can add support for CUDA with:
+Optionally you can add support for `CUDA` with:
 
 ```bash
 pip install memorax[cuda]
@@ -45,15 +45,46 @@ wandb login
 
 ## 🚀 Quick Start
 
-Run a default DQN experiment on CartPole:
+Train a DQN agent on CartPole in under 30 lines:
 
-```bash
-uv run examples/dqn_cartpole.py
+```python
+import flax.linen as nn
+import jax
+import optax
+from flashbax import make_item_buffer
+from memorax.algorithms import DQN, DQNConfig
+from memorax.environments import environment
+from memorax.networks import FeatureExtractor, Network, heads
+
+env, env_params = environment.make("gymnax::CartPole-v1")
+
+cfg = DQNConfig(
+    name="dqn", num_envs=10, num_eval_envs=10, buffer_size=10_000,
+    gamma=0.99, tau=1.0, target_network_frequency=500, batch_size=64,
+    start_e=1.0, end_e=0.05, exploration_fraction=0.5, train_frequency=10,
+)
+
+q_network = Network(
+    feature_extractor=FeatureExtractor(observation_extractor=nn.Sequential([nn.Dense(120), nn.relu])),
+    torso=nn.Sequential([nn.Dense(84), nn.relu]),
+    head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
+)
+
+optimizer = optax.adam(3e-4)
+buffer = make_item_buffer(max_length=cfg.buffer_size, min_length=cfg.batch_size,
+                          sample_batch_size=cfg.batch_size, add_sequences=True, add_batches=True)
+epsilon = optax.linear_schedule(cfg.start_e, cfg.end_e, 250_000, 10_000)
+
+agent = DQN(cfg, env, env_params, q_network, optimizer, buffer, epsilon)
+key, state = agent.init(jax.random.key(0))
+key, state, transitions = agent.train(key, state, num_steps=500_000)
 ```
+
+See `examples/` for complete scripts with logging and evaluation.
 
 ## 💡 Advanced Usage
 
-Memorax's real power is in its composable network primitives. Here's a full PPO agent with a GTrXL-style architecture, built by snapping together modular blocks:
+`Memorax`'s real power is in its composable network primitives. Here's a `PPO` agent with a `GTrXL`-style architecture, built by snapping together modular blocks:
 
 ```python
 import jax
@@ -101,7 +132,7 @@ key, state = agent.init(jax.random.key(0))
 key, state, transitions = agent.train(key, state, num_steps=10_000)
 ```
 
-See `examples/architectures` for more architecture compositions including xLSTM and GPT-2 style networks.
+See `examples/architectures` for more architecture compositions including `xLSTM` and `GPT-2` style networks.
 
 ## 📂 Project Structure
 ```
@@ -118,12 +149,12 @@ memorax/
 
 ## 🧩 JAX POMDP Ecosystem
 
-Memorax is designed to work alongside a growing suite of JAX-native tools focused on partial observability and memory. These projects provide the foundational architectures and benchmarks for modern memory-augmented RL:
+`Memorax` is designed to work alongside a growing suite of JAX-native tools focused on partial observability and memory. These projects provide the foundational architectures and benchmarks for modern memory-augmented RL:
 
 ### 🧠 Architectures & Infrastructure
 * **[Memax](https://github.com/smorad/memax):** A library for efficient sequence and recurrent modeling in JAX. It provides unified interfaces for fast recurrent state resets and associative scans, serving as a powerful primitive for building memory architectures.
-* **[Flashbax](https://github.com/instadeepai/flashbax):** The library powering `Memorax's` buffer system. It provides high-performance, JAX-native experience replay buffers optimized for sequence storage and prioritized sampling.
-* **[Gymnax](https://github.com/RobertTLange/gymnax):** The standard for JAX-native RL environments. Memorax provides seamless wrappers to run recurrent agents on these vectorized tasks.
+* **[Flashbax](https://github.com/instadeepai/flashbax):** The library powering `Memorax`'s buffer system. It provides high-performance, JAX-native experience replay buffers optimized for sequence storage and prioritized sampling.
+* **[Gymnax](https://github.com/RobertTLange/gymnax):** The standard for JAX-native RL environments. `Memorax` provides seamless wrappers to run recurrent agents on these vectorized tasks.
 
 ### 🎮 POMDP Benchmarks & Environments
 * **[PopGym Arcade](https://github.com/bolt-lab/popgym-arcade):** A JAX-native suite of "pixel-perfect" POMDP environments. It features Atari-style games specifically designed to test long-term memory with hardware-accelerated rendering.
@@ -137,7 +168,7 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ## 📚 Citation
 
-If you use Memory-RL for your work, please cite:
+If you use `Memorax` for your work, please cite:
 ```
 @software{memorax2025github,
   title   = {Memorax: A Unified Framework for Memory-Augmented Reinforcement Learning},

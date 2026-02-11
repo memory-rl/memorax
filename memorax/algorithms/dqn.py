@@ -28,7 +28,6 @@ class DQNConfig:
     start_e: float
     end_e: float
     exploration_fraction: float
-    learning_starts: int
     train_frequency: int
     burn_in_length: int = 0
 

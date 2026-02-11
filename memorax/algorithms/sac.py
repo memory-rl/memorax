@@ -33,7 +33,6 @@ class SACConfig:
     batch_size: int
     initial_alpha: float
     target_entropy_scale: float
-    learning_starts: int
     max_grad_norm: float
     burn_in_length: int = 0
 

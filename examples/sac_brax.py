@@ -35,7 +35,6 @@ cfg = SACConfig(
     batch_size=128,
     initial_alpha=1.0,
     target_entropy_scale=1.0,
-    learning_starts=10_000,
     max_grad_norm=0.5,
     train_frequency=10,
 )

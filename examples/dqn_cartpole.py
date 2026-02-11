@@ -29,9 +29,10 @@ cfg = DQNConfig(
     start_e=1.0,
     end_e=0.05,
     exploration_fraction=0.5,
-    learning_starts=10_000,
     train_frequency=10,
 )
+
+learning_starts = 10_000
 
 q_network = Network(
     feature_extractor=FeatureExtractor(observation_extractor=nn.Sequential([nn.Dense(120), nn.relu])),
@@ -57,7 +58,7 @@ epsilon_schedule = optax.linear_schedule(
     cfg.start_e,
     cfg.end_e,
     int(cfg.exploration_fraction * total_timesteps),
-    cfg.learning_starts,
+    learning_starts,
 )
 
 key = jax.random.key(0)

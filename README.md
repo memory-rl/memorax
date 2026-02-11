@@ -1,25 +1,27 @@
-# 🧠 Memorax
+<h1 align="center">
+  <a href="https://github.com/memory-rl/memorax/blob/main/images/memorax_logo.png"><img src="https://github.com/memory-rl/memorax/blob/main/images/memorax_logo.png?raw=true" /></a><br>
+  <b>Memory-Augmented Reinforcement Learning in JAX 🧠</b><br>
+</h1>
 
-A unified reinforcement learning framework featuring memory-augmented algorithms and POMDP environment implementations. This repository provides modular components for building, configuring, and running a variety of RL algorithms on classic and memory-intensive environments.
+<p align="center">
+  <a href="https://pypi.org/project/memorax/"><img src="https://img.shields.io/pypi/v/memorax.svg" /></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg" /></a>
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" /></a>
+  <a href="https://memorax.readthedocs.io/"><img src="https://img.shields.io/readthedocs/memorax" /></a>
+</p>
 
-<div align="center">
-    <img src="https://github.com/memory-rl/memorax/blob/main/images/memorax_logo.png" height="170">
-
-[![PyPI version](https://img.shields.io/pypi/v/memorax.svg)](https://pypi.org/project/memorax/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Documentation](https://img.shields.io/readthedocs/memorax)](https://memorax.readthedocs.io/)
-</div>
+Most JAX RL libraries treat memory as an afterthought, bolting an LSTM onto an existing agent and calling it done. `Memorax` makes memory a first-class citizen. It provides a composable set of sequence model primitives (attention, SSMs, linear RNNs, and more) that snap together into full architectures like GTrXL or xLSTM, paired with algorithms and replay buffers designed from the ground up for recurrent training. Whether you're benchmarking a new memory architecture on POMDPs or scaling recurrent agents across environments, Memorax gives you the building blocks to do it entirely in JAX.
 
 ## ✨ Features
 
-* 🤖 **Memory-RL**: JAX implementations of [DQN](https://arxiv.org/abs/1312.5602), [PPO](https://arxiv.org/abs/1707.06347) (Discrete & Continuous), [SAC](https://arxiv.org/abs/1801.01290) (Discrete & Continuous), [PQN](https://arxiv.org/abs/2407.04811v2#S4), [IPPO](https://arxiv.org/abs/2011.09533), [R2D2](https://openreview.net/forum?id=r1lyTjAqYX), and their memory-augmented variants with burn-in support for recurrent networks.
-* 📦 **Pure JAX Episode Buffer**: A fully JAX-native episode buffer implementation enabling efficient storage and sampling of complete episodes for recurrent training, with support for [Prioritized Experience Replay](https://arxiv.org/abs/1511.05952).
-* 🔁 **Sequence Models**: LSTM/GRU (via Flax), sLSTM/mLSTM, FFM/SHM, S5/LRU/Mamba/MinGRU, plus Self-Attention and Linear Attention blocks. GPT-2/GTrXL/xLSTM-style architectures are composed from these primitives (see `examples/architectures`).
-* 🧬 **Networks**: MLP, CNN, and [ViT](https://arxiv.org/abs/2010.11929) encoders with support for [RoPE](https://arxiv.org/abs/2104.09864) and [ALiBi](https://arxiv.org/abs/2108.12409) positional embeddings, and [Mixture of Experts (MoE)](https://arxiv.org/abs/1701.06538) for horizontal scaling.
-* 🎮 **Environments**: Support for [Gymnax](https://github.com/RobertTLange/gymnax), [PopJym](https://github.com/EdanToledo/popjym), [PopGym Arcade](https://github.com/bolt-research/popgym-arcade), [Navix](https://github.com/epignatelli/navix), [Craftax](https://github.com/MichaelTMatthews/Craftax), [Brax](https://github.com/google/brax), [MuJoCo](https://github.com/google-deepmind/mujoco_playground), [gxm](https://github.com/huterguier/gxm), [XMiniGrid](https://github.com/corl-team/xland-minigrid), and [JaxMARL](https://github.com/FLAIROx/JaxMARL).
-* 📊 **Logging & Sweeps**: Support for a CLI Dashboard, [Weights & Biases](https://wandb.ai), [TensorboardX](https://github.com/lanpa/tensorboardX), and [Neptune](https://neptune.ai).
-* 🔧 **Easy to Extend**: Clear directory structure for adding new networks, algorithms, or environments.
+| | Details |
+|---|---|
+| 🤖 **Algorithms** | [DQN](https://arxiv.org/abs/1312.5602), [PPO](https://arxiv.org/abs/1707.06347), [SAC](https://arxiv.org/abs/1801.01290), [PQN](https://arxiv.org/abs/2407.04811v2#S4), [IPPO](https://arxiv.org/abs/2011.09533), [R2D2](https://openreview.net/forum?id=r1lyTjAqYX) + memory-augmented variants with burn-in |
+| 📦 **Buffers** | Pure JAX episode replay with prioritized sampling via [Flashbax](https://github.com/instadeepai/flashbax) |
+| 🔁 **Sequence Models** | [LSTM](https://doi.org/10.1162/neco.1997.9.8.1735), [GRU](https://arxiv.org/abs/1406.1078), [xLSTM](https://arxiv.org/abs/2405.04517), [FFM](https://arxiv.org/abs/2310.04128), [SHM](https://arxiv.org/abs/2410.10132), [S5](https://arxiv.org/abs/2208.04933), [LRU](https://arxiv.org/abs/2303.06349), [Mamba](https://arxiv.org/abs/2312.00752), [MinGRU](https://arxiv.org/abs/2410.01201), [Self-Attention](https://arxiv.org/abs/1706.03762), [Linear Attention](https://arxiv.org/abs/2006.16236). Compose into GTrXL, GPT-2, and more |
+| 🧬 **Networks** | Composable network pipeline with separate `feature extractor`, `torso`, and `head`. Choose which POMDP signals to embed: observation, action, reward, done |
+| 🎮 **Environments** | [Gymnax](https://github.com/RobertTLange/gymnax), [PopJym](https://github.com/EdanToledo/popjym), [PopGym Arcade](https://github.com/bolt-research/popgym-arcade), [Navix](https://github.com/epignatelli/navix), [Craftax](https://github.com/MichaelTMatthews/Craftax), [Brax](https://github.com/google/brax), [MuJoCo](https://github.com/google-deepmind/mujoco_playground), [gxm](https://github.com/huterguier/gxm), [XMiniGrid](https://github.com/corl-team/xland-minigrid), [JaxMARL](https://github.com/FLAIROx/JaxMARL) |
+| 📊 **Logging** | CLI Dashboard, [W&B](https://wandb.ai), [TensorboardX](https://github.com/lanpa/tensorboardX), [Neptune](https://neptune.ai) |
 
 ## 📥 Installation
 
@@ -27,12 +29,6 @@ Install Memorax using pip:
 
 ```bash
 pip install memorax
-```
-
-Or using uv:
-
-```bash
-uv add memorax
 ```
 
 Optionally you can add support for CUDA with:
@@ -55,7 +51,9 @@ Run a default DQN experiment on CartPole:
 uv run examples/dqn_cartpole.py
 ```
 
-## 💻 Usage
+## 💡 Advanced Usage
+
+Memorax's real power is in its composable network primitives. Here's a full PPO agent with a GTrXL-style architecture, built by snapping together modular blocks:
 
 ```python
 import jax
@@ -103,6 +101,8 @@ key, state = agent.init(jax.random.key(0))
 key, state, transitions = agent.train(key, state, num_steps=10_000)
 ```
 
+See `examples/architectures` for more architecture compositions including xLSTM and GPT-2 style networks.
+
 ## 📂 Project Structure
 ```
 memorax/
@@ -122,7 +122,7 @@ Memorax is designed to work alongside a growing suite of JAX-native tools focuse
 
 ### 🧠 Architectures & Infrastructure
 * **[Memax](https://github.com/smorad/memax):** A library for efficient sequence and recurrent modeling in JAX. It provides unified interfaces for fast recurrent state resets and associative scans, serving as a powerful primitive for building memory architectures.
-* **[Flashbax](https://github.com/instadeepai/flashbax):** The library powering Memorax's buffer system. It provides high-performance, JAX-native experience replay buffers optimized for sequence storage and prioritized sampling.
+* **[Flashbax](https://github.com/instadeepai/flashbax):** The library powering `Memorax's` buffer system. It provides high-performance, JAX-native experience replay buffers optimized for sequence storage and prioritized sampling.
 * **[Gymnax](https://github.com/RobertTLange/gymnax):** The standard for JAX-native RL environments. Memorax provides seamless wrappers to run recurrent agents on these vectorized tasks.
 
 ### 🎮 POMDP Benchmarks & Environments

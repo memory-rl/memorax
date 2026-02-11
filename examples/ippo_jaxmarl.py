@@ -40,11 +40,11 @@ cfg = IPPOConfig(
 d_model = 128
 
 feature_extractor = FeatureExtractor(
-    observation_extractor=nn.Sequential([nn.Dense(
-        d_model, kernel_init=nn.initializers.orthogonal(scale=1.414)
-    ), nn.relu]),
+    observation_extractor=nn.Sequential((
+        nn.Dense(d_model, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu,
+        nn.Dense(d_model, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu,
+    )),
 )
-torso = nn.Sequential([nn.Dense(d_model, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu])
 
 action_space = env.action_spaces[env.agents[0]]
 
@@ -58,7 +58,7 @@ VmappedNetwork = nn.vmap(
 
 actor_network = VmappedNetwork(
     feature_extractor=feature_extractor,
-    torso=torso,
+
     head=heads.Categorical(
         action_dim=action_space.n,
         kernel_init=nn.initializers.orthogonal(scale=0.01),
@@ -67,7 +67,7 @@ actor_network = VmappedNetwork(
 
 critic_network = VmappedNetwork(
     feature_extractor=feature_extractor,
-    torso=torso,
+
     head=heads.VNetwork(
         kernel_init=nn.initializers.orthogonal(scale=1.0),
     ),

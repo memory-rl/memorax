@@ -65,8 +65,7 @@ cfg = DQNConfig(
 )
 
 q_network = Network(
-    feature_extractor=FeatureExtractor(observation_extractor=nn.Sequential([nn.Dense(120), nn.relu])),
-    torso=nn.Sequential([nn.Dense(84), nn.relu]),
+    feature_extractor=FeatureExtractor(observation_extractor=nn.Sequential((nn.Dense(120), nn.relu, nn.Dense(84), nn.relu))),
     head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
 )
 

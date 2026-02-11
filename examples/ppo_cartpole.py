@@ -8,7 +8,7 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import FFN, FeatureExtractor, Network, heads
+from memorax.networks import FeatureExtractor, Network, heads
 
 total_timesteps = 500_000
 num_train_steps = 10_000
@@ -36,14 +36,13 @@ cfg = PPOConfig(
 )
 
 feature_extractor = FeatureExtractor(
-    observation_extractor=nn.Sequential([nn.Dense(
-        128, kernel_init=nn.initializers.orthogonal(scale=1.414)
-    ), nn.relu]),
+    observation_extractor=nn.Sequential((
+        nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu,
+        nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu,
+    )),
 )
-torso = FFN(features=128, kernel_init=nn.initializers.orthogonal(scale=1.414))
 actor_network = Network(
     feature_extractor=feature_extractor,
-    torso=torso,
     head=heads.Categorical(
         action_dim=env.action_space(env_params).n,
         kernel_init=nn.initializers.orthogonal(scale=0.01),
@@ -52,7 +51,6 @@ actor_network = Network(
 
 critic_network = Network(
     feature_extractor=feature_extractor,
-    torso=torso,
     head=heads.VNetwork(
         kernel_init=nn.initializers.orthogonal(scale=1.0),
     ),

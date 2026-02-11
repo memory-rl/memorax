@@ -41,16 +41,16 @@ cfg = PPOConfig(
 
 actor_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential([nn.Dense(
+        observation_extractor=nn.Sequential((nn.Dense(
             192, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu]),
+        ), nn.relu)),
         action_extractor=Embedding(
             features=32,
             num_embeddings=env.action_space(env_params).n,
         ),
-        reward_extractor=nn.Sequential([nn.Dense(
+        reward_extractor=nn.Sequential((nn.Dense(
             16, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu]),
+        ), nn.relu)),
         done_extractor=Embedding(
             features=16,
             num_embeddings=2,
@@ -70,16 +70,16 @@ actor_optimizer = optax.chain(
 
 critic_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential([nn.Dense(
+        observation_extractor=nn.Sequential((nn.Dense(
             192, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu]),
+        ), nn.relu)),
         action_extractor=Embedding(
             features=32,
             num_embeddings=env.action_space(env_params).n,
         ),
-        reward_extractor=nn.Sequential([nn.Dense(
+        reward_extractor=nn.Sequential((nn.Dense(
             16, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu]),
+        ), nn.relu)),
         done_extractor=Embedding(
             features=16,
             num_embeddings=2,

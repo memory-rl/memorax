@@ -415,13 +415,22 @@ class R2D2:
         )
         optimizer_state = self.optimizer.init(params)
 
+        _, intermediates = self.q_network.apply(
+            params, timestep.obs, timestep.done, timestep.action,
+            add_feature_axis(timestep.reward), timestep.done, carry,
+            rngs={"memory": memory_key}, mutable=['intermediates'],
+        )
+        intermediates = jax.tree.map(
+            jnp.mean, intermediates.get('intermediates', {}),
+        )
+
         transition = Transition(
             obs=obs,
             action=action,
             reward=reward,
             next_obs=obs,
             done=done,
-            info=info,
+            info={**info, "intermediates": intermediates},
             prev_action=action,
             prev_reward=reward,
             prev_done=done,

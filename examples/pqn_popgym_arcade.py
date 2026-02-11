@@ -32,7 +32,7 @@ cfg = PQNConfig(
 
 q_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential([
+        observation_extractor=nn.Sequential((
             nn.Conv(features=64, kernel_size=(5, 5), strides=(2, 2)),
             nn.relu,
             nn.LayerNorm(),
@@ -49,13 +49,14 @@ q_network = Network(
             nn.relu,
             nn.LayerNorm(),
             lambda x: x.reshape((x.shape[0], x.shape[1], -1)),
-        ]),
+            nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+            nn.relu,
+        )),
         action_extractor=Embedding(
             num_embeddings=env.action_space(env_params).n,
             features=5,
         ),
     ),
-    torso=nn.Sequential([nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu]),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,
     ),

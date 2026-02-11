@@ -224,6 +224,16 @@ class SAC:
         *_, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
+
+        _, intermediates = self.actor_network.apply(
+            actor_params, timestep.obs, timestep.done, timestep.action,
+            add_feature_axis(timestep.reward), timestep.done, actor_carry,
+            mutable=['intermediates'],
+        )
+        intermediates = jax.tree.map(
+            jnp.mean, intermediates.get('intermediates', {}),
+        )
+
         transition = Transition(
             obs=obs,
             prev_done=done,
@@ -233,7 +243,7 @@ class SAC:
             reward=reward,
             next_obs=obs,
             done=done,
-            info=info,
+            info={**info, "intermediates": intermediates},
             carry=actor_carry,
         )
         buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))

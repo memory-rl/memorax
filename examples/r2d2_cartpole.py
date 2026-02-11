@@ -42,7 +42,7 @@ cfg = R2D2Config(
 learning_starts = 10_000
 
 q_network = Network(
-    feature_extractor=FeatureExtractor(observation_extractor=nn.Sequential([nn.Dense(64), nn.relu])),
+    feature_extractor=FeatureExtractor(observation_extractor=nn.Sequential((nn.Dense(64), nn.relu))),
     torso=RNN(cell=nn.GRUCell(features=64)),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,

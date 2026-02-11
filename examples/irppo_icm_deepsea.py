@@ -43,14 +43,13 @@ cfg = IRPPOConfig(
 )
 
 feature_extractor = FeatureExtractor(
-    observation_extractor=nn.Sequential([nn.Dense(
-        128, kernel_init=nn.initializers.orthogonal(scale=1.414)
-    ), nn.relu]),
+    observation_extractor=nn.Sequential((
+        nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu,
+        nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu,
+    )),
 )
-torso = nn.Sequential([nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu])
 actor_network = Network(
     feature_extractor=feature_extractor,
-    torso=torso,
     head=heads.Categorical(
         action_dim=num_actions,
         kernel_init=nn.initializers.orthogonal(scale=0.01),
@@ -58,7 +57,6 @@ actor_network = Network(
 )
 critic_network = Network(
     feature_extractor=feature_extractor,
-    torso=torso,
     head=heads.VNetwork(
         kernel_init=nn.initializers.orthogonal(scale=1.0),
     ),
@@ -66,21 +64,21 @@ critic_network = Network(
 
 icm_feature_dim = 64
 
-icm_encoder = nn.Sequential([
+icm_encoder = nn.Sequential((
     nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
     nn.relu,
     nn.Dense(icm_feature_dim, kernel_init=nn.initializers.orthogonal(scale=1.414)),
-])
-icm_forward_model = nn.Sequential([
+))
+icm_forward_model = nn.Sequential((
     nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
     nn.relu,
     nn.Dense(icm_feature_dim, kernel_init=nn.initializers.orthogonal(scale=1.414)),
-])
-icm_inverse_model = nn.Sequential([
+))
+icm_inverse_model = nn.Sequential((
     nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
     nn.relu,
     nn.Dense(num_actions, kernel_init=nn.initializers.orthogonal(scale=1.414)),
-])
+))
 
 icm = ICM(
     encoder=icm_encoder,

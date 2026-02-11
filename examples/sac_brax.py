@@ -41,9 +41,9 @@ cfg = SACConfig(
 
 actor_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential([nn.Dense(
+        observation_extractor=nn.Sequential((nn.Dense(
             192, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu]),
+        ), nn.relu)),
     ),
     torso=RNN(cell=nn.GRUCell(features=256)),
     head=heads.SquashedGaussian(
@@ -63,9 +63,9 @@ critic_network = nn.vmap(
     axis_size=2,
 )(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential([nn.Dense(
+        observation_extractor=nn.Sequential((nn.Dense(
             192, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu]),
+        ), nn.relu)),
     ),
     torso=RNN(cell=nn.GRUCell(features=256)),
     head=heads.ContinuousQNetwork(),

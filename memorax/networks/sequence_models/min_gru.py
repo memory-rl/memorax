@@ -56,6 +56,8 @@ class MinGRUCell(MemoroidCellBase):
         log_state = log_z + log_h_tilde
         decay = -nn.softplus(z)
 
+        self.sow('intermediates', 'gate', jnp.mean(z))
+
         return (log_state, decay)
 
     def binary_operator(self, a: Carry, b: Carry) -> Carry:
@@ -82,3 +84,4 @@ class MinGRUCell(MemoroidCellBase):
             (*batch_dims, 1, self.features), dtype=self.dtype or self.param_dtype
         )
         return (log_state, decay)
+

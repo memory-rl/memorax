@@ -1,6 +1,7 @@
 import time
 from dataclasses import asdict
 
+import flax.linen as nn
 import jax
 import optax
 from flashbax import make_item_buffer
@@ -8,7 +9,7 @@ from flashbax import make_item_buffer
 from memorax.algorithms.dqn import DQN, DQNConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import MLP, FeatureExtractor, Network, heads
+from memorax.networks import FeatureExtractor, Network, heads
 
 total_timesteps = 500_000
 num_train_steps = 50_000
@@ -18,7 +19,6 @@ env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = DQNConfig(
     name="dqn",
-    learning_rate=3e-4,
     num_envs=10,
     num_eval_envs=10,
     buffer_size=10_000,
@@ -34,15 +34,15 @@ cfg = DQNConfig(
 )
 
 q_network = Network(
-    feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(120,))),
-    torso=MLP(features=(84,)),
+    feature_extractor=FeatureExtractor(observation_extractor=nn.Sequential([nn.Dense(120), nn.relu])),
+    torso=nn.Sequential([nn.Dense(84), nn.relu]),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,
     ),
 )
 
 optimizer = optax.chain(
-    optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
+    optax.adam(learning_rate=3e-4, eps=1e-5),
 )
 
 buffer = make_item_buffer(
@@ -86,7 +86,7 @@ for i in range(0, total_timesteps, num_train_steps):
     SPS = int(num_train_steps / (end - start))
 
     training_statistics = Logger.get_episode_statistics(transitions, "training")
-    data = {"training/SPS": SPS, **training_statistics, **transitions.losses}
+    data = {"training/SPS": SPS, **training_statistics, **transitions.losses, **transitions.infos}
     logger_state = logger.log(logger_state, data, step=state.step.item())
 
     key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
@@ -95,3 +95,4 @@ for i in range(0, total_timesteps, num_train_steps):
         logger_state, evaluation_statistics, step=state.step.item()
     )
     logger.emit(logger_state)
+logger.finish(logger_state)

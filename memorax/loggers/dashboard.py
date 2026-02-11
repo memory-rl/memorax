@@ -2,6 +2,8 @@ from collections import defaultdict
 from dataclasses import field
 from typing import Any, DefaultDict, Optional
 
+import jax
+import jax.numpy as jnp
 from flax import struct
 from rich import box
 from rich.console import Console
@@ -28,6 +30,7 @@ class DashboardLoggerState(BaseLoggerState):
             "evaluation/SPS": 0,
             "losses": {},
             "metrics": {},
+            "info": {},
         }
     )
 
@@ -59,6 +62,7 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
                 "evaluation/SPS": 0,
                 "losses": {},
                 "metrics": {},
+                "info": {},
             },
             progress=progress,
             task=task,
@@ -96,16 +100,21 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
                 "evaluation/SPS", state.stats["evaluation/SPS"]
             )
 
+            losses = {k: data.pop(k) for k in list(data) if k.startswith("losses/")}
             state.stats["losses"].update(
-                {k: v.mean() for k, v in data.items() if k.startswith("losses/")}
+                {k: v.mean() for k, v in losses.items()}
             )
+
+            metrics = {k: data.pop(k) for k in list(data) if k.startswith("training/") or k.startswith("evaluation/")}
             state.stats["metrics"].update(
-                {
-                    k: v.mean()
-                    for k, v in data.items()
-                    if k.startswith("training/") or k.startswith("evaluation/")
-                }
+                {k: v.mean() for k, v in metrics.items()}
             )
+
+            info = {
+                "/".join(p.key if hasattr(p, "key") else str(p) for p in path): jnp.mean(leaf)
+                for path, leaf in jax.tree_util.tree_leaves_with_path(data)
+            }
+            state.stats["info"].update(info)
 
         state.buffer.clear()
 
@@ -193,6 +202,23 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
 
         statistics.add_row(left_stats, right_stats)
         dashboard.add_row(statistics)
+
+        if stats["info"]:
+            dashboard.add_row("")
+            items = list(stats["info"].items())
+            mid = (len(items) + 1) // 2
+            left = Table(box=None, expand=True)
+            left.add_column("Metrics", justify="left", width=20, style="yellow")
+            left.add_column("Value", justify="right", width=10, style="green")
+            right = Table(box=None, expand=True)
+            right.add_column("Metrics", justify="left", width=20, style="yellow")
+            right.add_column("Value", justify="right", width=10, style="green")
+            for i, (metric, value) in enumerate(items):
+                table = left if i < mid else right
+                table.add_row(str(metric), f"{value:.{3}f}")
+            info_row = Table(box=None, expand=True, pad_edge=False)
+            info_row.add_row(left, right)
+            dashboard.add_row(info_row)
 
         dashboard.add_row("")
         progress.update(task, completed=int(stats["global_step"]))

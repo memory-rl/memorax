@@ -13,7 +13,7 @@ from memorax.buffers import compute_importance_weights
 from memorax.networks.sequence_models.utils import (add_feature_axis,
                                                     remove_feature_axis,
                                                     remove_time_axis)
-from memorax.utils import Timestep, Transition, periodic_incremental_update
+from memorax.utils import Timestep, Transition, memory_metrics, periodic_incremental_update
 from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
                                   EnvParams, EnvState, Key)
 
@@ -21,7 +21,6 @@ from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
 @struct.dataclass(frozen=True)
 class R2D2Config:
     name: str
-    learning_rate: float
     num_envs: int
     num_eval_envs: int
     buffer_size: int
@@ -46,7 +45,7 @@ class R2D2Config:
 class R2D2State:
     step: int
     timestep: Timestep
-    hidden_state: tuple
+    carry: tuple
     env_state: EnvState
     params: core.FrozenDict[str, Any]
     target_params: core.FrozenDict[str, Any]
@@ -101,37 +100,38 @@ class R2D2:
 
     def _greedy_action(
         self, key: Key, state: R2D2State
-    ) -> tuple[Key, R2D2State, Array]:
+    ) -> tuple[Key, R2D2State, Array, dict]:
         key, memory_key = jax.random.split(key)
         timestep = state.timestep.to_sequence()
-        hidden_state, (q_values, _) = self.q_network.apply(
+        (carry, (q_values, _)), intermediates = self.q_network.apply(
             state.params,
             timestep.obs,
             timestep.done,
             timestep.action,
             add_feature_axis(timestep.reward),
             timestep.done,
-            state.hidden_state,
+            state.carry,
             rngs={"memory": memory_key},
+            mutable=['intermediates'],
         )
         action = jnp.argmax(q_values, axis=-1)
         action = remove_time_axis(action)
-        state = state.replace(hidden_state=hidden_state)
-        return key, state, action
+        state = state.replace(carry=carry)
+        return key, state, action, intermediates
 
     def _random_action(
         self, key: Key, state: R2D2State
-    ) -> tuple[Key, R2D2State, Array]:
+    ) -> tuple[Key, R2D2State, Array, dict]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
-        return key, state, action
+        return key, state, action, {}
 
     def _epsilon_greedy_action(
         self, key: Key, state: R2D2State
-    ) -> tuple[Key, R2D2State, Array]:
-        key, state, random_action = self._random_action(key, state)
-        key, state, greedy_action = self._greedy_action(key, state)
+    ) -> tuple[Key, R2D2State, Array, dict]:
+        key, state, random_action, _ = self._random_action(key, state)
+        key, state, greedy_action, intermediates = self._greedy_action(key, state)
 
         key, sample_key = jax.random.split(key)
         epsilon = self.epsilon_schedule(state.step)
@@ -140,20 +140,26 @@ class R2D2:
             random_action,
             greedy_action,
         )
-        return key, state, action
+        return key, state, action, intermediates
 
     def _step(
         self, carry, _, *, policy: Callable, write_to_buffer: bool = True
     ) -> tuple[Key, R2D2State]:
         key, state = carry
 
+        initial_carry = state.carry
+
         key, action_key, step_key = jax.random.split(key, 3)
-        key, state, action = policy(action_key, state)
+        key, state, action, intermediates = policy(action_key, state)
         num_envs = state.timestep.obs.shape[0]
         step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
+
+        intermediates_metrics = jax.tree.map(
+            jnp.mean, intermediates.get('intermediates', {}),
+        )
 
         prev_action = jnp.where(
             state.timestep.done,
@@ -168,10 +174,11 @@ class R2D2:
             reward=reward,
             next_obs=next_obs,
             done=done,
-            info=info,
+            info={**info, "intermediates": intermediates_metrics},
             prev_action=prev_action,
             prev_reward=prev_reward,
             prev_done=state.timestep.done,
+            carry=initial_carry,
         )
 
         buffer_state = state.buffer_state
@@ -196,8 +203,12 @@ class R2D2:
         key, memory_key, next_memory_key = jax.random.split(key, 3)
 
         experience = batch.experience
+
         initial_carry = None
         initial_target_carry = None
+        if experience.carry is not None:
+            initial_carry = jax.tree.map(lambda x: x[:, 0], experience.carry)
+            initial_target_carry = jax.tree.map(lambda x: x[:, 0], experience.carry)
 
         if self.cfg.burn_in_length > 0:
             burn_in = jax.tree.map(
@@ -210,6 +221,7 @@ class R2D2:
                 burn_in.prev_action,
                 add_feature_axis(burn_in.prev_reward),
                 burn_in.prev_done,
+                initial_carry,
             )
             initial_carry = jax.lax.stop_gradient(initial_carry)
             initial_target_carry, (_, _) = self.q_network.apply(
@@ -219,6 +231,7 @@ class R2D2:
                 burn_in.action,
                 add_feature_axis(burn_in.reward),
                 burn_in.done,
+                initial_target_carry,
             )
             initial_target_carry = jax.lax.stop_gradient(initial_target_carry)
             experience = jax.tree.map(
@@ -286,7 +299,7 @@ class R2D2:
         importance_weights = importance_weights[:, None]
 
         def loss_fn(params):
-            hidden_state, (q_values, aux) = self.q_network.apply(
+            carry, (q_values, aux) = self.q_network.apply(
                 params,
                 experience.obs,
                 experience.prev_done,
@@ -302,9 +315,9 @@ class R2D2:
             td_error = q_value - td_target
 
             loss = (importance_weights * jnp.square(td_error)).mean()
-            return loss, (q_value, td_error, hidden_state)
+            return loss, (q_value, td_error, carry)
 
-        (loss, (q_value, td_error, hidden_state)), grads = jax.value_and_grad(
+        (loss, (q_value, td_error, carry)), grads = jax.value_and_grad(
             loss_fn, has_aux=True
         )(state.params)
 
@@ -326,6 +339,16 @@ class R2D2:
             state.buffer_state, batch.indices, new_priorities
         )
 
+        info = {
+            "losses/loss": loss,
+            "losses/q_value": q_value.mean(),
+            "losses/td_error": mean_td_error.mean(),
+        }
+
+        if experience.carry is not None:
+            initial_carry = jax.tree.map(lambda x: x[:, -1], experience.carry)
+            info.update(memory_metrics(carry, initial_carry))
+
         state = state.replace(
             params=params,
             target_params=target_params,
@@ -333,23 +356,22 @@ class R2D2:
             buffer_state=buffer_state,
         )
 
-        return state, loss, q_value.mean(), mean_td_error.mean()
+        return state, info
 
     def _learn(self, carry, _):
+        key, state = carry
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
-            carry,
+            (key, state),
             length=self.cfg.train_frequency // self.cfg.num_envs,
         )
 
         key, update_key = jax.random.split(key)
-        state, loss, q_value, td_error = self._update(update_key, state)
+        state, info = self._update(update_key, state)
 
         info = {
             **transitions.info,
-            "losses/loss": jnp.expand_dims(loss, axis=(0, 1)),
-            "losses/q_value": jnp.expand_dims(q_value, axis=(0, 1)),
-            "losses/td_error": jnp.expand_dims(td_error, axis=(0, 1)),
+            **jax.tree.map(lambda x: jnp.expand_dims(x, axis=(0, 1)), info),
         }
 
         return (key, state), transitions.replace(obs=None, next_obs=None, info=info)
@@ -404,6 +426,7 @@ class R2D2:
             prev_action=action,
             prev_reward=reward,
             prev_done=done,
+            carry=carry,
         )
         buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
 
@@ -412,7 +435,7 @@ class R2D2:
             R2D2State(
                 step=0,
                 timestep=timestep.from_sequence(),
-                hidden_state=carry,
+                carry=carry,
                 env_state=env_state,
                 params=params,
                 target_params=target_params,
@@ -469,10 +492,10 @@ class R2D2:
         reward = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.float32)
         done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool_)
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
-        hidden_state = self.q_network.initialize_carry(obs.shape)
+        carry = self.q_network.initialize_carry(obs.shape)
 
         state = state.replace(
-            timestep=timestep, hidden_state=hidden_state, env_state=env_state
+            timestep=timestep, carry=carry, env_state=env_state
         )
 
         (key, _), transitions = jax.lax.scan(

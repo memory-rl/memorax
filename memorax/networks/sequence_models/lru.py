@@ -32,14 +32,6 @@ def _matrix_init(key, shape, dtype=jnp.float32, normalization=1):
 
 
 class LRUCell(MemoroidCellBase):
-    """Linear Recurrent Unit algebra.
-
-    Uses exponential parameterization of eigenvalues for stable training.
-
-    Element: (decay, state)
-    Combine: (a_j * a_i, a_j * s_i + s_j)
-    """
-
     features: int
     hidden_dim: int
     r_min: float = 0.0
@@ -97,23 +89,52 @@ class LRUCell(MemoroidCellBase):
 
         state = jax.vmap(jax.vmap(lambda u: B_norm @ u))(x)
 
-        return (decay, state)
+        return (state, decay)
 
     def binary_operator(self, a: Carry, b: Carry) -> Carry:
-        """Diagonal SSM combine: (a_j * a_i, a_j * s_i + s_j)"""
-        decay_i, state_i = a
-        decay_j, state_j = b
-        return (decay_j * decay_i, decay_j * state_i + state_j)
+        state_i, decay_i = a
+        state_j, decay_j = b
+        return (decay_j * state_i + state_j, decay_j * decay_i)
 
     def read(self, h: Carry, x: Array, **kwargs) -> Array:
         C = jax.lax.complex(self.C_real, self.C_imag)
-        _, state = h
+        state, _ = h
 
         y = jax.vmap(jax.vmap(lambda si, xi: (C @ si).real + self.D * xi))(state, x)
         return y
 
     def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
         *batch_dims, _ = input_shape
-        decay = jnp.ones((*batch_dims, 1, self.hidden_dim), dtype=jnp.complex64)
         state = jnp.zeros((*batch_dims, 1, self.hidden_dim), dtype=jnp.complex64)
-        return (decay, state)
+        decay = jnp.ones((*batch_dims, 1, self.hidden_dim), dtype=jnp.complex64)
+        return (state, decay)
+
+    def local_jacobian(self, carry, z, inputs, **kwargs):
+        prev_state = carry[0]
+        state_contrib, _ = z
+        lam = jnp.exp(-jnp.exp(self.nu_log) + 1j * jnp.exp(self.theta_log))
+        gamma_exp = jnp.exp(self.gamma_log)
+
+        B, T = inputs.shape[:2]
+        decay_3d = jnp.broadcast_to(lam, (B, T, self.hidden_dim))
+
+        return decay_3d, {
+            "nu_log": -jnp.exp(self.nu_log) * lam * prev_state,
+            "theta_log": 1j * jnp.exp(self.theta_log) * lam * prev_state,
+            "gamma_log": state_contrib,
+            "B_real": gamma_exp[None, None, :, None] * inputs[:, :, None, :],
+            "B_imag": 1j * gamma_exp[None, None, :, None] * inputs[:, :, None, :],
+        }
+
+    def initialize_sensitivity(self, key, input_shape):
+        *batch_dims, _ = input_shape
+        H = self.hidden_dim
+        z = lambda *s: jnp.zeros((*batch_dims, 1, *s), dtype=jnp.complex64)
+        sens = {
+            "nu_log": z(H),
+            "theta_log": z(H),
+            "gamma_log": z(H),
+            "B_real": z(H, self.features),
+            "B_imag": z(H, self.features),
+        }
+        return sens, {}

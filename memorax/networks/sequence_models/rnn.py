@@ -17,6 +17,7 @@ from .sequence_model import SequenceModel
 
 class RNN(SequenceModel):
     cell: nn.RNNCellBase
+    features: Optional[int] = None
     unroll: int = 1
     variable_axes: Mapping[CollectionFilter, InOutScanAxis] = FrozenDict()
     variable_broadcast: CollectionFilter = "params"
@@ -59,6 +60,9 @@ class RNN(SequenceModel):
         )
 
         carry, outputs = scan(self.cell, carry, inputs, mask)
+
+        if self.features is not None:
+            outputs = nn.Dense(self.features)(outputs)
 
         return carry, outputs
 

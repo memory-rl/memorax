@@ -9,7 +9,7 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import MLP, FeatureExtractor, Network, heads
+from memorax.networks import FeatureExtractor, Identity, Network, heads
 from memorax.utils.wrappers import (
     ClipActionWrapper,
     NormalizeObservationWrapper,
@@ -49,13 +49,17 @@ cfg = PPOConfig(
 # Brax policy network: 4 layers of 32 with swish
 actor_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=MLP(
-            features=(32, 32, 32, 32),
-            activation=nn.swish,
-            kernel_init=nn.initializers.lecun_uniform(),
-        ),
+        observation_extractor=nn.Sequential([
+            nn.Dense(32, kernel_init=nn.initializers.lecun_uniform()),
+            nn.swish,
+            nn.Dense(32, kernel_init=nn.initializers.lecun_uniform()),
+            nn.swish,
+            nn.Dense(32, kernel_init=nn.initializers.lecun_uniform()),
+            nn.swish,
+            nn.Dense(32, kernel_init=nn.initializers.lecun_uniform()),
+        ]),
     ),
-    torso=MLP(features=()),
+    torso=Identity(),
     head=heads.Gaussian(
         action_dim=env.action_space(env_params).shape[0],
         kernel_init=nn.initializers.lecun_uniform(),
@@ -66,13 +70,19 @@ actor_network = Network(
 # Brax value network: 5 layers of 256 with swish
 critic_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=MLP(
-            features=(256, 256, 256, 256, 256),
-            activation=nn.swish,
-            kernel_init=nn.initializers.lecun_uniform(),
-        ),
+        observation_extractor=nn.Sequential([
+            nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
+            nn.swish,
+            nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
+            nn.swish,
+            nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
+            nn.swish,
+            nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
+            nn.swish,
+            nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
+        ]),
     ),
-    torso=MLP(features=()),
+    torso=Identity(),
     head=heads.VNetwork(kernel_init=nn.initializers.lecun_uniform()),
 )
 
@@ -132,7 +142,8 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"training/SPS": SPS, **training_statistics, **losses}
+    infos = jax.vmap(lambda t: t.infos)(transitions)
+    data = {"training/SPS": SPS, **training_statistics, **losses, **infos}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     if num_eval_steps > 0:
@@ -144,3 +155,4 @@ for i in range(0, total_timesteps, num_train_steps):
             logger_state, evaluation_statistics, step=state.step[0].item()
         )
     logger.emit(logger_state)
+logger.finish(logger_state)

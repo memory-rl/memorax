@@ -12,7 +12,7 @@ version = "1.0.1"
 description = "A unified JAX/Flax framework for memory-augmented reinforcement learning with support for RNNs, SSMs, and Transformers"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "jax>=0.7.2",
     "flax>=0.10.7",
@@ -22,6 +22,8 @@ dependencies = [
     "wandb>=0.21.0",
     "neptune-scale>=0.27.0",
     "tensorboardx>=2.6.4",
+    "hydra-core",
+    "performax",
 ]
 
 [project.optional-dependencies]
@@ -74,3 +76,4 @@ requires-dist = []
 [tool.uv.sources]
 gxm     = { git = "https://github.com/huterguier/gxm", rev = "dev", extra = "gxm" }
 popjym  = { git = "https://github.com/EdanToledo/popjym.git", extra = "popjym" }
+performax = { git = "https://github.com/noahfarr/performax.git" }

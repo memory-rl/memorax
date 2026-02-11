@@ -11,7 +11,7 @@ from memorax.algorithms import IRPPO, IRPPOConfig
 from memorax.environments import environment
 from memorax.intrinsic_rewards import ICM
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import MLP, FeatureExtractor, Network, heads
+from memorax.networks import FeatureExtractor, Network, heads
 
 total_timesteps = 500_000
 num_train_steps = 10_000
@@ -43,11 +43,11 @@ cfg = IRPPOConfig(
 )
 
 feature_extractor = FeatureExtractor(
-    observation_extractor=MLP(
-        features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)
-    ),
+    observation_extractor=nn.Sequential([nn.Dense(
+        128, kernel_init=nn.initializers.orthogonal(scale=1.414)
+    ), nn.relu]),
 )
-torso = MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
+torso = nn.Sequential([nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu])
 actor_network = Network(
     feature_extractor=feature_extractor,
     torso=torso,
@@ -66,18 +66,21 @@ critic_network = Network(
 
 icm_feature_dim = 64
 
-icm_encoder = MLP(
-    features=(128, icm_feature_dim),
-    kernel_init=nn.initializers.orthogonal(scale=1.414),
-)
-icm_forward_model = MLP(
-    features=(128, icm_feature_dim),
-    kernel_init=nn.initializers.orthogonal(scale=1.414),
-)
-icm_inverse_model = MLP(
-    features=(128, num_actions),
-    kernel_init=nn.initializers.orthogonal(scale=1.414),
-)
+icm_encoder = nn.Sequential([
+    nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+    nn.relu,
+    nn.Dense(icm_feature_dim, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+])
+icm_forward_model = nn.Sequential([
+    nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+    nn.relu,
+    nn.Dense(icm_feature_dim, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+])
+icm_inverse_model = nn.Sequential([
+    nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+    nn.relu,
+    nn.Dense(num_actions, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+])
 
 icm = ICM(
     encoder=icm_encoder,
@@ -145,7 +148,8 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"training/SPS": SPS, **training_statistics, **losses}
+    infos = jax.vmap(lambda t: t.infos)(transitions)
+    data = {"training/SPS": SPS, **training_statistics, **losses, **infos}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)
@@ -156,3 +160,4 @@ for i in range(0, total_timesteps, num_train_steps):
         logger_state, evaluation_statistics, step=state.step[0].item()
     )
     logger.emit(logger_state)
+logger.finish(logger_state)

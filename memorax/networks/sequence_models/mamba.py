@@ -115,16 +115,16 @@ class MambaCell(MemoroidCellBase):
 
         state = jnp.einsum("bthn,bthd->bthnd", B * dt[..., None], u)
 
-        return (decay, state)
+        return (state, decay)
 
     def binary_operator(self, a: Carry, b: Carry) -> Carry:
-        decay_i, state_i = a
-        decay_j, state_j = b
-        return (decay_j * decay_i, decay_j * state_i + state_j)
+        state_i, decay_i = a
+        state_j, decay_j = b
+        return (decay_j * state_i + state_j, decay_j * decay_i)
 
     def read(self, h: Carry, x: Array, **kwargs) -> Array:
         batch_size, seq_len, _ = x.shape
-        _, state = h
+        state, _ = h
 
         u, _, C, z, _ = self._project(x)
 
@@ -137,11 +137,57 @@ class MambaCell(MemoroidCellBase):
 
     def initialize_carry(self, key, input_shape: Tuple[int, ...]) -> Carry:
         *batch_dims, _ = input_shape
-        decay = jnp.ones(
-            (*batch_dims, 1, self.num_heads, 1, 1), dtype=self.dtype
-        )
         state = jnp.zeros(
             (*batch_dims, 1, self.num_heads, self.state_dim, self.head_dim),
             dtype=self.dtype,
         )
-        return (decay, state)
+        decay = jnp.ones(
+            (*batch_dims, 1, self.num_heads, 1, 1), dtype=self.dtype
+        )
+        return (state, decay)
+
+    def local_jacobian(self, carry, z, inputs, **kwargs):
+        B, T = inputs.shape[:2]
+        NH, SD, HD = self.num_heads, self.state_dim, self.head_dim
+        H = NH * SD * HD
+
+        A = -jnp.exp(self.A_log)
+        state_contrib = z[0]
+        decay_5d = z[1]
+        decay_ph = decay_5d[:, :, :, 0, 0]
+        prev = carry[0]
+
+        # Recover dt from decay: decay = exp(dt * A) → dt = log(decay) / A
+        dt = jnp.log(jnp.maximum(decay_ph, 1e-30)) / A[None, None, :]
+        sigma_dt = 1.0 - jnp.exp(-dt)
+
+        # Flatten decay: (B,T,NH,1,1) → (B,T,NH*SD*HD)
+        decay_flat = jnp.broadcast_to(
+            decay_5d, (B, T, NH, SD, HD)
+        ).reshape(B, T, H)
+
+        # ∂decay/∂A_log = decay * dt * (-exp(A_log))
+        dA_dAlog = -jnp.exp(self.A_log)
+        J_Alog = (
+            decay_5d * dt[:, :, :, None, None]
+            * dA_dAlog[None, None, :, None, None] * prev
+        ).reshape(B, T, H)
+
+        # ∂h/∂dt_bias = σ_dt * (A * decay * prev + state_contrib / dt)
+        dt_safe = jnp.maximum(dt, 1e-8)[:, :, :, None, None]
+        J_dtbias = (
+            sigma_dt[:, :, :, None, None]
+            * (A[None, None, :, None, None] * decay_5d * prev
+               + state_contrib / dt_safe)
+        ).reshape(B, T, H)
+
+        return decay_flat, {"A_log": J_Alog, "dt_bias": J_dtbias}
+
+    def initialize_sensitivity(self, key, input_shape):
+        *batch_dims, _ = input_shape
+        H = self.num_heads * self.state_dim * self.head_dim
+        z = jnp.zeros((*batch_dims, 1, H), dtype=self.dtype)
+        sens = {"A_log": z, "dt_bias": z}
+        idx = jnp.arange(H) // (self.state_dim * self.head_dim)
+        indices = {"A_log": idx, "dt_bias": idx}
+        return sens, indices

@@ -8,7 +8,7 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (FFN, MLP, RNN, FeatureExtractor, MoE, Network,
+from memorax.networks import (FFN, RNN, FeatureExtractor, MoE, Network,
                               PreNorm, Residual, Stack, TopKRouter, heads)
 
 total_timesteps = 500_000
@@ -42,9 +42,9 @@ top_k = 2
 num_layers = 2
 
 feature_extractor = FeatureExtractor(
-    observation_extractor=MLP(
-        features=(d_model,), kernel_init=nn.initializers.orthogonal(scale=1.414)
-    ),
+    observation_extractor=nn.Sequential([nn.Dense(
+        d_model, kernel_init=nn.initializers.orthogonal(scale=1.414)
+    ), nn.relu]),
 )
 
 moe = Residual(
@@ -149,3 +149,4 @@ for i in range(0, total_timesteps, num_train_steps):
         logger_state, evaluation_statistics, step=state.step[0].item()
     )
     logger.emit(logger_state)
+logger.finish(logger_state)

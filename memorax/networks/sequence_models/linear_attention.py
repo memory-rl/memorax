@@ -27,9 +27,9 @@ class LinearAttentionCell(MemoroidCellBase):
 
     head_dim: int
     num_heads: int
-    kernel_init: Initializer
-    bias_init: Initializer
-    param_dtype: Dtype
+    kernel_init: Initializer = nn.initializers.lecun_normal()
+    bias_init: Initializer = nn.initializers.zeros_init()
+    param_dtype: Dtype = jnp.float32
     dtype: Optional[Dtype] = None
     eps: float = 1e-6
 
@@ -133,3 +133,16 @@ class LinearAttentionCell(MemoroidCellBase):
         )
         normalizer = jnp.zeros((*batch_dims, 1, self.num_heads, self.head_dim))
         return (state, normalizer)
+
+    def local_jacobian(self, carry, z, inputs, **kwargs):
+        B, T = inputs.shape[:2]
+        H = self.num_heads * self.head_dim * self.head_dim
+
+        # Identity decay: ∂S_t/∂S_{t-1} = I
+        decay = jnp.ones((B, T, H))
+
+        # No cheaply trackable parameters (all in DenseGeneral compact layers)
+        return decay, {}
+
+    def initialize_sensitivity(self, key, input_shape):
+        return {}, {}

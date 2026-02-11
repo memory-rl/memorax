@@ -13,7 +13,7 @@ from mettagrid.simulator import Simulator
 
 from memorax.algorithms import PPO, PPOConfig
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import MLP, FeatureExtractor, Network, ViT, heads
+from memorax.networks import FeatureExtractor, Network, ViT, heads
 from memorax.utils.wrappers import PufferLibWrapper
 
 total_timesteps = 50_000_000
@@ -68,7 +68,7 @@ num_train_steps = 10_000 * env.num_envs
 feature_extractor = FeatureExtractor(
     observation_extractor=ViT(features=128, num_layers=2, num_heads=4),
 )
-torso = MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414))
+torso = nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414))
 actor_network = Network(
     feature_extractor=feature_extractor,
     torso=torso,
@@ -126,3 +126,4 @@ for i in range(0, total_timesteps, num_train_steps):
     data = {"training/SPS": SPS, **training_statistics, **info}
     logger_state = logger.log(logger_state, data, step=state.step.item())
     logger.emit(logger_state)
+logger.finish(logger_state)

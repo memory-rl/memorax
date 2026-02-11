@@ -285,9 +285,8 @@ def prioritised_episode_add(
         newly_valid_items.shape, state.sum_tree_state.max_recorded_priority
     )
 
-    num_invalid = jnp.minimum(sample_sequence_length - 1, add_sequence_length)
     invalid_time_start = (
-        state.current_index - num_invalid + max_length_time_axis
+        state.current_index - (sample_sequence_length - 1) + max_length_time_axis
     ) % max_length_time_axis
 
     invalid_time_indices = (

@@ -21,7 +21,7 @@ class ALiBi(RelativePositionalEmbedding):
 
     def apply(self, query_pos: Array, key_pos: Array) -> Array:
         slopes = self.compute_coefficients()
-        relative_pos = query_pos[:, :, None] - key_pos[:, None, :]
+        relative_pos = key_pos[:, None, :] - query_pos[:, :, None]
         return slopes[None, :, None, None] * relative_pos[:, None, :, :]
 
     def __call__(

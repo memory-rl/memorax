@@ -13,27 +13,25 @@ Core recurrence:
 This is associative when we track cumulative decay properly.
 """
 
-from functools import partial
 from typing import Tuple
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from flax.linen import initializers
-from flax.linen.linear import Dense
 from flax.typing import Dtype
 
 from memorax.utils.typing import Array, Carry
 
 from .memoroid import MemoroidCellBase
-from .utils import wang_init
+from .utils import BlockDiagonalDense, MultiHeadLayerNorm, wang_init
 
 
 class mLSTMCell(MemoroidCellBase):
     """Matrix LSTM as a Memoroid algebra.
 
     Uses gated linear attention with matrix memory, computed efficiently
-    via associative scan.
+    via associative scan. Architecture follows NX-AI/xlstm.
 
     Element: (log_f, C, n, m) where:
         - log_f: cumulative log forget gate for relative decay
@@ -45,9 +43,9 @@ class mLSTMCell(MemoroidCellBase):
 
     Attributes:
         features: Output feature dimension.
-        hidden_dim: Hidden dimension (before expansion).
+        hidden_dim: Hidden dimension (inner embedding dim).
         num_heads: Number of attention heads.
-        head_dim: Dimension per head (computed as hidden_dim / num_heads).
+        conv_kernel_size: Kernel size for causal convolution.
         dropout_rate: Dropout rate.
         dtype: Data type for computation.
         param_dtype: Data type for parameters.
@@ -56,79 +54,124 @@ class mLSTMCell(MemoroidCellBase):
     features: int
     hidden_dim: int
     num_heads: int = 4
+    conv_kernel_size: int = 4
     dropout_rate: float = 0.0
     dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
 
-    @nn.compact
-    def __call__(self, x: Array, **kwargs) -> Carry:
-        """Compute mLSTM elements for parallel scan.
-
-        Args:
-            x: Input of shape (B, T, D)
-
-        Returns:
-            Carry tuple of (log_f, C, n, m) where:
-                - log_f: (B, T, NH, 1, 1) cumulative log forget
-                - C: (B, T, NH, DH, DH) matrix memory contribution
-                - n: (B, T, NH, DH, 1) normalizer contribution
-                - m: (B, T, NH, 1, 1) max log value for stability
-        """
-        B, T, _ = x.shape
-        head_dim = self.hidden_dim // self.num_heads
-
+    def setup(self):
         if self.hidden_dim % self.num_heads != 0:
             raise ValueError(
                 f"hidden_dim ({self.hidden_dim}) must be divisible by "
                 f"num_heads ({self.num_heads})."
             )
 
-        x_proj = Dense(
-            features=self.hidden_dim,
-            use_bias=False,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="in_proj",
-        )(x)
-
-        projection = partial(
-            Dense,
-            features=self.hidden_dim,
+        self.up_proj = nn.Dense(
+            2 * self.hidden_dim,
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
 
-        q = projection(name="q")(x_proj)
-        k = projection(name="k")(x_proj)
-        v = projection(name="v")(x_proj)
+        self.conv = nn.Conv(
+            features=self.hidden_dim,
+            kernel_size=(self.conv_kernel_size,),
+            padding=((self.conv_kernel_size - 1, 0),),
+            feature_group_count=self.hidden_dim,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
 
-        q = q.reshape(B, T, self.num_heads, head_dim)
-        k = k.reshape(B, T, self.num_heads, head_dim)
-        v = v.reshape(B, T, self.num_heads, head_dim)
+        self.q_proj = BlockDiagonalDense(
+            self.hidden_dim,
+            num_heads=self.num_heads,
+            use_bias=False,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
+        self.k_proj = BlockDiagonalDense(
+            self.hidden_dim,
+            num_heads=self.num_heads,
+            use_bias=False,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
+        self.v_proj = BlockDiagonalDense(
+            self.hidden_dim,
+            num_heads=self.num_heads,
+            use_bias=False,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
 
-        qkv = jnp.concatenate([q, k, v], axis=-1)
-        qkv_flat = qkv.reshape(B, T, -1)
-
-        gate = partial(
-            Dense,
-            features=self.num_heads,
+        self.i_gate = nn.Dense(
+            self.num_heads,
             kernel_init=initializers.zeros_init(),
+            bias_init=initializers.normal(stddev=0.1),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
+        self.f_gate = nn.Dense(
+            self.num_heads,
+            kernel_init=initializers.zeros_init(),
+            bias_init=lambda key, shape, dtype=jnp.float32: jnp.linspace(3.0, 6.0, shape[0], dtype=dtype),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
 
-        i_gate = gate(name="wi", bias_init=initializers.normal(stddev=0.1))(qkv_flat)
-        f_gate = gate(name="wf", bias_init=initializers.constant(4.0))(qkv_flat)
+        self.learnable_skip = self.param(
+            "learnable_skip",
+            nn.initializers.ones,
+            (self.hidden_dim,),
+        )
 
-        i_gate = i_gate.reshape(B, T, self.num_heads)
-        f_gate = f_gate.reshape(B, T, self.num_heads)
+        self.norm = MultiHeadLayerNorm(
+            use_scale=True,
+            use_bias=False,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
+
+        self.out_proj = nn.Dense(
+            self.features,
+            use_bias=False,
+            kernel_init=wang_init(self.hidden_dim, num_blocks=1),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+        )
+
+        self.drop = nn.Dropout(rate=self.dropout_rate)
+
+    def _project(self, x: Array):
+        B, T, _ = x.shape
+        head_dim = self.hidden_dim // self.num_heads
+
+        up = self.up_proj(x)
+        x_mlstm, z = jnp.split(up, 2, axis=-1)
+
+        x_conv_act = nn.silu(self.conv(x_mlstm))
+
+        q = self.q_proj(x_conv_act).reshape(B, T, self.num_heads, head_dim)
+        k = self.k_proj(x_conv_act).reshape(B, T, self.num_heads, head_dim)
+        v = self.v_proj(x_mlstm).reshape(B, T, self.num_heads, head_dim)
+
+        return q, k, v, z, x_conv_act
+
+    def __call__(self, x: Array, **kwargs) -> Carry:
+        B, T, _ = x.shape
+        head_dim = self.hidden_dim // self.num_heads
+
+        q, k, v, _, _ = self._project(x)
+
+        qkv = jnp.concatenate([q, k, v], axis=-1).reshape(B, T, -1)
+
+        i_gate = self.i_gate(qkv).reshape(B, T, self.num_heads)
+        f_gate = self.f_gate(qkv).reshape(B, T, self.num_heads)
 
         log_f = -jax.nn.softplus(-f_gate)
         log_i = i_gate
 
         m = log_i[:, :, :, None, None]
-
         i_stable = jnp.exp(log_i - m.squeeze(-1).squeeze(-1))
 
         k = k / jnp.sqrt(head_dim)
@@ -145,23 +188,11 @@ class mLSTMCell(MemoroidCellBase):
 
         log_f = log_f[:, :, :, None, None]
 
-        return (log_f, C, n, m)
+        return (C, log_f, n, m)
 
     def binary_operator(self, a: Carry, b: Carry) -> Carry:
-        """Combine two elements with decay-weighted accumulation.
-
-        When combining element a (earlier positions) with element b
-        (later positions), a's state decays by b's cumulative forget gate.
-
-        Args:
-            a: Earlier element (log_f_a, C_a, n_a, m_a)
-            b: Later element (log_f_b, C_b, n_b, m_b)
-
-        Returns:
-            Combined element with accumulated state.
-        """
-        log_f_a, C_a, n_a, m_a = a
-        log_f_b, C_b, n_b, m_b = b
+        C_a, log_f_a, n_a, m_a = a
+        C_b, log_f_b, n_b, m_b = b
 
         log_f_combined = log_f_a + log_f_b
 
@@ -174,87 +205,120 @@ class mLSTMCell(MemoroidCellBase):
         C_combined = scale_a * C_a + scale_b * C_b
         n_combined = scale_a * n_a + scale_b * n_b
 
-        return (log_f_combined, C_combined, n_combined, m_combined)
+        return (C_combined, log_f_combined, n_combined, m_combined)
 
-    @nn.compact
     def read(self, h: Carry, x: Array, **kwargs) -> Array:
-        """Query accumulated memory to produce output.
-
-        Args:
-            h: Accumulated state (log_f, C, n, m)
-            x: Original input of shape (B, T, D)
-
-        Returns:
-            Output of shape (B, T, features)
-        """
-        B, T, in_features = x.shape
+        B, T, _ = x.shape
         head_dim = self.hidden_dim // self.num_heads
 
-        x_proj = Dense(
-            features=self.hidden_dim,
-            use_bias=False,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="in_proj",
-        )(x)
+        q, _, _, z, x_conv_act = self._project(x)
 
-        q = Dense(
-            features=self.hidden_dim,
-            use_bias=False,
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="q",
-        )(x_proj)
-
-        q = q.reshape(B, T, self.num_heads, head_dim)
-        q = q / jnp.sqrt(head_dim)
-
-        _, C, n, m = h
+        C, _, n, m = h
 
         q_row = q[:, :, :, None, :]
 
         qC = (q_row @ C).squeeze(-2)
-
         qn = (q_row @ n).squeeze(-2).squeeze(-1)
 
-        normalizer = jnp.maximum(jnp.abs(qn), 1.0)[:, :, :, None]
+        max_val = jnp.exp(-m.squeeze(-1).squeeze(-1))
+        normalizer = jnp.maximum(jnp.abs(qn), max_val)[:, :, :, None]
         h_tilde = qC / (normalizer + 1e-6)
 
+        h_tilde = self.norm(
+            h_tilde.transpose(0, 2, 1, 3)
+        ).transpose(0, 2, 1, 3)
         h_tilde = h_tilde.reshape(B, T, self.hidden_dim)
 
-        y = Dense(
-            features=self.features,
-            use_bias=False,
-            kernel_init=wang_init(self.hidden_dim, num_blocks=1),
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            name="out_proj",
-        )(h_tilde)
+        h_tilde = h_tilde + self.learnable_skip * x_conv_act
 
-        y = nn.Dropout(
-            rate=self.dropout_rate, deterministic=not self.has_rng("dropout")
-        )(y)
+        y = h_tilde * nn.silu(z)
+
+        y = self.out_proj(y)
+
+        y = self.drop(y, deterministic=not self.has_rng("dropout"))
 
         return y
 
     def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
-        """Initialize carry with identity decay and zero state.
-
-        Args:
-            key: Random key (unused).
-            input_shape: Shape of input (*batch_dims, features).
-
-        Returns:
-            Initial carry tuple (log_f, C, n, m).
-        """
         *batch_dims, _ = input_shape
         head_dim = self.hidden_dim // self.num_heads
 
-        log_f = jnp.zeros((*batch_dims, 1, self.num_heads, 1, 1))
-
         C = jnp.zeros((*batch_dims, 1, self.num_heads, head_dim, head_dim))
+        log_f = jnp.zeros((*batch_dims, 1, self.num_heads, 1, 1))
         n = jnp.zeros((*batch_dims, 1, self.num_heads, head_dim, 1))
-
         m = jnp.full((*batch_dims, 1, self.num_heads, 1, 1), -1e9)
 
-        return (log_f, C, n, m)
+        return (C, log_f, n, m)
+
+    def local_jacobian(self, carry, z, inputs, **kwargs):
+        B, T = inputs.shape[:2]
+        NH = self.num_heads
+        head_dim = self.hidden_dim // NH
+        H = NH * head_dim * head_dim
+
+        # Unpack full previous carry
+        C_acc, _, _, m_acc = carry
+        # Unpack scan elements
+        C_t, log_f_t, _, m_t = z
+
+        # Compute scale factors (same as binary_operator)
+        m_acc_decayed = m_acc + log_f_t
+        m_new = jnp.maximum(m_acc_decayed, m_t)
+        scale_old = jnp.exp(m_acc_decayed - m_new)
+        scale_new = jnp.exp(m_t - m_new)
+
+        # RTRL decay for C: ∂C_new/∂C_acc = scale_old (scalar per head)
+        # Expand scale_old from (B,T,NH,1,1) to (B,T,NH*hd*hd)
+        decay_flat = jnp.broadcast_to(
+            scale_old, (B, T, NH, head_dim, head_dim)
+        ).reshape(B, T, H)
+
+        # Recompute f_gate_raw for ∂log_f/∂f_gate_bias
+        q, k, v, _, _ = self._project(inputs)
+        qkv = jnp.concatenate([q, k, v], axis=-1).reshape(B, T, -1)
+        f_gate_raw = self.f_gate(qkv).reshape(B, T, NH)
+        i_gate_raw = self.i_gate(qkv).reshape(B, T, NH)
+
+        # ∂log_f/∂f_gate_bias[h] = σ(f_gate_raw[h])
+        sigma_f = jax.nn.sigmoid(f_gate_raw)  # (B, T, NH)
+
+        # indicator: m_acc + log_f >= m_t
+        indicator = (m_acc_decayed >= m_t).squeeze(-1).squeeze(-1)  # (B, T, NH)
+
+        # ∂C_new/∂log_f = scale_old*(1-ind)*C_acc - scale_new*ind*C_t
+        # Both shapes (B,T,NH,hd,hd)
+        dC_dlogf = (
+            scale_old * (1.0 - indicator[:, :, :, None, None]) * C_acc
+            - scale_new * indicator[:, :, :, None, None] * C_t
+        )
+
+        # J_f_bias[flat_h] = dC_dlogf[head_of(h)] * σ_f[head_of(h)]
+        # Since both dC_dlogf and σ_f are per-head, the Jacobian per state element is:
+        J_fgate = (dC_dlogf * sigma_f[:, :, :, None, None]).reshape(B, T, H)
+
+        # For i_gate_bias: ∂C_new/∂i_gate_bias affects scale_new * C_t through log_i → m → scale
+        # Simpler: ∂C_t/∂i_gate_bias since C_t = i_stable * kv_outer
+        # i_stable = exp(log_i - m_t), log_i = i_gate_raw, m_t = log_i (from __call__)
+        # So i_stable = exp(0) = 1 when m_t == log_i. ∂i_stable/∂i_gate_bias = 0 (self-normalizing)
+        # But ∂scale_new/∂i_gate_bias through m_t = log_i:
+        # ∂m_t/∂i_gate_bias = 1 (since m_t = log_i[:,:,:,None,None] = i_gate_raw[:,:,:,None,None])
+        # ∂scale_new/∂i_gate_bias = -scale_new * ∂m_new/∂m_t * 1
+        # ∂m_new/∂m_t = (1 - indicator)
+        # Also scale_old changes through m_new
+        dC_di = -scale_new * (1.0 - indicator[:, :, :, None, None]) * C_t
+        J_igate = dC_di.reshape(B, T, H)
+
+        return decay_flat, {
+            "f_gate/bias": J_fgate,
+            "i_gate/bias": J_igate,
+        }
+
+    def initialize_sensitivity(self, key, input_shape):
+        *batch_dims, _ = input_shape
+        head_dim = self.hidden_dim // self.num_heads
+        H = self.num_heads * head_dim * head_dim
+        z = jnp.zeros((*batch_dims, 1, H))
+        sens = {"f_gate/bias": z, "i_gate/bias": z}
+        idx = jnp.arange(H) // (head_dim * head_dim)
+        indices = {"f_gate/bias": idx, "i_gate/bias": idx}
+        return sens, indices

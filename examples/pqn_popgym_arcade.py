@@ -1,6 +1,5 @@
 import time
 from dataclasses import asdict
-from functools import partial
 
 import flax.linen as nn
 import jax
@@ -9,7 +8,7 @@ import optax
 from memorax.algorithms import PQN, PQNConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import CNN, MLP, Embedding, FeatureExtractor, Network, heads
+from memorax.networks import Embedding, FeatureExtractor, Network, heads
 
 total_timesteps = 5_000_000
 num_train_steps = 100_000
@@ -33,23 +32,30 @@ cfg = PQNConfig(
 
 q_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=CNN(
-            features=(64, 128, 256, 512),
-            kernel_sizes=((5, 5), (3, 3), (3, 3), (1, 1)),
-            strides=((2, 2), (2, 2), (2, 2), (1, 1)),
-            poolings=(
-                partial(nn.max_pool, window_shape=(2, 2), strides=(2, 2)),
-                partial(nn.max_pool, window_shape=(2, 2), strides=(2, 2)),
-                partial(nn.max_pool, window_shape=(2, 2), strides=(2, 2)),
-            ),
-            normalize=True,
-        ),
+        observation_extractor=nn.Sequential([
+            nn.Conv(features=64, kernel_size=(5, 5), strides=(2, 2)),
+            nn.relu,
+            nn.LayerNorm(),
+            lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
+            nn.Conv(features=128, kernel_size=(3, 3), strides=(2, 2)),
+            nn.relu,
+            nn.LayerNorm(),
+            lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
+            nn.Conv(features=256, kernel_size=(3, 3), strides=(2, 2)),
+            nn.relu,
+            nn.LayerNorm(),
+            lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
+            nn.Conv(features=512, kernel_size=(1, 1), strides=(1, 1)),
+            nn.relu,
+            nn.LayerNorm(),
+            lambda x: x.reshape((x.shape[0], x.shape[1], -1)),
+        ]),
         action_extractor=Embedding(
             num_embeddings=env.action_space(env_params).n,
             features=5,
         ),
     ),
-    torso=MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)),
+    torso=nn.Sequential([nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu]),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,
     ),
@@ -118,7 +124,8 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"training/SPS": SPS, **training_statistics, **losses}
+    infos = jax.vmap(lambda t: t.infos)(transitions)
+    data = {"training/SPS": SPS, **training_statistics, **losses, **infos}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)
@@ -129,3 +136,4 @@ for i in range(0, total_timesteps, num_train_steps):
         logger_state, evaluation_statistics, step=state.step[0].item()
     )
     logger.emit(logger_state)
+logger.finish(logger_state)

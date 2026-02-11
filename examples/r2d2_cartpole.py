@@ -9,7 +9,7 @@ from memorax.algorithms.r2d2 import R2D2, R2D2Config
 from memorax.buffers import make_prioritised_episode_buffer
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import MLP, FeatureExtractor, Network, heads
+from memorax.networks import FeatureExtractor, Network, heads
 from memorax.networks.sequence_models import RNN
 
 total_timesteps = 500_000
@@ -20,7 +20,6 @@ env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = R2D2Config(
     name="r2d2",
-    learning_rate=3e-4,
     num_envs=10,
     num_eval_envs=10,
     buffer_size=50_000,
@@ -42,7 +41,7 @@ cfg = R2D2Config(
 )
 
 q_network = Network(
-    feature_extractor=FeatureExtractor(observation_extractor=MLP(features=(64,))),
+    feature_extractor=FeatureExtractor(observation_extractor=nn.Sequential([nn.Dense(64), nn.relu])),
     torso=RNN(cell=nn.GRUCell(features=64)),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,
@@ -51,7 +50,7 @@ q_network = Network(
 
 optimizer = optax.chain(
     optax.clip_by_global_norm(40.0),
-    optax.adam(learning_rate=cfg.learning_rate, eps=1e-5),
+    optax.adam(learning_rate=3e-4, eps=1e-5),
 )
 
 buffer = make_prioritised_episode_buffer(
@@ -108,7 +107,7 @@ for i in range(0, total_timesteps, num_train_steps):
     SPS = int(num_train_steps / (end - start))
 
     training_statistics = Logger.get_episode_statistics(transitions, "training")
-    data = {"training/SPS": SPS, **training_statistics, **transitions.losses}
+    data = {"training/SPS": SPS, **training_statistics, **transitions.losses, **transitions.infos}
     logger_state = logger.log(logger_state, data, step=state.step.item())
 
     key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)
@@ -117,3 +116,4 @@ for i in range(0, total_timesteps, num_train_steps):
         logger_state, evaluation_statistics, step=state.step.item()
     )
     logger.emit(logger_state)
+logger.finish(logger_state)

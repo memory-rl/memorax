@@ -9,6 +9,7 @@ class FeatureExtractor(nn.Module):
     action_extractor: Optional[nn.Module] = None
     reward_extractor: Optional[nn.Module] = None
     done_extractor: Optional[nn.Module] = None
+    features: Optional[int] = None
 
     def extract(
         self,
@@ -36,6 +37,8 @@ class FeatureExtractor(nn.Module):
             embeddings, "done_embedding", self.done_extractor, done.astype(jnp.int32)
         )
 
-        features = jnp.concatenate([*embeddings.values()], axis=-1)
+        x = jnp.concatenate([*embeddings.values()], axis=-1)
+        if self.features is not None:
+            x = nn.Dense(self.features)(x)
 
-        return features, embeddings
+        return x, embeddings

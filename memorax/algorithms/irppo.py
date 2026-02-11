@@ -15,7 +15,7 @@ from memorax.networks.sequence_models.utils import (
     remove_feature_axis,
     remove_time_axis,
 )
-from memorax.utils import Timestep, Transition, generalized_advantage_estimation
+from memorax.utils import Timestep, Transition, generalized_advantage_estimation, memory_metrics
 from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvState, Key
 
 
@@ -79,9 +79,9 @@ class IRPPO:
 
     def _deterministic_action(
         self, key: Key, state: IRPPOState
-    ) -> tuple[Key, IRPPOState, Array, Array, None]:
+    ) -> tuple[Key, IRPPOState, Array, Array, None, dict]:
         timestep = state.timestep.to_sequence()
-        actor_carry, (probs, _) = self.actor_network.apply(
+        (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
             observation=timestep.obs,
             mask=timestep.done,
@@ -89,6 +89,7 @@ class IRPPO:
             reward=add_feature_axis(timestep.reward),
             done=timestep.done,
             initial_carry=state.actor_carry,
+            mutable=['intermediates'],
         )
 
         action = (
@@ -104,11 +105,11 @@ class IRPPO:
         state = state.replace(
             actor_carry=actor_carry,
         )
-        return key, state, action, log_prob, None
+        return key, state, action, log_prob, None, intermediates
 
     def _stochastic_action(
         self, key: Key, state: IRPPOState
-    ) -> tuple[Key, IRPPOState, Array, Array, Array]:
+    ) -> tuple[Key, IRPPOState, Array, Array, Array, dict]:
         (
             key,
             action_key,
@@ -117,7 +118,7 @@ class IRPPO:
         ) = jax.random.split(key, 4)
 
         timestep = state.timestep.to_sequence()
-        actor_carry, (probs, _) = self.actor_network.apply(
+        (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
             observation=timestep.obs,
             mask=timestep.done,
@@ -126,6 +127,7 @@ class IRPPO:
             done=timestep.done,
             initial_carry=state.actor_carry,
             rngs={"memory": actor_memory_key},
+            mutable=['intermediates'],
         )
         action, log_prob = probs.sample_and_log_prob(seed=action_key)
 
@@ -150,19 +152,23 @@ class IRPPO:
             actor_carry=actor_carry,
             critic_carry=critic_carry,
         )
-        return key, state, action, log_prob, value
+        return key, state, action, log_prob, value, intermediates
 
     def _step(self, carry: tuple, _, *, policy: Callable):
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
-        key, state, action, log_prob, value = policy(action_key, state)
+        key, state, action, log_prob, value, intermediates = policy(action_key, state)
 
         num_envs, *_ = state.timestep.obs.shape
         step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
+
+        intermediates_metrics = jax.tree.map(
+            jnp.mean, intermediates.get('intermediates', {}),
+        )
 
         broadcast_dims = tuple(
             range(state.timestep.done.ndim, state.timestep.action.ndim)
@@ -178,7 +184,7 @@ class IRPPO:
             action=action,
             reward=reward,
             done=done,
-            info=info,
+            info={**info, "intermediates": intermediates_metrics},
             log_prob=log_prob,
             value=value,
             prev_action=prev_action,
@@ -532,6 +538,10 @@ class IRPPO:
         actor_loss, critic_loss, entropy, approx_kl, clipfrac = jax.tree.map(
             lambda x: jnp.expand_dims(x, axis=(0, 1)), metrics
         )
+        memory = jax.tree.map(
+            lambda x: jnp.expand_dims(x, axis=(0, 1)),
+            memory_metrics(state.actor_carry, initial_actor_carry),
+        )
         info = {
             **transitions.info,
             "losses/actor_loss": actor_loss,
@@ -540,6 +550,7 @@ class IRPPO:
             "losses/approx_kl": approx_kl,
             "losses/clipfrac": clipfrac,
             **{k: jnp.expand_dims(v, axis=(0, 1)) for k, v in ir_metrics.items()},
+            **memory,
         }
 
         return (

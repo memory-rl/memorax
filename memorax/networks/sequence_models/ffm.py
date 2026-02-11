@@ -142,3 +142,34 @@ class FFMCell(MemoroidCellBase):
         )
         timestep = jnp.full((*batch_dims, 1), -1, dtype=self._complex_dtype())
         return (state, timestep)
+
+    def local_jacobian(self, carry, z, inputs, **kwargs):
+        B, T = inputs.shape[:2]
+        H = self.memory_size * self.context_size
+
+        a_clip = jnp.clip(self.a, min=-self.limit, max=-1e-8)
+        gamma_1 = jnp.exp(jax.lax.complex(
+            a_clip[:, None], self.b[None, :]
+        ))  # (ms, cs)
+        gamma_flat = gamma_1.reshape(1, 1, H)
+
+        decay = jnp.broadcast_to(gamma_flat, (B, T, H))
+
+        prev = carry[0].reshape(B, T, H)
+        # J_a[h] = ∂state[h]/∂a[h//cs] = γ[h] * prev[h]
+        J_a = gamma_flat * prev
+        # J_b[h] = ∂state[h]/∂b[h%cs] = iγ[h] * prev[h]
+        J_b = 1j * gamma_flat * prev
+
+        return decay, {"a": J_a, "b": J_b}
+
+    def initialize_sensitivity(self, key, input_shape):
+        *batch_dims, _ = input_shape
+        H = self.memory_size * self.context_size
+        z = jnp.zeros((*batch_dims, 1, H), dtype=self._complex_dtype())
+        sens = {"a": z, "b": z}
+        indices = {
+            "a": jnp.arange(H) // self.context_size,
+            "b": jnp.arange(H) % self.context_size,
+        }
+        return sens, indices

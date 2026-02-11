@@ -10,7 +10,7 @@ from flax import core, struct
 from memorax.networks.sequence_models.utils import (add_feature_axis,
                                                     remove_feature_axis,
                                                     remove_time_axis)
-from memorax.utils import Timestep, Transition, periodic_incremental_update
+from memorax.utils import Timestep, Transition, memory_metrics, periodic_incremental_update
 from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
                                   EnvParams, EnvState, Key)
 
@@ -18,7 +18,6 @@ from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
 @struct.dataclass(frozen=True)
 class DQNConfig:
     name: str
-    learning_rate: float
     num_envs: int
     num_eval_envs: int
     buffer_size: int
@@ -38,7 +37,7 @@ class DQNConfig:
 class DQNState:
     step: int
     timestep: Timestep
-    hidden_state: tuple
+    carry: tuple
     env_state: EnvState
     params: core.FrozenDict[str, Any]
     target_params: core.FrozenDict[str, Any]
@@ -56,36 +55,37 @@ class DQN:
     buffer: Buffer
     epsilon_schedule: optax.Schedule
 
-    def _greedy_action(self, key: Key, state: DQNState) -> tuple[Key, DQNState, Array]:
+    def _greedy_action(self, key: Key, state: DQNState) -> tuple[Key, DQNState, Array, dict]:
         key, memory_key = jax.random.split(key)
         timestep = state.timestep.to_sequence()
-        hidden_state, (q_values, _) = self.q_network.apply(
+        (carry, (q_values, _)), intermediates = self.q_network.apply(
             state.params,
             timestep.obs,
             timestep.done,
             timestep.action,
             add_feature_axis(timestep.reward),
             timestep.done,
-            state.hidden_state,
+            state.carry,
             rngs={"memory": memory_key},
+            mutable=['intermediates'],
         )
         action = jnp.argmax(q_values, axis=-1)
         action = remove_time_axis(action)
-        state = state.replace(hidden_state=hidden_state)
-        return key, state, action
+        state = state.replace(carry=carry)
+        return key, state, action, intermediates
 
-    def _random_action(self, key: Key, state: DQNState) -> tuple[Key, DQNState, Array]:
+    def _random_action(self, key: Key, state: DQNState) -> tuple[Key, DQNState, Array, dict]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
-        return key, state, action
+        return key, state, action, {}
 
     def _epsilon_greedy_action(
         self, key: Key, state: DQNState
-    ) -> tuple[Key, DQNState, Array]:
-        key, state, random_action = self._random_action(key, state)
+    ) -> tuple[Key, DQNState, Array, dict]:
+        key, state, random_action, _ = self._random_action(key, state)
 
-        key, state, greedy_action = self._greedy_action(key, state)
+        key, state, greedy_action, intermediates = self._greedy_action(key, state)
 
         key, sample_key = jax.random.split(key)
         epsilon = self.epsilon_schedule(state.step)
@@ -94,20 +94,26 @@ class DQN:
             random_action,
             greedy_action,
         )
-        return key, state, action
+        return key, state, action, intermediates
 
     def _step(
         self, carry, _, *, policy: Callable, write_to_buffer: bool = True
     ) -> tuple[Key, DQNState]:
         key, state = carry
 
+        initial_carry = state.carry
+
         key, action_key, step_key = jax.random.split(key, 3)
-        key, state, action = policy(action_key, state)
+        key, state, action, intermediates = policy(action_key, state)
         num_envs = state.timestep.obs.shape[0]
         step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
+
+        intermediates_metrics = jax.tree.map(
+            jnp.mean, intermediates.get('intermediates', {}),
+        )
 
         prev_action = jnp.where(
             state.timestep.done,
@@ -122,10 +128,11 @@ class DQN:
             reward=reward,
             next_obs=next_obs,
             done=done,
-            info=info,
+            info={**info, "intermediates": intermediates_metrics},
             prev_action=prev_action,
             prev_reward=prev_reward,
             prev_done=state.timestep.done,
+            carry=initial_carry,
         )
 
         buffer_state = state.buffer_state
@@ -147,8 +154,12 @@ class DQN:
 
         experience = batch.experience
         experience = jax.tree.map(lambda x: jnp.expand_dims(x, 1), experience)
+
         initial_carry = None
         initial_target_carry = None
+        if experience.carry is not None:
+            initial_carry = jax.tree.map(lambda x: x[:, 0], experience.carry)
+            initial_target_carry = jax.tree.map(lambda x: x[:, 0], experience.carry)
 
         if self.cfg.burn_in_length > 0:
             burn_in = jax.tree.map(
@@ -161,6 +172,7 @@ class DQN:
                 burn_in.prev_action,
                 add_feature_axis(burn_in.prev_reward),
                 burn_in.prev_done,
+                initial_carry,
             )
             initial_carry = jax.lax.stop_gradient(initial_carry)
             initial_target_carry, (_, _) = self.q_network.apply(
@@ -170,6 +182,7 @@ class DQN:
                 burn_in.action,
                 add_feature_axis(burn_in.reward),
                 burn_in.done,
+                initial_target_carry,
             )
             initial_target_carry = jax.lax.stop_gradient(initial_target_carry)
             experience = jax.tree.map(
@@ -194,7 +207,7 @@ class DQN:
         )
 
         def loss_fn(params):
-            hidden_state, (q_values, aux) = self.q_network.apply(
+            carry, (q_values, aux) = self.q_network.apply(
                 params,
                 experience.obs,
                 experience.prev_done,
@@ -209,9 +222,9 @@ class DQN:
             q_value = remove_feature_axis(q_value)
             td_error = q_value - td_target
             loss = (jnp.square(td_error)).mean()
-            return loss, (q_value, td_error, hidden_state)
+            return loss, (q_value, td_error, carry)
 
-        (loss, (q_value, td_error, hidden_state)), grads = jax.value_and_grad(
+        (loss, (q_value, td_error, carry)), grads = jax.value_and_grad(
             loss_fn, has_aux=True
         )(state.params)
         updates, optimizer_state = self.optimizer.update(
@@ -226,6 +239,12 @@ class DQN:
             self.cfg.tau,
         )
 
+        info = {"losses/loss": loss, "losses/q_value": q_value.mean()}
+
+        if experience.carry is not None:
+            initial_carry = jax.tree.map(lambda x: x[:, -1], experience.carry)
+            info.update(memory_metrics(carry, initial_carry))
+
         buffer_state = state.buffer_state
 
         state = state.replace(
@@ -235,22 +254,22 @@ class DQN:
             buffer_state=buffer_state,
         )
 
-        return state, loss, q_value.mean()
+        return state, info
 
     def _learn(self, carry, _):
+        key, state = carry
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
-            carry,
+            (key, state),
             length=self.cfg.train_frequency // self.cfg.num_envs,
         )
 
         key, update_key = jax.random.split(key)
-        state, loss, q_value = self._update(update_key, state)
+        state, info = self._update(update_key, state)
 
         info = {
             **transitions.info,
-            "losses/loss": jnp.expand_dims(loss, axis=(0, 1)),
-            "losses/q_value": jnp.expand_dims(q_value, axis=(0, 1)),
+            **jax.tree.map(lambda x: jnp.expand_dims(x, axis=(0, 1)), info),
         }
 
         return (key, state), transitions.replace(obs=None, next_obs=None, info=info)
@@ -305,6 +324,7 @@ class DQN:
             prev_action=action,
             prev_reward=reward,
             prev_done=done,
+            carry=carry,
         )
         buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
 
@@ -313,7 +333,7 @@ class DQN:
             DQNState(
                 step=0,
                 timestep=timestep.from_sequence(),
-                hidden_state=carry,
+                carry=carry,
                 env_state=env_state,
                 params=params,
                 target_params=target_params,
@@ -368,10 +388,10 @@ class DQN:
         reward = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.float32)
         done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool_)
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
-        hidden_state = self.q_network.initialize_carry(obs.shape)
+        carry = self.q_network.initialize_carry(obs.shape)
 
         state = state.replace(
-            timestep=timestep, hidden_state=hidden_state, env_state=env_state
+            timestep=timestep, carry=carry, env_state=env_state
         )
         (key, _), transitions = jax.lax.scan(
             partial(self._step, policy=self._greedy_action, write_to_buffer=False),

@@ -13,7 +13,7 @@ from memorax.networks.sequence_models.utils import (add_feature_axis,
                                                     remove_feature_axis,
                                                     remove_time_axis)
 from memorax.utils import (Timestep, Transition,
-                           generalized_advantage_estimation)
+                           generalized_advantage_estimation, memory_metrics)
 from memorax.utils.typing import Array, Key
 
 to_sequence = lambda timestep: jax.tree.map(
@@ -72,10 +72,10 @@ class IPPO:
 
     def _deterministic_action(
         self, key: Key, state: IPPOState
-    ) -> tuple[Key, IPPOState, Array, Array, None]:
+    ) -> tuple[Key, IPPOState, Array, Array, None, dict]:
         timestep = to_sequence(state.timestep)
 
-        actor_carry, (probs, _) = self.actor_network.apply(
+        (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
             timestep.obs,
             timestep.done,
@@ -83,6 +83,7 @@ class IPPO:
             add_feature_axis(timestep.reward),
             timestep.done,
             state.actor_carry,
+            mutable=['intermediates'],
         )
 
         action = jnp.argmax(probs.logits, axis=-1)
@@ -92,15 +93,15 @@ class IPPO:
         log_prob = jax.vmap(remove_time_axis)(log_prob)
 
         state = state.replace(actor_carry=actor_carry)
-        return key, state, action, log_prob, None
+        return key, state, action, log_prob, None, intermediates
 
     def _stochastic_action(
         self, key: Key, state: IPPOState
-    ) -> tuple[Key, IPPOState, Array, Array, Array]:
+    ) -> tuple[Key, IPPOState, Array, Array, Array, dict]:
         key, action_key, actor_memory_key, critic_memory_key = jax.random.split(key, 4)
         timestep = to_sequence(state.timestep)
 
-        actor_carry, (probs, _) = self.actor_network.apply(
+        (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
             timestep.obs,
             timestep.done,
@@ -109,6 +110,7 @@ class IPPO:
             timestep.done,
             state.actor_carry,
             rngs={"memory": actor_memory_key},
+            mutable=['intermediates'],
         )
 
         action_keys = jax.random.split(action_key, self.env.num_agents)
@@ -133,19 +135,23 @@ class IPPO:
         value = remove_feature_axis(value)
 
         state = state.replace(actor_carry=actor_carry, critic_carry=critic_carry)
-        return key, state, action, log_prob, value
+        return key, state, action, log_prob, value, intermediates
 
     def _step(self, carry: tuple, _, *, policy: Callable):
         key, state = carry
 
         key, action_key, step_key = jax.random.split(key, 3)
-        key, state, action, log_prob, value = policy(action_key, state)
+        key, state, action, log_prob, value, intermediates = policy(action_key, state)
 
         _, num_envs, *_ = state.timestep.obs.shape
         step_keys = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 1), out_axes=(1, 0, 1, 1, 0)
         )(step_keys, state.env_state, action)
+
+        intermediates_metrics = jax.tree.map(
+            jnp.mean, intermediates.get('intermediates', {}),
+        )
 
         broadcast_dims = tuple(
             range(state.timestep.done.ndim, state.timestep.action.ndim)
@@ -162,7 +168,7 @@ class IPPO:
             action=action,
             reward=reward,
             done=done,
-            info=info,
+            info={**info, "intermediates": intermediates_metrics},
             log_prob=log_prob,
             value=value,
             prev_action=prev_action,
@@ -489,6 +495,10 @@ class IPPO:
         actor_loss, critic_loss, entropy, approx_kl, clipfrac = jax.tree.map(
             lambda x: jnp.expand_dims(x, axis=(0, 1, 2)), metrics
         )
+        memory = jax.tree.map(
+            lambda x: jnp.expand_dims(x, axis=(0, 1, 2)),
+            memory_metrics(state.actor_carry, initial_actor_carry),
+        )
         info = {
             **transitions.info,
             "losses/actor_loss": actor_loss,
@@ -496,6 +506,7 @@ class IPPO:
             "losses/entropy": entropy,
             "losses/approx_kl": approx_kl,
             "losses/clipfrac": clipfrac,
+            **memory,
         }
 
         return (key, state), transitions.replace(obs=None, next_obs=None, info=info)

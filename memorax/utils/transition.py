@@ -21,6 +21,7 @@ class Transition:
     log_prob: Optional[PyTree] = None
     value: Optional[PyTree] = None
     env_state: Optional[PyTree] = None
+    carry: Optional[PyTree] = None
 
     @property
     def num_episodes(self) -> Array:
@@ -65,4 +66,7 @@ class Transition:
     @property
     def infos(self):
         assert self.info is not None
-        return {k: v.mean() for k, v in self.info.items() if not k.startswith("losses")}
+        return jax.tree.map(
+            jnp.mean,
+            {k: v for k, v in self.info.items() if not k.startswith("losses")},
+        )

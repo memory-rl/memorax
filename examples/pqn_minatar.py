@@ -8,7 +8,7 @@ import optax
 from memorax.algorithms import PQN, PQNConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import CNN, MLP, FeatureExtractor, Network, heads
+from memorax.networks import FeatureExtractor, Network, heads
 
 total_timesteps = 5_000_000
 num_train_steps = 100_000
@@ -32,13 +32,13 @@ cfg = PQNConfig(
 
 q_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=CNN(
-            features=(16,),
-            kernel_sizes=((3, 3),),
-            strides=(1,),
-        ),
+        observation_extractor=nn.Sequential([
+            nn.Conv(features=16, kernel_size=(3, 3), strides=(1,)),
+            nn.relu,
+            lambda x: x.reshape((x.shape[0], x.shape[1], -1)),
+        ]),
     ),
-    torso=MLP(features=(128,), kernel_init=nn.initializers.orthogonal(scale=1.414)),
+    torso=nn.Sequential([nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu]),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,
     ),
@@ -103,7 +103,8 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    data = {"training/SPS": SPS, **training_statistics, **losses}
+    infos = jax.vmap(lambda t: t.infos)(transitions)
+    data = {"training/SPS": SPS, **training_statistics, **losses, **infos}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 
     keys, transitions = evaluate(keys, state, num_eval_steps)
@@ -114,3 +115,4 @@ for i in range(0, total_timesteps, num_train_steps):
         logger_state, evaluation_statistics, step=state.step[0].item()
     )
     logger.emit(logger_state)
+logger.finish(logger_state)

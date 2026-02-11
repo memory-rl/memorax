@@ -11,6 +11,7 @@ from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import (FFN, FeatureExtractor, LRUCell, Memoroid,
                               Network, PreNorm, Residual, Stack, heads)
+from memorax.networks.sequence_models import RTRL
 
 total_timesteps = 500_000
 num_train_steps = 10_000
@@ -22,7 +23,7 @@ num_seeds = 1
 env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = PPOConfig(
-    name="PPO-LRU",
+    name="PPO-RTRL",
     num_envs=8,
     num_eval_envs=16,
     num_steps=128,
@@ -47,18 +48,19 @@ feature_extractor = FeatureExtractor(
     ), nn.relu]),
 )
 
-
 lru = Residual(
     module=PreNorm(
-        module=Memoroid(
-            cell=LRUCell(
-                features=d_model,
-                hidden_dim=hidden_dim,
-                r_min=0.9,
-                r_max=0.999,
-                max_phase=6.28,
-                dtype=jnp.float32,
-                param_dtype=jnp.float32,
+        module=RTRL(
+            sequence_model=Memoroid(
+                cell=LRUCell(
+                    features=d_model,
+                    hidden_dim=hidden_dim,
+                    r_min=0.9,
+                    r_max=0.999,
+                    max_phase=6.28,
+                    dtype=jnp.float32,
+                    param_dtype=jnp.float32,
+                )
             )
         )
     )
@@ -104,7 +106,7 @@ agent = PPO(
 )
 
 logger = Logger(
-    [DashboardLogger(title="PPO LRU CartPole", total_timesteps=total_timesteps)]
+    [DashboardLogger(title="PPO RTRL CartPole", total_timesteps=total_timesteps)]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 

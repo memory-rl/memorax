@@ -39,7 +39,7 @@ class MetaMaskWrapper(SequenceModel, nn.Module):
 
         steps = initial_carry.step[:, None] + time_indices[None, :]
 
-        mask = steps % self.steps_per_trial != 0
+        mask = steps % self.steps_per_trial == 0
 
         carry, outputs = self.sequence_model(inputs, mask, initial_carry.carry)
         carry = MetaMaskState(carry=carry, step=initial_carry.step + sequence_length)

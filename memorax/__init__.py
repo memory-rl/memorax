@@ -45,8 +45,6 @@ from memorax.loggers import (
 )
 
 from memorax.networks import (
-    CNN,
-    MLP,
     FeatureExtractor,
     Network,
     SequenceModel,
@@ -79,8 +77,6 @@ __all__ = [
     "ICM",
     "RND",
     "make",
-    "CNN",
-    "MLP",
     "Network",
     "FeatureExtractor",
     "SequenceModel",

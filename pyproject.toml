@@ -16,6 +16,19 @@ requires-python = ">=3.12,<3.13"
 authors = [{ name = "Noah Farr" }]
 keywords = ["jax", "flax", "reinforcement-learning", "memory", "rnn", "ssm", "transformer", "pomdp"]
 
+dependencies = [
+    "jax>=0.7.2",
+    "flax>=0.10.7",
+    "distrax>=0.1.5",
+    "flashbax>=0.1.3",
+    "gymnax>=0.0.9",
+    "wandb>=0.21.0",
+    "neptune-scale>=0.27.0",
+    "tensorboardx>=2.6.4",
+    "hydra-core",
+    "performax",
+]
+
 [project.urls]
 Homepage = "https://github.com/memory-rl/memorax"
 Repository = "https://github.com/memory-rl/memorax"

@@ -4,28 +4,41 @@ import flax.linen as nn
 import jax
 import optax
 from hydra.utils import instantiate
+
 from memorax.algorithms import PQN
 from memorax.networks import (
-    FFN, FeatureExtractor, GatedResidual, Network, PreNorm,
-    Stack, heads,
+    FFN,
+    FeatureExtractor,
+    GatedResidual,
+    Network,
+    PreNorm,
+    Stack,
+    heads,
 )
 
 
 def make(cfg, env, env_params):
     action_dim = env.action_space(env_params).n
-    features = cfg.torso.features
-
+    features = 256
 
     feature_extractor = FeatureExtractor(
-        observation_extractor=nn.Sequential([nn.Dense(features), nn.LayerNorm(), nn.relu]),
+        observation_extractor=nn.Sequential(
+            [nn.Dense(features), nn.LayerNorm(), nn.relu]
+        ),
         action_extractor=partial(jax.nn.one_hot, num_classes=action_dim),
         features=features,
     )
 
-    blocks = [m for _ in range(2) for m in (
-        GatedResidual(module=PreNorm(module=instantiate(cfg.torso))),
-        GatedResidual(module=PreNorm(module=FFN(features=features, expansion_factor=4))),
-    )]
+    blocks = [
+        m
+        for _ in range(2)
+        for m in (
+            GatedResidual(module=PreNorm(module=instantiate(cfg.torso))),
+            GatedResidual(
+                module=PreNorm(module=FFN(features=features, expansion_factor=4))
+            ),
+        )
+    ]
 
     torso = Stack(blocks=tuple(blocks))
 
@@ -36,7 +49,7 @@ def make(cfg, env, env_params):
     )
 
     lr_schedule = optax.linear_schedule(
-        init_value=cfg.optimizer.learning_rate,
+        init_value=5e-5,
         end_value=0.0,
         transition_steps=cfg.total_timesteps,
     )

@@ -12,13 +12,3 @@ algorithm:
   update_epochs: 4
   gamma: 0.99
   td_lambda: 0.95
-
-epsilon_schedule:
-  init_value: 1.0
-  end_value: 0.05
-  transition_steps: ${eval:"0.25 * ${total_timesteps}"}
-
-optimizer:
-  learning_rate: 5e-5
-torso:
-  features: 256

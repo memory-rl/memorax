@@ -1,0 +1,11 @@
+_target_: memorax.networks.SegmentRecurrence
+memory_length: 128
+features: 256
+module:
+  _target_: memorax.networks.SelfAttention
+  features: 256
+  num_heads: 4
+  context_length: 128
+  positional_embedding:
+    _target_: memorax.networks.ALiBi
+    num_heads: 4

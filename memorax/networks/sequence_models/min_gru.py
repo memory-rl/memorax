@@ -26,6 +26,7 @@ class MinGRUCell(MemoroidCellBase):
     """
 
     features: int
+    hidden_dim: int
     kernel_init: Initializer = initializers.lecun_normal()
     bias_init: Initializer = initializers.zeros_init()
     dtype: Optional[Dtype] = None
@@ -37,7 +38,7 @@ class MinGRUCell(MemoroidCellBase):
 
         dense = partial(
             nn.Dense,
-            features=self.features,
+            features=self.hidden_dim,
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
@@ -69,19 +70,21 @@ class MinGRUCell(MemoroidCellBase):
             decay_i + decay_j,
         )
 
+    @nn.compact
     def read(self, h: Carry, x: Array, **kwargs) -> Array:
         log_state, _ = h
-        return jnp.exp(log_state)
+        y = jnp.exp(log_state)
+        return nn.Dense(self.features)(y)
 
     def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
         *batch_dims, _ = input_shape
         log_state = jnp.full(
-            (*batch_dims, 1, self.features),
+            (*batch_dims, 1, self.hidden_dim),
             -jnp.inf,
             dtype=self.dtype or self.param_dtype,
         )
         decay = jnp.zeros(
-            (*batch_dims, 1, self.features), dtype=self.dtype or self.param_dtype
+            (*batch_dims, 1, self.hidden_dim), dtype=self.dtype or self.param_dtype
         )
         return (log_state, decay)
 

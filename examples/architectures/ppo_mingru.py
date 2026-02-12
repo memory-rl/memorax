@@ -51,6 +51,7 @@ mingru = Residual(
         module=Memoroid(
             cell=MinGRUCell(
                 features=d_model,
+                hidden_dim=d_model,
                 kernel_init=nn.initializers.xavier_uniform(),
                 bias_init=nn.initializers.zeros_init(),
                 dtype=jnp.float32,

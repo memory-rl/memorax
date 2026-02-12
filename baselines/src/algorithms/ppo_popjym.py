@@ -13,7 +13,7 @@ from memorax.networks import (
 
 def make(cfg, env, env_params):
     action_dim = env.action_space(env_params).n
-    features = cfg.torso.features
+    features = 256
 
 
     feature_extractor = FeatureExtractor(
@@ -40,7 +40,7 @@ def make(cfg, env, env_params):
         head=heads.VNetwork(),
     )
     lr_schedule = optax.linear_schedule(
-        init_value=cfg.optimizer.learning_rate,
+        init_value=5e-5,
         end_value=0.0,
         transition_steps=cfg.total_timesteps,
     )

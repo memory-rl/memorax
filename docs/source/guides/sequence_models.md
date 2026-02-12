@@ -88,7 +88,7 @@ Minimal GRU variant:
 ```python
 from memorax.networks import Memoroid, MinGRUCell
 
-mingru = Memoroid(cell=MinGRUCell(features=64))
+mingru = Memoroid(cell=MinGRUCell(features=64, hidden_dim=64))
 ```
 
 ### mLSTM (Matrix LSTM)

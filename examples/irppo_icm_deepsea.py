@@ -26,7 +26,6 @@ num_actions = env.action_space(env_params).n
 obs_shape = env.observation_space(env_params).shape
 
 cfg = IRPPOConfig(
-    name="IRPPO-ICM-DeepSea",
     num_envs=8,
     num_eval_envs=16,
     num_steps=128,
@@ -113,7 +112,7 @@ agent = IRPPO(
 )
 
 logger = Logger(
-    [DashboardLogger(title="IRPPO-ICM DeepSea", total_timesteps=total_timesteps)]
+    [DashboardLogger(title="IRPPO-ICM DeepSea", total_timesteps=total_timesteps, name="IRPPO-ICM", env_id="gymnax::DeepSea-bsuite")]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 

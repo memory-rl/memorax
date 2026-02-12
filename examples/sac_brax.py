@@ -9,50 +9,45 @@ from flashbax import make_item_buffer
 from memorax.algorithms import SAC, SACConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import FeatureExtractor, Network, RNN, heads
+from memorax.networks import FeatureExtractor, Network, heads
 
-total_timesteps = 1_000_000
-num_train_steps = 10_000
+total_timesteps = 6_553_600
+num_train_steps = 65_536
 num_eval_steps = 5_000
 
 seed = 0
 num_seeds = 1
 
-env, env_params = environment.make("brax::ant", mode="V")
+env, env_params = environment.make("brax::hopper", mode="V")
 
 
 cfg = SACConfig(
-    name="SAC",
-    actor_lr=3e-4,
-    critic_lr=3e-4,
-    alpha_lr=3e-4,
-    num_envs=10,
-    num_eval_envs=10,
-    buffer_size=10_000,
-    gamma=0.99,
-    tau=1.0,
-    target_update_frequency=500,
-    batch_size=128,
+    actor_lr=6e-4,
+    critic_lr=6e-4,
+    alpha_lr=6e-4,
+    num_envs=128,
+    num_eval_envs=128,
+    buffer_size=1_048_576,
+    gamma=0.997,
+    tau=0.005,
+    target_update_frequency=1,
+    batch_size=512,
     initial_alpha=1.0,
     target_entropy_scale=1.0,
     max_grad_norm=0.5,
-    train_frequency=10,
+    train_frequency=128,
+    gradient_steps=64,
 )
 
 actor_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential((nn.Dense(
-            192, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu)),
+        observation_extractor=nn.Sequential((nn.Dense(256), nn.relu, nn.Dense(256), nn.relu)),
     ),
-    torso=RNN(cell=nn.GRUCell(features=256)),
     head=heads.SquashedGaussian(
         action_dim=env.action_space(env_params).shape[0],
     ),
 )
-actor_optimizer = optax.chain(
-    optax.adam(learning_rate=cfg.actor_lr, eps=1e-5),
-)
+actor_optimizer = optax.adam(learning_rate=cfg.actor_lr)
 
 critic_network = nn.vmap(
     Network,
@@ -63,29 +58,22 @@ critic_network = nn.vmap(
     axis_size=2,
 )(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential((nn.Dense(
-            192, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu)),
+        observation_extractor=nn.Sequential((nn.Dense(256), nn.relu, nn.Dense(256), nn.relu)),
     ),
-    torso=RNN(cell=nn.GRUCell(features=256)),
     head=heads.ContinuousQNetwork(),
 )
 
-critic_optimizer = optax.chain(
-    optax.adam(learning_rate=cfg.critic_lr, eps=1e-5),
-)
+critic_optimizer = optax.adam(learning_rate=cfg.critic_lr)
 
 alpha_network = heads.Alpha(
     initial_alpha=cfg.initial_alpha,
 )
 
-alpha_optimizer = optax.chain(
-    optax.adam(learning_rate=cfg.alpha_lr, eps=1e-5),
-)
+alpha_optimizer = optax.adam(learning_rate=cfg.alpha_lr)
 
 buffer = make_item_buffer(
     max_length=cfg.buffer_size,
-    min_length=cfg.batch_size,
+    min_length=8192,
     sample_batch_size=cfg.batch_size,
     add_sequences=True,
     add_batches=True,
@@ -109,7 +97,7 @@ agent = SAC(
 
 logger = Logger(
     [
-        DashboardLogger(title="SAC Brax Ant", total_timesteps=total_timesteps),
+        DashboardLogger(title="SAC Brax Hopper", total_timesteps=total_timesteps, name="SAC", env_id="brax::hopper"),
     ]
 )
 logger_state = logger.init(cfg=asdict(cfg))

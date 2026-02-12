@@ -20,7 +20,6 @@ from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
 
 @struct.dataclass(frozen=True)
 class R2D2Config:
-    name: str
     num_envs: int
     num_eval_envs: int
     buffer_size: int

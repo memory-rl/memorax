@@ -27,7 +27,6 @@ from_sequence = lambda timestep: jax.tree.map(
 
 @struct.dataclass(frozen=True)
 class IPPOConfig:
-    name: str
     num_envs: int
     num_eval_envs: int
     num_steps: int

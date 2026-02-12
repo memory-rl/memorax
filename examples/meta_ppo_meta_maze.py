@@ -24,7 +24,6 @@ key, ruleset_key = jax.random.split(key)
 env, env_params = environment.make("gymnax::MetaMaze-misc")
 
 cfg = PPOConfig(
-    name="PPO",
     num_envs=32,
     num_eval_envs=16,
     num_steps=64,
@@ -109,7 +108,7 @@ agent = PPO(
 
 logger = Logger(
     [
-        DashboardLogger(title="PPO MetaMaze", total_timesteps=total_timesteps),
+        DashboardLogger(title="PPO MetaMaze", total_timesteps=total_timesteps, name="PPO", env_id="gymnax::MetaMaze-misc"),
     ]
 )
 logger_state = logger.init(cfg=asdict(cfg))

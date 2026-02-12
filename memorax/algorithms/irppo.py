@@ -21,7 +21,6 @@ from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvSta
 
 @struct.dataclass(frozen=True)
 class IRPPOConfig:
-    name: str
     num_envs: int
     num_eval_envs: int
     num_steps: int

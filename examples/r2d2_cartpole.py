@@ -19,7 +19,6 @@ num_eval_steps = 5_000
 env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = R2D2Config(
-    name="r2d2",
     num_envs=10,
     num_eval_envs=10,
     buffer_size=50_000,
@@ -91,7 +90,7 @@ agent = R2D2(
 )
 
 logger = Logger(
-    [DashboardLogger(title="R2D2 Example", total_timesteps=total_timesteps)]
+    [DashboardLogger(title="R2D2 Example", total_timesteps=total_timesteps, name="R2D2", env_id="gymnax::CartPole-v1")]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 

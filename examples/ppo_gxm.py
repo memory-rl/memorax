@@ -20,7 +20,6 @@ num_seeds = 1
 env, env_params = environment.make("gxm::Gymnasium/CartPole-v1")
 
 cfg = PPOConfig(
-    name="PPO",
     num_envs=8,
     num_eval_envs=16,
     num_steps=128,
@@ -75,7 +74,7 @@ agent = PPO(
     critic_optimizer=optimizer,
 )
 
-logger = Logger([DashboardLogger(title="PPO Gxm", total_timesteps=total_timesteps)])
+logger = Logger([DashboardLogger(title="PPO Gxm", total_timesteps=total_timesteps, name="PPO", env_id="gxm::Gymnasium/CartPole-v1")])
 logger_state = logger.init(cfg=asdict(cfg))
 
 init = jax.vmap(agent.init)

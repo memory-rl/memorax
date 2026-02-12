@@ -48,7 +48,6 @@ env_params = env.default_params
 
 
 cfg = PPOConfig(
-    name="PPO",
     num_envs=env.num_envs,  # Use num_envs from the env as this is num_envs x num_agents
     num_eval_envs=0,
     num_steps=128,
@@ -105,7 +104,7 @@ agent = PPO(
 )
 
 logger = Logger(
-    [DashboardLogger(title="PPO PufferLib CartPole", total_timesteps=total_timesteps)]
+    [DashboardLogger(title="PPO PufferLib CartPole", total_timesteps=total_timesteps, name="PPO", env_id="cogsguard_arena.basic")]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 

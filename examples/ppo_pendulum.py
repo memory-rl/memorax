@@ -20,7 +20,6 @@ num_seeds = 1
 env, env_params = environment.make("gymnax::Pendulum-v1")
 
 cfg = PPOConfig(
-    name="PPO",
     num_envs=32,
     num_eval_envs=16,
     num_steps=64,
@@ -80,7 +79,7 @@ agent = PPO(
 
 logger = Logger(
     [
-        DashboardLogger(title="PPO Pendulum", total_timesteps=total_timesteps),
+        DashboardLogger(title="PPO Pendulum", total_timesteps=total_timesteps, name="PPO", env_id="gymnax::Pendulum-v1"),
     ]
 )
 logger_state = logger.init(cfg=asdict(cfg))

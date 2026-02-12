@@ -23,7 +23,6 @@ num_seeds = 1
 env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = PPOConfig(
-    name="PPO-LinearAttention",
     num_envs=8,
     num_eval_envs=16,
     num_steps=128,
@@ -108,7 +107,7 @@ agent = PPO(
 logger = Logger(
     [
         DashboardLogger(
-            title="PPO Linear Attention CartPole", total_timesteps=total_timesteps
+            title="PPO Linear Attention CartPole", total_timesteps=total_timesteps, name="PPO-LinearAttention", env_id="gymnax::CartPole-v1"
         )
     ]
 )

@@ -20,7 +20,6 @@ num_seeds = 1
 env, env_params = environment.make("popgym_arcade::BreakoutEasy")
 
 cfg = PQNConfig(
-    name="PQN",
     num_envs=32,
     num_eval_envs=16,
     num_steps=64,
@@ -90,6 +89,7 @@ logger = Logger(
         DashboardLogger(
             title="PQN PopGym Arcade Breakout",
             total_timesteps=total_timesteps,
+            name="PQN",
             env_id="popgym_arcade::BreakoutEasy",
         ),
     ]

@@ -22,7 +22,6 @@ num_seeds = 1
 env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = PPOConfig(
-    name="PPO-FFM",
     num_envs=8,
     num_eval_envs=16,
     num_steps=128,
@@ -108,7 +107,7 @@ agent = PPO(
 )
 
 logger = Logger(
-    [DashboardLogger(title="PPO FFM CartPole", total_timesteps=total_timesteps)]
+    [DashboardLogger(title="PPO FFM CartPole", total_timesteps=total_timesteps, name="PPO-FFM", env_id="gymnax::CartPole-v1")]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 

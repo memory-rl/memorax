@@ -22,7 +22,6 @@ base_env = jaxmarl.make("MPE_simple_spread_v3")
 env = JaxMarlWrapper(base_env)
 
 cfg = IPPOConfig(
-    name="IPPO",
     num_envs=8,
     num_eval_envs=16,
     num_steps=128,
@@ -92,7 +91,7 @@ agent = IPPO(
 )
 
 logger = Logger(
-    [DashboardLogger(title="IPPO MPE Simple Spread", total_timesteps=total_timesteps)]
+    [DashboardLogger(title="IPPO MPE Simple Spread", total_timesteps=total_timesteps, name="IPPO", env_id="MPE_simple_spread_v3")]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 

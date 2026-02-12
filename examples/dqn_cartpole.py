@@ -18,7 +18,6 @@ num_eval_steps = 5_000
 env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = DQNConfig(
-    name="dqn",
     num_envs=10,
     num_eval_envs=10,
     buffer_size=10_000,
@@ -72,7 +71,7 @@ agent = DQN(
     epsilon_schedule=epsilon_schedule,
 )
 
-logger = Logger([DashboardLogger(title="DQN Example", total_timesteps=total_timesteps)])
+logger = Logger([DashboardLogger(title="DQN Example", total_timesteps=total_timesteps, name="DQN", env_id="gymnax::CartPole-v1")])
 logger_state = logger.init(cfg=asdict(cfg))
 
 key, state = agent.init(key)

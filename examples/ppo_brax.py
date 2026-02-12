@@ -31,7 +31,6 @@ env = ClipActionWrapper(env)
 env = ScaleRewardWrapper(env, scale=10.0)
 
 cfg = PPOConfig(
-    name="PPO",
     num_envs=num_envs,
     num_eval_envs=num_envs,
     num_steps=16,  # num_envs * num_steps = 65,536 total samples (matches Brax batch_size * num_minibatches)
@@ -107,7 +106,7 @@ agent = PPO(
 logger = Logger(
     {
         "dashboard": DashboardLogger(
-            title="PPO brax Example", total_timesteps=total_timesteps
+            title="PPO brax Example", total_timesteps=total_timesteps, name="PPO", env_id="brax::hopper"
         ),
     }
 )

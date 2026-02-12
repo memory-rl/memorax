@@ -20,7 +20,6 @@ num_seeds = 5
 env, env_params = environment.make("gymnax::Breakout-MinAtar")
 
 cfg = PQNConfig(
-    name="PQN",
     num_envs=32,
     num_eval_envs=16,
     num_steps=64,
@@ -70,7 +69,7 @@ agent = PQN(
 
 logger = Logger(
     [
-        DashboardLogger(title="PQN MinAtar Breakout", total_timesteps=total_timesteps),
+        DashboardLogger(title="PQN MinAtar Breakout", total_timesteps=total_timesteps, name="PQN", env_id="gymnax::Breakout-MinAtar"),
     ]
 )
 logger_state = logger.init(cfg=asdict(cfg))

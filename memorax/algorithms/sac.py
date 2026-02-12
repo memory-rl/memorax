@@ -19,7 +19,6 @@ from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
 class SACConfig:
     """Configuration for SAC algorithm."""
 
-    name: str
     actor_lr: float
     critic_lr: float
     alpha_lr: float
@@ -34,6 +33,7 @@ class SACConfig:
     initial_alpha: float
     target_entropy_scale: float
     max_grad_norm: float
+    gradient_steps: int = 1
     burn_in_length: int = 0
 
 
@@ -295,7 +295,7 @@ class SAC:
             log_alpha = self.alpha_network.apply(alpha_params)
             alpha = jnp.exp(log_alpha)
             alpha_loss = (alpha * (-log_probs - target_entropy)).mean()
-            return alpha_loss, {"alpha": alpha, "alpha_loss": alpha_loss}
+            return alpha_loss, {"losses/alpha": alpha, "losses/alpha_loss": alpha_loss}
 
         (_, info), grads = jax.value_and_grad(alpha_loss_fn, has_aux=True)(
             state.alpha_params
@@ -345,7 +345,7 @@ class SAC:
             )
             q = jnp.minimum(*qs)
             actor_loss = (log_probs * alpha - remove_feature_axis(q)).mean()
-            return actor_loss, (carry, {"actor_loss": actor_loss, "entropy": -log_probs.mean()})
+            return actor_loss, (carry, {"losses/actor_loss": actor_loss, "losses/entropy": -log_probs.mean()})
 
         (_, (carry, info)), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
             state.actor_params
@@ -417,9 +417,9 @@ class SAC:
             ) + self.critic_network.head.loss(q2, {}, target_q)
 
             return critic_loss, {
-                "critic_loss": critic_loss,
-                "q1": q1.mean(),
-                "q2": q2.mean(),
+                "losses/critic_loss": critic_loss,
+                "losses/q1": q1.mean(),
+                "losses/q2": q2.mean(),
             }
 
         (_, info), grads = jax.value_and_grad(critic_loss_fn, has_aux=True)(
@@ -531,8 +531,16 @@ class SAC:
             length=self.cfg.train_frequency // self.cfg.num_envs,
         )
 
-        key, update_key = jax.random.split(key)
-        state, update_info = self._update(update_key, state)
+        def _gradient_step(carry, _):
+            key, state = carry
+            key, update_key = jax.random.split(key)
+            state, update_info = self._update(update_key, state)
+            return (key, state), update_info
+
+        (key, state), update_info = jax.lax.scan(
+            _gradient_step, (key, state), length=self.cfg.gradient_steps
+        )
+        update_info = jax.tree.map(lambda x: x.mean(axis=0), update_info)
 
         info = {
             **transitions.info,

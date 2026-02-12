@@ -4,18 +4,15 @@ __version__ = "1.0.1"
 
 from memorax.algorithms import (
     DQN,
-    IPPO,
-    IRPPO,
+    MAPPO,
     PPO,
     PQN,
     R2D2,
     SAC,
     DQNConfig,
     DQNState,
-    IPPOConfig,
-    IPPOState,
-    IRPPOConfig,
-    IRPPOState,
+    MAPPOConfig,
+    MAPPOState,
     PPOConfig,
     PPOState,
     PQNConfig,
@@ -26,11 +23,7 @@ from memorax.algorithms import (
     SACState,
 )
 
-from memorax.intrinsic_rewards import ICM, RND
-
 from memorax.environments import make
-
-from memorax.intrinsic_rewards import ICM, RND
 
 
 from memorax.loggers import (
@@ -56,12 +49,9 @@ __all__ = [
     "DQN",
     "DQNConfig",
     "DQNState",
-    "IPPO",
-    "IPPOConfig",
-    "IPPOState",
-    "IRPPO",
-    "IRPPOConfig",
-    "IRPPOState",
+    "MAPPO",
+    "MAPPOConfig",
+    "MAPPOState",
     "PPO",
     "PPOConfig",
     "PPOState",
@@ -74,8 +64,6 @@ __all__ = [
     "SAC",
     "SACConfig",
     "SACState",
-    "ICM",
-    "RND",
     "make",
     "Network",
     "FeatureExtractor",

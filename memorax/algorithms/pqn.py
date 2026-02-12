@@ -57,7 +57,7 @@ class PQN:
         self, key: Key, state: PQNState
     ) -> tuple[Key, PQNState, Array, Array, dict]:
         timestep = state.timestep.to_sequence()
-        (carry, (q_values, _)), intermediates = self.q_network.apply(
+        (carry, (q_values, aux)), intermediates = self.q_network.apply(
             state.params,
             observation=timestep.obs,
             mask=timestep.done,
@@ -108,7 +108,6 @@ class PQN:
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
-
         intermediates_metrics = jax.tree.map(
             jnp.mean, intermediates.get('intermediates', {}),
         )
@@ -241,6 +240,7 @@ class PQN:
 
             td_error = q_value - target
             loss = 0.5 * jnp.square(td_error).mean()
+            loss += self.q_network.auxiliary_loss(aux, transitions)
             return loss, (
                 q_value.mean(),
                 q_value.min(),

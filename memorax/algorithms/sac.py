@@ -70,7 +70,7 @@ class SAC:
     def _deterministic_action(self, key, state: SACState):
         key, sample_key = jax.random.split(key)
         timestep = state.timestep.to_sequence()
-        (next_carry, (dist, _)), intermediates = self.actor_network.apply(
+        (next_carry, (dist, aux)), intermediates = self.actor_network.apply(
             state.actor_params,
             timestep.obs,
             timestep.done,
@@ -88,7 +88,7 @@ class SAC:
     def _stochastic_action(self, key, state: SACState):
         key, sample_key = jax.random.split(key)
         timestep = state.timestep.to_sequence()
-        (next_carry, (dist, _)), intermediates = self.actor_network.apply(
+        (next_carry, (dist, aux)), intermediates = self.actor_network.apply(
             state.actor_params,
             timestep.obs,
             timestep.done,
@@ -128,7 +128,6 @@ class SAC:
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
         )(env_keys, state.env_state, action, self.env_params)
-
         intermediates_metrics = jax.tree.map(
             jnp.mean, intermediates.get('intermediates', {}),
         )
@@ -324,7 +323,7 @@ class SAC:
         alpha = jnp.exp(log_alpha)
 
         def actor_loss_fn(actor_params):
-            carry, (dist, _) = self.actor_network.apply(
+            carry, (dist, aux) = self.actor_network.apply(
                 actor_params,
                 batch.obs,
                 batch.prev_done,
@@ -345,6 +344,7 @@ class SAC:
             )
             q = jnp.minimum(*qs)
             actor_loss = (log_probs * alpha - remove_feature_axis(q)).mean()
+            actor_loss += self.actor_network.auxiliary_loss(aux, batch)
             return actor_loss, (carry, {"losses/actor_loss": actor_loss, "losses/entropy": -log_probs.mean()})
 
         (_, (carry, info)), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(

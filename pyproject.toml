@@ -15,13 +15,6 @@ license = "Apache-2.0"
 requires-python = ">=3.12,<3.13"
 authors = [{ name = "Noah Farr" }]
 keywords = ["jax", "flax", "reinforcement-learning", "memory", "rnn", "ssm", "transformer", "pomdp"]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-]
 
 [project.urls]
 Homepage = "https://github.com/memory-rl/memorax"

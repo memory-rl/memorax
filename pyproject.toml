@@ -27,19 +27,6 @@ classifiers = [
 Homepage = "https://github.com/memory-rl/memorax"
 Repository = "https://github.com/memory-rl/memorax"
 Documentation = "https://memorax.readthedocs.io"
-"Bug Tracker" = "https://github.com/memory-rl/memorax/issues"
-dependencies = [
-    "jax>=0.7.2",
-    "flax>=0.10.7",
-    "distrax>=0.1.5",
-    "flashbax>=0.1.3",
-    "gymnax>=0.0.9",
-    "wandb>=0.21.0",
-    "neptune-scale>=0.27.0",
-    "tensorboardx>=2.6.4",
-    "hydra-core",
-    "performax",
-]
 
 [project.optional-dependencies]
 brax      = ["brax>=0.12.4"]

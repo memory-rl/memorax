@@ -9,4 +9,4 @@ uv run main.py -m hydra/launcher=basic \
   environment=$ENVS \
   torso=$TORSOS \
   num_seeds=1 \
-  logger=[dashboard,wandb]
+  logger=wandb

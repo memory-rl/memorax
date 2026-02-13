@@ -3,29 +3,25 @@ from dataclasses import asdict
 
 import flax.linen as nn
 import jax
+import jaxmarl
 import optax
 
-from gymnax.wrappers import FlattenObservationWrapper
-
-from memorax.algorithms import IRPPO, IRPPOConfig
-from memorax.environments import environment
-from memorax.intrinsic_rewards import ICM
+from memorax.algorithms import MAPPO, MAPPOConfig
+from memorax.environments.jaxmarl import JaxMarlWrapper
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import FeatureExtractor, Network, heads
 
-total_timesteps = 500_000
+total_timesteps = 1_000_000
 num_train_steps = 10_000
 num_eval_steps = 10_000
 
 seed = 0
 num_seeds = 1
 
-env, env_params = environment.make("gymnax::DeepSea-bsuite")
-env = FlattenObservationWrapper(env)
-num_actions = env.action_space(env_params).n
-obs_shape = env.observation_space(env_params).shape
+base_env = jaxmarl.make("MPE_simple_spread_v3")
+env = JaxMarlWrapper(base_env)
 
-cfg = IRPPOConfig(
+cfg = MAPPOConfig(
     num_envs=8,
     num_eval_envs=16,
     num_steps=128,
@@ -38,81 +34,64 @@ cfg = IRPPOConfig(
     clip_vloss=True,
     ent_coef=0.01,
     vf_coef=0.5,
-    intrinsic_reward_coef=0.01,
 )
+
+d_model = 128
 
 feature_extractor = FeatureExtractor(
     observation_extractor=nn.Sequential((
-        nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu,
-        nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu,
+        nn.Dense(d_model, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu,
+        nn.Dense(d_model, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu,
     )),
 )
-actor_network = Network(
+
+action_space = env.action_spaces[env.agents[0]]
+
+VmappedNetwork = nn.vmap(
+    Network,
+    variable_axes={"params": None},
+    split_rngs={"params": False, "memory": True, "dropout": True},
+    in_axes=(0, 0, 0, 0, 0, 0),
+    out_axes=(0, 0),
+)
+
+actor_network = VmappedNetwork(
     feature_extractor=feature_extractor,
+
     head=heads.Categorical(
-        action_dim=num_actions,
+        action_dim=action_space.n,
         kernel_init=nn.initializers.orthogonal(scale=0.01),
     ),
 )
-critic_network = Network(
+
+critic_network = VmappedNetwork(
     feature_extractor=feature_extractor,
+
     head=heads.VNetwork(
         kernel_init=nn.initializers.orthogonal(scale=1.0),
     ),
-)
-
-icm_feature_dim = 64
-
-icm_encoder = nn.Sequential((
-    nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
-    nn.relu,
-    nn.Dense(icm_feature_dim, kernel_init=nn.initializers.orthogonal(scale=1.414)),
-))
-icm_forward_model = nn.Sequential((
-    nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
-    nn.relu,
-    nn.Dense(icm_feature_dim, kernel_init=nn.initializers.orthogonal(scale=1.414)),
-))
-icm_inverse_model = nn.Sequential((
-    nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
-    nn.relu,
-    nn.Dense(num_actions, kernel_init=nn.initializers.orthogonal(scale=1.414)),
-))
-
-icm = ICM(
-    encoder=icm_encoder,
-    forward_model=icm_forward_model,
-    inverse_model=icm_inverse_model,
-    num_actions=num_actions,
-    beta=0.2,
 )
 
 optimizer = optax.chain(
     optax.clip_by_global_norm(1.0),
     optax.adam(learning_rate=3e-4, eps=1e-5),
 )
-icm_optimizer = optax.chain(
-    optax.clip_by_global_norm(1.0),
-    optax.adam(learning_rate=1e-3, eps=1e-5),
-)
+
 
 key = jax.random.key(seed)
 keys = jax.random.split(key, num_seeds)
 
-agent = IRPPO(
+agent = MAPPO(
     cfg=cfg,
     env=env,
-    env_params=env_params,
     actor_network=actor_network,
     critic_network=critic_network,
     actor_optimizer=optimizer,
     critic_optimizer=optimizer,
-    intrinsic_reward_network=icm,
-    intrinsic_reward_optimizer=icm_optimizer,
 )
 
 logger = Logger(
-    [DashboardLogger(title="IRPPO-ICM DeepSea", total_timesteps=total_timesteps, name="IRPPO-ICM", env_id="gymnax::DeepSea-bsuite")]
+    [DashboardLogger(title="MAPPO MPE Simple Spread", total_timesteps=total_timesteps, name="MAPPO", env_id="MPE_simple_spread_v3")]
 )
 logger_state = logger.init(cfg=asdict(cfg))
 

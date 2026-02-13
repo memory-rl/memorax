@@ -15,8 +15,13 @@ def make(cfg, env, env_params):
     action_dim = env.action_space(env_params).n
     features = cfg.torso.features
 
-    feature_extractor = FeatureExtractor(
-        observation_extractor=nn.Sequential([
+    obs_shape = env.observation_space(env_params).shape
+    if len(obs_shape) == 1:
+        observation_extractor = nn.Sequential([
+            nn.Dense(features), nn.LayerNorm(), nn.relu,
+        ])
+    else:
+        observation_extractor = nn.Sequential([
             nn.Conv(64, kernel_size=(5, 5), strides=(2, 2)),
             nn.leaky_relu,
             lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
@@ -29,7 +34,10 @@ def make(cfg, env, env_params):
             nn.Conv(512, kernel_size=(1, 1), strides=(1, 1)),
             nn.leaky_relu,
             lambda x: x.reshape((x.shape[0], x.shape[1], -1)),
-        ]),
+        ])
+
+    feature_extractor = FeatureExtractor(
+        observation_extractor=observation_extractor,
         action_extractor=partial(jax.nn.one_hot, num_classes=action_dim),
         features=features,
     )

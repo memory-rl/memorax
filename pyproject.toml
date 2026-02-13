@@ -12,7 +12,7 @@ version = "1.0.1"
 description = "A unified JAX/Flax framework for memory-augmented reinforcement learning with support for RNNs, SSMs, and Transformers"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.11,<=3.13"
 authors = [{ name = "Noah Farr" }]
 keywords = ["jax", "flax", "reinforcement-learning", "memory", "rnn", "ssm", "transformer", "pomdp"]
 

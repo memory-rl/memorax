@@ -11,7 +11,6 @@ class Network(nn.Module):
     feature_extractor: nn.Module = Identity()
     torso: nn.Module = Identity()
     head: nn.Module = Identity()
-    auxiliary_losses: dict[str, nn.Module] | None = None
 
     @nn.compact
     def __call__(
@@ -42,17 +41,8 @@ class Network(nn.Module):
             case x:
                 carry = None
 
-        output, aux = self.head(x, action=action, reward=reward, done=done, observation=observation, **kwargs)
-        auxiliary_losses = {name: h(x, action=action, reward=reward, done=done, observation=observation, **kwargs) for name, h in (self.auxiliary_losses or {}).items()}
-        return carry, (output, {**aux, "auxiliary_losses": auxiliary_losses})
-
-    @nn.nowrap
-    def auxiliary_loss(self, aux, transitions):
-        return sum(
-            (self.auxiliary_losses[name].loss(out, head_aux, transitions)
-             for name, (out, head_aux) in aux["auxiliary_losses"].items()),
-            0.0,
-        )
+        x = self.head(x, action=action, reward=reward, done=done, **kwargs)
+        return carry, x
 
     @nn.nowrap
     def initialize_carry(self, input_shape):

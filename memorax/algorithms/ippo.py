@@ -74,7 +74,7 @@ class IPPO:
     ) -> tuple[Key, IPPOState, Array, Array, None, dict]:
         timestep = to_sequence(state.timestep)
 
-        (actor_carry, (probs, aux)), intermediates = self.actor_network.apply(
+        (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
             timestep.obs,
             timestep.done,
@@ -100,7 +100,7 @@ class IPPO:
         key, action_key, actor_memory_key, critic_memory_key = jax.random.split(key, 4)
         timestep = to_sequence(state.timestep)
 
-        (actor_carry, (probs, aux)), intermediates = self.actor_network.apply(
+        (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
             timestep.obs,
             timestep.done,
@@ -207,7 +207,7 @@ class IPPO:
             advantages = advantages[:, :, self.cfg.burn_in_length :]
 
         def actor_loss_fn(params):
-            _, (probs, aux) = self.actor_network.apply(
+            _, (probs, _) = self.actor_network.apply(
                 params,
                 transitions.obs,
                 transitions.prev_done,
@@ -231,7 +231,6 @@ class IPPO:
                 jnp.clip(ratio, 1.0 - self.cfg.clip_coef, 1.0 + self.cfg.clip_coef)
                 * advantages,
             ).mean()
-            actor_loss += self.actor_network.auxiliary_loss(aux, transitions)
             return actor_loss - self.cfg.ent_coef * entropy, (
                 entropy.mean(),
                 approx_kl.mean(),

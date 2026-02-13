@@ -56,7 +56,7 @@ class DQN:
     def _greedy_action(self, key: Key, state: DQNState) -> tuple[Key, DQNState, Array, dict]:
         key, memory_key = jax.random.split(key)
         timestep = state.timestep.to_sequence()
-        (carry, (q_values, aux)), intermediates = self.q_network.apply(
+        (carry, (q_values, _)), intermediates = self.q_network.apply(
             state.params,
             timestep.obs,
             timestep.done,
@@ -219,7 +219,6 @@ class DQN:
             q_value = remove_feature_axis(q_value)
             td_error = q_value - td_target
             loss = (jnp.square(td_error)).mean()
-            loss += self.q_network.auxiliary_loss(aux, experience)
             return loss, (q_value, td_error, carry)
 
         (loss, (q_value, td_error, carry)), grads = jax.value_and_grad(

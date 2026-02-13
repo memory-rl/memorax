@@ -67,7 +67,7 @@ class PPO:
         self, key: Key, state: PPOState
     ) -> tuple[Key, PPOState, Array, Array, None, dict]:
         timestep = state.timestep.to_sequence()
-        (actor_carry, (probs, aux)), intermediates = self.actor_network.apply(
+        (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
             observation=timestep.obs,
             mask=timestep.done,
@@ -103,7 +103,7 @@ class PPO:
         ) = jax.random.split(key, 4)
 
         timestep = state.timestep.to_sequence()
-        (actor_carry, (probs, aux)), intermediates = self.actor_network.apply(
+        (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
             observation=timestep.obs,
             mask=timestep.done,
@@ -207,7 +207,7 @@ class PPO:
             advantages = advantages[:, self.cfg.burn_in_length :]
 
         def actor_loss_fn(params):
-            _, (probs, aux) = self.actor_network.apply(
+            _, (probs, _) = self.actor_network.apply(
                 params,
                 observation=transitions.obs,
                 mask=transitions.prev_done,
@@ -234,7 +234,6 @@ class PPO:
                 )
                 * advantages,
             ).mean()
-            actor_loss += self.actor_network.auxiliary_loss(aux, transitions)
             return actor_loss - self.cfg.ent_coef * entropy, (
                 entropy.mean(),
                 approx_kl.mean(),

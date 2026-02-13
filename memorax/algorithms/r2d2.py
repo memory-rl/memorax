@@ -101,7 +101,7 @@ class R2D2:
     ) -> tuple[Key, R2D2State, Array, dict]:
         key, memory_key = jax.random.split(key)
         timestep = state.timestep.to_sequence()
-        (carry, (q_values, aux)), intermediates = self.q_network.apply(
+        (carry, (q_values, _)), intermediates = self.q_network.apply(
             state.params,
             timestep.obs,
             timestep.done,
@@ -312,7 +312,6 @@ class R2D2:
             td_error = q_value - td_target
 
             loss = (importance_weights * jnp.square(td_error)).mean()
-            loss += self.q_network.auxiliary_loss(aux, experience)
             return loss, (q_value, td_error, carry)
 
         (loss, (q_value, td_error, carry)), grads = jax.value_and_grad(

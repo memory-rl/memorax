@@ -1,4 +1,3 @@
-from dataclasses import field
 from typing import Callable
 
 import distrax
@@ -12,7 +11,6 @@ from memorax.networks.sequence_models.utils import remove_feature_axis
 
 class DiscreteQNetwork(nn.Module):
     action_dim: int
-    cumulant: Callable = lambda transition: transition.reward
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
@@ -28,7 +26,6 @@ class DiscreteQNetwork(nn.Module):
 
 
 class ContinuousQNetwork(nn.Module):
-    cumulant: Callable = lambda transition: transition.reward
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
@@ -46,7 +43,6 @@ class ContinuousQNetwork(nn.Module):
 
 
 class VNetwork(nn.Module):
-    cumulant: Callable = lambda transition: transition.reward
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
@@ -65,7 +61,6 @@ class HLGaussVNetwork(nn.Module):
     num_bins: int = 101
     v_min: float = -10.0
     v_max: float = 10.0
-    cumulant: Callable = lambda transition: transition.reward
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
@@ -116,7 +111,6 @@ class C51QNetwork(nn.Module):
     num_atoms: int = 51
     v_min: float = -10.0
     v_max: float = 10.0
-    cumulant: Callable = lambda transition: transition.reward
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
@@ -257,21 +251,3 @@ class Beta(nn.Module):
         return log_beta
 
 
-class Horde(nn.Module):
-    head: nn.Module
-    auxiliary_heads: dict[str, nn.Module] = field(default_factory=dict)
-
-    @nn.compact
-    def __call__(self, x, **kwargs):
-        output, aux = self.head(x, **kwargs)
-        for name, h in self.auxiliary_heads.items():
-            aux[name] = h(x, **kwargs)
-        return output, aux
-
-    @nn.nowrap
-    def loss(self, output, aux, targets):
-        total_loss = self.head.loss(output, aux, targets)
-        for name, h in self.auxiliary_heads.items():
-            head_output, head_aux = aux[name]
-            total_loss += h.loss(head_output, head_aux, targets)
-        return total_loss

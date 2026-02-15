@@ -199,9 +199,8 @@ class DQN:
         )
         next_target_q_value = jnp.max(next_target_q_values, axis=-1)
 
-        cumulant = self.q_network.head.cumulant(experience)
         td_target = (
-            cumulant
+            experience.reward
             + (1 - experience.done) * self.cfg.gamma * next_target_q_value
         )
 

@@ -179,8 +179,7 @@ class MAPPO:
 
     def _generalized_advantage_estimation(self, carry, transition):
         advantage, next_value = carry
-        cumulant = self.critic_network.head.cumulant(transition)
-        delta = cumulant + self.cfg.gamma * next_value * (1 - transition.done) - transition.value
+        delta = transition.reward + self.cfg.gamma * next_value * (1 - transition.done) - transition.value
         advantage = delta + self.cfg.gamma * self.cfg.gae_lambda * (1 - transition.done) * advantage
         return (advantage, transition.value), advantage
 

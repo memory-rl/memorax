@@ -14,13 +14,12 @@ from memorax.networks.sequence_models.utils import (
     remove_time_axis,
 )
 from memorax.networks.sequence_models.wrappers import SequenceModelWrapper
-from memorax.utils import Timestep, Transition, generalized_advantage_estimation, memory_metrics
+from memorax.utils import Timestep, Transition, memory_metrics
 from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvState, Key
 
 
 @struct.dataclass(frozen=True)
 class PPOConfig:
-    name: str
     num_envs: int
     num_eval_envs: int
     num_steps: int
@@ -140,6 +139,13 @@ class PPO:
             critic_carry=critic_carry,
         )
         return key, state, action, log_prob, value, intermediates
+
+    def _generalized_advantage_estimation(self, carry, transition):
+        advantage, next_value = carry
+        cumulant = self.critic_network.head.cumulant(transition)
+        delta = cumulant + self.cfg.gamma * next_value * (1 - transition.done) - transition.value
+        advantage = delta + self.cfg.gamma * self.cfg.gae_lambda * (1 - transition.done) * advantage
+        return (advantage, transition.value), advantage
 
     def _step(self, carry: tuple, _, *, policy: Callable):
         key, state = carry
@@ -438,12 +444,14 @@ class PPO:
         value = remove_time_axis(value)
         value = remove_feature_axis(value)
 
-        advantages, returns = generalized_advantage_estimation(
-            self.cfg.gamma,
-            self.cfg.gae_lambda,
-            value,
+        _, advantages = jax.lax.scan(
+            self._generalized_advantage_estimation,
+            (jnp.zeros_like(value), value),
             transitions,
+            reverse=True,
+            unroll=16,
         )
+        returns = advantages + transitions.value
 
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
 

@@ -20,7 +20,6 @@ from memorax.utils.typing import Array, Environment, EnvParams, EnvState, Key
 
 @struct.dataclass(frozen=True)
 class PQNConfig:
-    name: str
     num_envs: int
     num_eval_envs: int
     num_steps: int

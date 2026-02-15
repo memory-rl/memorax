@@ -395,7 +395,8 @@ class SAC:
 
         log_alpha = self.alpha_network.apply(state.alpha_params)
         alpha = jnp.exp(log_alpha)
-        target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * (
+        cumulant = self.critic_network.head.cumulant(batch)
+        target_q = cumulant + self.cfg.gamma * (1 - batch.done) * (
             remove_feature_axis(next_q) - alpha * next_log_probs
         )
 

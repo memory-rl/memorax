@@ -145,9 +145,10 @@ class PQN:
 
     def _td_lambda(self, carry, transition):
         lambda_return, next_q_value = carry
+        cumulant = self.q_network.head.cumulant(transition)
 
         target_bootstrap = (
-            transition.reward + self.cfg.gamma * (1.0 - transition.done) * next_q_value
+            cumulant + self.cfg.gamma * (1.0 - transition.done) * next_q_value
         )
 
         delta = lambda_return - next_q_value
@@ -155,7 +156,7 @@ class PQN:
 
         lambda_return = (
             1.0 - transition.done
-        ) * lambda_return + transition.done * transition.reward
+        ) * lambda_return + transition.done * cumulant
 
         q_value = jnp.max(transition.value, axis=-1)
         return (lambda_return, q_value), lambda_return

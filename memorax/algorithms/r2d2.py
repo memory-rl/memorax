@@ -266,10 +266,11 @@ class R2D2:
         else:
             next_target_q_value = jnp.max(next_target_q_values, axis=-1)
 
-        learning_seq_len = experience.reward.shape[1]
+        cumulant = self.q_network.head.cumulant(experience)
+        learning_seq_len = cumulant.shape[1]
         if self.cfg.n_step > 1 and learning_seq_len >= self.cfg.n_step:
             n_step_targets = compute_n_step_returns(
-                experience.reward,
+                cumulant,
                 experience.done,
                 next_target_q_value,
                 self.cfg.n_step,
@@ -280,7 +281,7 @@ class R2D2:
             td_target = n_step_targets
         else:
             td_target = (
-                experience.reward
+                cumulant
                 + (1 - experience.done) * self.cfg.gamma * next_target_q_value
             )
 

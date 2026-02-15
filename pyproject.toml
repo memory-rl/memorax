@@ -26,7 +26,6 @@ dependencies = [
     "neptune-scale>=0.27.0",
     "tensorboardx>=2.6.4",
     "hydra-core",
-    "performax",
 ]
 
 [project.urls]

@@ -353,18 +353,17 @@ class MAPPO:
                     rngs={"memory": memory_key, "dropout": dropout_key},
                 )
 
+                critic_loss = self.critic_network.head.loss(values, aux, returns_transformed)
                 if self.cfg.clip_vloss:
                     old_values = jnp.moveaxis(transitions.value, 0, -1)
-                    critic_loss = jnp.square(values - returns_transformed)
                     clipped_value = old_values + jnp.clip(
                         (values - old_values),
                         -self.cfg.clip_coef,
                         self.cfg.clip_coef,
                     )
-                    clipped_critic_loss = jnp.square(clipped_value - returns_transformed)
-                    critic_loss = 0.5 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
-                else:
-                    critic_loss = self.critic_network.head.loss(values, aux, returns_transformed)
+                    clipped_critic_loss = self.critic_network.head.loss(clipped_value, aux, returns_transformed)
+                    critic_loss = jnp.maximum(critic_loss, clipped_critic_loss)
+                critic_loss = critic_loss.mean()
 
                 return critic_loss
         else:
@@ -401,17 +400,16 @@ class MAPPO:
                 )
                 values = remove_feature_axis(values)
 
+                critic_loss = self.critic_network.head.loss(values, aux, returns)
                 if self.cfg.clip_vloss:
-                    critic_loss = jnp.square(values - returns)
                     clipped_value = transitions.value + jnp.clip(
                         (values - transitions.value),
                         -self.cfg.clip_coef,
                         self.cfg.clip_coef,
                     )
-                    clipped_critic_loss = jnp.square(clipped_value - returns)
-                    critic_loss = 0.5 * jnp.maximum(critic_loss, clipped_critic_loss).mean()
-                else:
-                    critic_loss = self.critic_network.head.loss(values, aux, returns)
+                    clipped_critic_loss = self.critic_network.head.loss(clipped_value, aux, returns)
+                    critic_loss = jnp.maximum(critic_loss, clipped_critic_loss)
+                critic_loss = critic_loss.mean()
 
                 return critic_loss
 

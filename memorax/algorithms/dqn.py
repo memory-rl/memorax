@@ -219,7 +219,7 @@ class DQN:
             q_value = jnp.take_along_axis(q_values, action, axis=-1)
             q_value = remove_feature_axis(q_value)
             td_error = q_value - td_target
-            loss = (jnp.square(td_error)).mean()
+            loss = self.q_network.head.loss(q_value, aux, td_target).mean()
             return loss, (q_value, td_error, carry)
 
         (loss, (q_value, td_error, carry)), grads = jax.value_and_grad(

@@ -22,7 +22,7 @@ class DiscreteQNetwork(nn.Module):
         return q_values, {}
 
     def loss(self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray) -> jnp.ndarray:
-        return 0.5 * jnp.square(output - targets).mean()
+        return 0.5 * jnp.square(output - targets)
 
 
 class ContinuousQNetwork(nn.Module):
@@ -39,7 +39,7 @@ class ContinuousQNetwork(nn.Module):
         return jnp.squeeze(q_values, -1), {}
 
     def loss(self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray) -> jnp.ndarray:
-        return 0.5 * jnp.square(output - targets).mean()
+        return 0.5 * jnp.square(output - targets)
 
 
 class VNetwork(nn.Module):
@@ -52,7 +52,7 @@ class VNetwork(nn.Module):
         return v_value, {}
 
     def loss(self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray) -> jnp.ndarray:
-        return 0.5 * jnp.square(output - targets).mean()
+        return 0.5 * jnp.square(output - targets)
 
 
 class HLGaussVNetwork(nn.Module):
@@ -103,7 +103,7 @@ class HLGaussVNetwork(nn.Module):
         ).squeeze(-1)
 
         loss = -(lower_weight * lower_log_prob + upper_weight * upper_log_prob)
-        return loss.mean()
+        return loss
 
 
 class C51QNetwork(nn.Module):
@@ -158,7 +158,7 @@ class C51QNetwork(nn.Module):
         ).squeeze(-1)
 
         loss = -(lower_weight * lower_log_prob + upper_weight * upper_log_prob)
-        return loss.mean()
+        return loss
 
 
 class Categorical(nn.Module):

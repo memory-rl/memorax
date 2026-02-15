@@ -312,7 +312,7 @@ class R2D2:
             q_value = remove_feature_axis(q_value)
             td_error = q_value - td_target
 
-            loss = (importance_weights * jnp.square(td_error)).mean()
+            loss = (importance_weights * self.q_network.head.loss(q_value, aux, td_target)).mean()
             return loss, (q_value, td_error, carry)
 
         (loss, (q_value, td_error, carry)), grads = jax.value_and_grad(

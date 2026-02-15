@@ -414,7 +414,7 @@ class SAC:
             q1, q2 = qs
             critic_loss = self.critic_network.head.loss(
                 q1, {}, target_q
-            ) + self.critic_network.head.loss(q2, {}, target_q)
+            ).mean() + self.critic_network.head.loss(q2, {}, target_q).mean()
 
             return critic_loss, {
                 "losses/critic_loss": critic_loss,

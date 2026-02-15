@@ -239,7 +239,7 @@ class PQN:
             q_value = remove_feature_axis(q_value)
 
             td_error = q_value - target
-            loss = 0.5 * jnp.square(td_error).mean()
+            loss = self.q_network.head.loss(q_value, aux, target).mean()
             return loss, (
                 q_value.mean(),
                 q_value.min(),

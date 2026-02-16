@@ -158,8 +158,9 @@ class PPO:
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
 
-        intermediates_metrics = jax.tree.map(
-            jnp.mean, intermediates.get('intermediates', {}),
+        intermediates = jax.tree.map(
+            lambda x: jnp.mean(x, axis=(1, 2)),
+            intermediates.get('intermediates', {}),
         )
 
         broadcast_dims = tuple(
@@ -175,7 +176,7 @@ class PPO:
             action=action,
             reward=reward,
             done=done,
-            info={**info, "intermediates": intermediates_metrics},
+            info={**info, "intermediates": intermediates},
             log_prob=log_prob,
             value=value,
             prev_action=prev_action,

@@ -109,8 +109,9 @@ class PQN:
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
 
-        intermediates_metrics = jax.tree.map(
-            jnp.mean, intermediates.get('intermediates', {}),
+        intermediates = jax.tree.map(
+            lambda x: jnp.mean(x, axis=(1, 2)),
+            intermediates.get('intermediates', {}),
         )
 
         prev_action = jnp.where(
@@ -128,7 +129,7 @@ class PQN:
             action=action,
             reward=reward,
             done=done,
-            info={**info, "intermediates": intermediates_metrics},
+            info={**info, "intermediates": intermediates},
             value=q_values,
             next_obs=next_obs,
             prev_action=prev_action,

@@ -194,8 +194,9 @@ class MAPPO:
         next_obs, env_state, reward, done, info = self._env_step(
             step_keys, state.env_state, action
         )
-        intermediates_metrics = jax.tree.map(
-            jnp.mean, intermediates.get('intermediates', {}),
+        intermediates = jax.tree.map(
+            lambda x: jnp.mean(x, axis=(1, 2)),
+            intermediates.get('intermediates', {}),
         )
 
         broadcast_dims = tuple(
@@ -213,7 +214,7 @@ class MAPPO:
             action=action,
             reward=reward,
             done=done,
-            info={**info, "intermediates": intermediates_metrics},
+            info={**info, "intermediates": intermediates},
             log_prob=log_prob,
             value=value,
             prev_action=prev_action,

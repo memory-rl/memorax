@@ -155,8 +155,9 @@ class R2D2:
             self.env.step, in_axes=(0, 0, 0, None)
         )(step_key, state.env_state, action, self.env_params)
 
-        intermediates_metrics = jax.tree.map(
-            jnp.mean, intermediates.get('intermediates', {}),
+        intermediates = jax.tree.map(
+            lambda x: jnp.mean(x, axis=(1, 2)),
+            intermediates.get('intermediates', {}),
         )
 
         prev_action = jnp.where(
@@ -172,7 +173,7 @@ class R2D2:
             reward=reward,
             next_obs=next_obs,
             done=done,
-            info={**info, "intermediates": intermediates_metrics},
+            info={**info, "intermediates": intermediates},
             prev_action=prev_action,
             prev_reward=prev_reward,
             prev_done=state.timestep.done,
@@ -420,7 +421,8 @@ class R2D2:
             rngs={"memory": memory_key}, mutable=['intermediates'],
         )
         intermediates = jax.tree.map(
-            jnp.mean, intermediates.get('intermediates', {}),
+            lambda x: jnp.mean(x, axis=(1, 2)),
+            intermediates.get('intermediates', {}),
         )
 
         transition = Transition(

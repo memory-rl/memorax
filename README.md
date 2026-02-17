@@ -12,7 +12,7 @@
 
 Most JAX RL libraries treat memory as an afterthought, bolting an LSTM onto an existing agent and calling it done. `Memorax` makes memory a first-class citizen. It provides a composable set of sequence model primitives (attention, SSMs, linear RNNs, and more) that snap together into full architectures like `GTrXL` or `xLSTM`, paired with algorithms and replay buffers designed from the ground up for recurrent training. Whether you're benchmarking a new memory architecture on POMDPs or scaling recurrent agents across environments, `Memorax` gives you the building blocks to do it entirely in JAX.
 
-## ✨ Features
+<h2 align="center">✨ Features</h2>
 
 | | Details |
 |---|---|
@@ -23,7 +23,7 @@ Most JAX RL libraries treat memory as an afterthought, bolting an LSTM onto an e
 | 📦 **Buffers** | Pure JAX episode replay with prioritized sampling via [Flashbax](https://github.com/instadeepai/flashbax) |
 | 📊 **Logging** | CLI Dashboard, File, [W&B](https://wandb.ai), [TensorboardX](https://github.com/lanpa/tensorboardX), [Neptune](https://neptune.ai) |
 
-## 📥 Installation
+<h2 align="center">📥 Installation</h2>
 
 Install `Memorax` using pip:
 
@@ -43,7 +43,7 @@ pip install memorax[cuda]
 wandb login
 ```
 
-## 🚀 Quick Start
+<h2 align="center">🚀 Quick Start</h2>
 
 Train a DQN agent on CartPole in under 30 lines:
 
@@ -81,7 +81,7 @@ key, state, transitions = agent.train(key, state, num_steps=500_000)
 
 See `examples/` for complete scripts with logging and evaluation.
 
-## 💡 Advanced Usage
+<h2 align="center">💡 Advanced Usage</h2>
 
 `Memorax`'s real power is in its composable network primitives. Here's a `PPO` agent with a `GTrXL`-style architecture, built by snapping together modular blocks:
 
@@ -131,7 +131,7 @@ key, state, transitions = agent.train(key, state, num_steps=10_000)
 
 See `examples/architectures` for more architecture compositions including `xLSTM` and `GPT-2` style networks.
 
-## 📂 Project Structure
+<h2 align="center">📂 Project Structure</h2>
 ```
 memorax/
 ├─ examples/          # Small runnable scripts (e.g., DQN CartPole)
@@ -144,7 +144,7 @@ memorax/
    └─ utils/
 ```
 
-## 🧩 JAX POMDP Ecosystem
+<h2 align="center">🧩 JAX POMDP Ecosystem</h2>
 
 `Memorax` is designed to work alongside a growing suite of JAX-native tools focused on partial observability and memory. These projects provide the foundational architectures and benchmarks for modern memory-augmented RL:
 
@@ -159,11 +159,11 @@ memorax/
 * **[Navix](https://github.com/pignatelli/navix):** Accelerated MiniGrid-style environments. These are excellent for testing spatial reasoning and navigation in partially observable grid worlds.
 * **[XLand-MiniGrid](https://github.com/corl-team/xland-minigrid):** A high-throughput meta-RL environment suite that provides massive task diversity for testing agent generalization in POMDPs.
 
-## 📄 License
+<h2 align="center">📄 License</h2>
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
-## 📚 Citation
+<h2 align="center">📚 Citation</h2>
 
 If you use `Memorax` for your work, please cite:
 ```
@@ -175,6 +175,6 @@ If you use `Memorax` for your work, please cite:
 }
 ```
 
-## 🙏 Acknowledgments
+<h2 align="center">🙏 Acknowledgments</h2>
 
 Special thanks to [@huterguier](https://github.com/huterguier) for the valuable discussions and advice on the API design.

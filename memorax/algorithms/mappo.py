@@ -12,7 +12,7 @@ from memorax.networks.sequence_models.utils import (add_feature_axis,
                                                     add_time_axis,
                                                     remove_feature_axis,
                                                     remove_time_axis)
-from memorax.utils import Timestep, Transition, burn_in, memory_metrics
+from memorax.utils import Timestep, Transition, memory_metrics
 from memorax.utils.typing import Array, Key
 
 to_sequence = lambda timestep: jax.tree.map(
@@ -94,12 +94,12 @@ class MAPPO:
 
         (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
-            observation=timestep.obs,
-            mask=timestep.done,
-            action=timestep.action,
-            reward=add_feature_axis(timestep.reward),
-            done=timestep.done,
-            initial_carry=state.actor_carry,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            state.actor_carry,
             mutable=['intermediates'],
         )
 
@@ -120,12 +120,12 @@ class MAPPO:
 
         (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
-            observation=timestep.obs,
-            mask=timestep.done,
-            action=timestep.action,
-            reward=add_feature_axis(timestep.reward),
-            done=timestep.done,
-            initial_carry=state.actor_carry,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            state.actor_carry,
             rngs={"memory": actor_memory_key},
             mutable=['intermediates'],
         )
@@ -143,12 +143,12 @@ class MAPPO:
 
             critic_carry, (value, _) = self.critic_network.apply(
                 state.critic_params,
-                observation=obs,
-                mask=done,
-                action=prev_action,
-                reward=add_feature_axis(reward),
-                done=done,
-                initial_carry=state.critic_carry,
+                obs,
+                done,
+                prev_action,
+                add_feature_axis(reward),
+                done,
+                state.critic_carry,
                 rngs={"memory": critic_memory_key},
             )
 
@@ -159,12 +159,12 @@ class MAPPO:
         else:
             critic_carry, (value, _) = self.critic_network.apply(
                 state.critic_params,
-                observation=timestep.obs,
-                mask=timestep.done,
-                action=timestep.action,
-                reward=add_feature_axis(timestep.reward),
-                done=timestep.done,
-                initial_carry=state.critic_carry,
+                timestep.obs,
+                timestep.done,
+                timestep.action,
+                add_feature_axis(timestep.reward),
+                timestep.done,
+                state.critic_carry,
                 rngs={"memory": critic_memory_key},
             )
 
@@ -234,7 +234,20 @@ class MAPPO:
         key, memory_key, dropout_key = jax.random.split(key, 3)
 
         if self.cfg.burn_in_length > 0:
-            initial_actor_carry = burn_in(self.actor_network, state.actor_params, initial_actor_carry, jax.tree.map(lambda x: x[:, :, : self.cfg.burn_in_length], transitions))
+            burn_in = jax.tree.map(
+                lambda x: x[:, :, : self.cfg.burn_in_length], transitions
+            )
+
+            initial_actor_carry, (_, _) = self.actor_network.apply(
+                jax.lax.stop_gradient(state.actor_params),
+                burn_in.obs,
+                burn_in.prev_done,
+                burn_in.prev_action,
+                add_feature_axis(burn_in.prev_reward),
+                burn_in.prev_done,
+                initial_actor_carry,
+            )
+            initial_actor_carry = jax.lax.stop_gradient(initial_actor_carry)
             transitions = jax.tree.map(
                 lambda x: x[:, :, self.cfg.burn_in_length :], transitions
             )
@@ -243,12 +256,12 @@ class MAPPO:
         def actor_loss_fn(params):
             _, (probs, _) = self.actor_network.apply(
                 params,
-                observation=transitions.obs,
-                mask=transitions.prev_done,
-                action=transitions.prev_action,
-                reward=add_feature_axis(transitions.prev_reward),
-                done=transitions.prev_done,
-                initial_carry=initial_actor_carry,
+                transitions.obs,
+                transitions.prev_done,
+                transitions.prev_action,
+                add_feature_axis(transitions.prev_reward),
+                transitions.prev_done,
+                initial_actor_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
 
@@ -266,9 +279,9 @@ class MAPPO:
                 * advantages,
             ).mean()
             return actor_loss - self.cfg.ent_coef * entropy, (
-                entropy,
-                approx_kl,
-                clipfrac,
+                entropy.mean(),
+                approx_kl.mean(),
+                clipfrac.mean(),
             )
 
         (actor_loss, aux), actor_grads = jax.value_and_grad(
@@ -283,7 +296,7 @@ class MAPPO:
             actor_params=actor_params,
             actor_optimizer_state=actor_optimizer_state,
         )
-        return key, state, actor_loss, aux
+        return key, state, actor_loss.mean(), aux
 
     def _update_critic(
         self, key, state: MAPPOState, initial_critic_carry, transitions, returns
@@ -300,15 +313,21 @@ class MAPPO:
             prev_reward = transitions.prev_reward[0]
 
             if self.cfg.burn_in_length > 0:
-                initial_critic_carry = burn_in(
-                    self.critic_network, state.critic_params, initial_critic_carry,
-                    Transition(
-                        obs=obs[:, : self.cfg.burn_in_length],
-                        prev_done=prev_done[:, : self.cfg.burn_in_length],
-                        prev_action=prev_action[:, : self.cfg.burn_in_length],
-                        prev_reward=prev_reward[:, : self.cfg.burn_in_length],
-                    ),
+                burn_in_obs = obs[:, : self.cfg.burn_in_length]
+                burn_in_prev_done = prev_done[:, : self.cfg.burn_in_length]
+                burn_in_prev_action = prev_action[:, : self.cfg.burn_in_length]
+                burn_in_prev_reward = prev_reward[:, : self.cfg.burn_in_length]
+
+                initial_critic_carry, (_, _) = self.critic_network.apply(
+                    jax.lax.stop_gradient(state.critic_params),
+                    burn_in_obs,
+                    burn_in_prev_done,
+                    burn_in_prev_action,
+                    add_feature_axis(burn_in_prev_reward),
+                    burn_in_prev_done,
+                    initial_critic_carry,
                 )
+                initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
 
                 obs = obs[:, self.cfg.burn_in_length :]
                 prev_done = prev_done[:, self.cfg.burn_in_length :]
@@ -325,12 +344,12 @@ class MAPPO:
             def critic_loss_fn(params):
                 _, (values, aux) = self.critic_network.apply(
                     params,
-                    observation=obs,
-                    mask=prev_done,
-                    action=prev_action,
-                    reward=add_feature_axis(prev_reward),
-                    done=prev_done,
-                    initial_carry=initial_critic_carry,
+                    obs,
+                    prev_done,
+                    prev_action,
+                    add_feature_axis(prev_reward),
+                    prev_done,
+                    initial_critic_carry,
                     rngs={"memory": memory_key, "dropout": dropout_key},
                 )
 
@@ -349,7 +368,20 @@ class MAPPO:
                 return critic_loss
         else:
             if self.cfg.burn_in_length > 0:
-                initial_critic_carry = burn_in(self.critic_network, state.critic_params, initial_critic_carry, jax.tree.map(lambda x: x[:, :, : self.cfg.burn_in_length], transitions))
+                burn_in = jax.tree.map(
+                    lambda x: x[:, :, : self.cfg.burn_in_length], transitions
+                )
+
+                initial_critic_carry, (_, _) = self.critic_network.apply(
+                    jax.lax.stop_gradient(state.critic_params),
+                    burn_in.obs,
+                    burn_in.prev_done,
+                    burn_in.prev_action,
+                    add_feature_axis(burn_in.prev_reward),
+                    burn_in.prev_done,
+                    initial_critic_carry,
+                )
+                initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
                 transitions = jax.tree.map(
                     lambda x: x[:, :, self.cfg.burn_in_length :], transitions
                 )
@@ -358,12 +390,12 @@ class MAPPO:
             def critic_loss_fn(params):
                 _, (values, aux) = self.critic_network.apply(
                     params,
-                    observation=transitions.obs,
-                    mask=transitions.prev_done,
-                    action=transitions.prev_action,
-                    reward=add_feature_axis(transitions.prev_reward),
-                    done=transitions.prev_done,
-                    initial_carry=initial_critic_carry,
+                    transitions.obs,
+                    transitions.prev_done,
+                    transitions.prev_action,
+                    add_feature_axis(transitions.prev_reward),
+                    transitions.prev_done,
+                    initial_critic_carry,
                     rngs={"memory": memory_key, "dropout": dropout_key},
                 )
                 values = remove_feature_axis(values)
@@ -393,7 +425,7 @@ class MAPPO:
             critic_params=critic_params,
             critic_optimizer_state=critic_optimizer_state,
         )
-        return key, state, critic_loss
+        return key, state, critic_loss.mean()
 
     def _update_minibatch(self, carry, minibatch: tuple):
         key, state = carry
@@ -528,24 +560,24 @@ class MAPPO:
 
             _, (value, _) = self.critic_network.apply(
                 state.critic_params,
-                observation=obs,
-                mask=done,
-                action=action,
-                reward=add_feature_axis(reward),
-                done=done,
-                initial_carry=state.critic_carry,
+                obs,
+                done,
+                action,
+                add_feature_axis(reward),
+                done,
+                state.critic_carry,
             )
             value = remove_time_axis(value)
             value = value.T
         else:
             _, (value, _) = self.critic_network.apply(
                 state.critic_params,
-                observation=timestep.obs,
-                mask=timestep.done,
-                action=timestep.action,
-                reward=add_feature_axis(timestep.reward),
-                done=timestep.done,
-                initial_carry=state.critic_carry,
+                timestep.obs,
+                timestep.done,
+                timestep.action,
+                add_feature_axis(timestep.reward),
+                timestep.done,
+                state.critic_carry,
             )
             value = jax.vmap(remove_time_axis)(value)
             value = remove_feature_axis(value)
@@ -611,7 +643,7 @@ class MAPPO:
         return (key, state), transitions.replace(obs=None, next_obs=None, info=info)
 
     @partial(jax.jit, static_argnames=["self"])
-    def init(self, key: Key):
+    def init(self, key):
         (
             key,
             env_key,
@@ -652,12 +684,12 @@ class MAPPO:
                 "memory": actor_memory_key,
                 "dropout": actor_dropout_key,
             },
-            observation=timestep.obs,
-            mask=timestep.done,
-            action=timestep.action,
-            reward=add_feature_axis(timestep.reward),
-            done=timestep.done,
-            initial_carry=actor_carry,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            actor_carry,
         )
 
         if self.cfg.centralized_critic:
@@ -671,12 +703,12 @@ class MAPPO:
                     "memory": critic_memory_key,
                     "dropout": critic_dropout_key,
                 },
-                observation=obs,
-                mask=timestep.done[0],
-                action=timestep.action[0],
-                reward=add_feature_axis(timestep.reward[0]),
-                done=timestep.done[0],
-                initial_carry=critic_carry,
+                obs,
+                timestep.done[0],
+                timestep.action[0],
+                add_feature_axis(timestep.reward[0]),
+                timestep.done[0],
+                critic_carry,
             )
         else:
             critic_carry = self.critic_network.initialize_carry(
@@ -688,12 +720,12 @@ class MAPPO:
                     "memory": critic_memory_key,
                     "dropout": critic_dropout_key,
                 },
-                observation=timestep.obs,
-                mask=timestep.done,
-                action=timestep.action,
-                reward=add_feature_axis(timestep.reward),
-                done=timestep.done,
-                initial_carry=critic_carry,
+                timestep.obs,
+                timestep.done,
+                timestep.action,
+                add_feature_axis(timestep.reward),
+                timestep.done,
+                critic_carry,
             )
 
         return (
@@ -712,11 +744,11 @@ class MAPPO:
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(self, key: Key, state: MAPPOState, num_steps: int):
+    def warmup(self, key, state, num_steps):
         return key, state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def train(self, key: Key, state: MAPPOState, num_steps: int):
+    @partial(jax.jit, static_argnums=(0, 3))
+    def train(self, key, state, num_steps):
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
@@ -728,8 +760,8 @@ class MAPPO:
         )
         return key, state, transitions
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: Key, state: MAPPOState, num_steps: int):
+    @partial(jax.jit, static_argnames=["self", "num_steps", "deterministic"])
+    def evaluate(self, key, state, num_steps, deterministic=True):
         key, reset_key = jax.random.split(key)
         num_agents = self.env.num_agents
 
@@ -763,8 +795,11 @@ class MAPPO:
             critic_carry=critic_carry,
         )
 
+        policy = (
+            self._deterministic_action if deterministic else self._stochastic_action
+        )
         (key, *_), transitions = jax.lax.scan(
-            partial(self._step, policy=self._deterministic_action),
+            partial(self._step, policy=policy),
             (key, state),
             length=num_steps,
         )

@@ -14,7 +14,7 @@ from memorax.networks.sequence_models.utils import (
     remove_time_axis,
 )
 from memorax.networks.sequence_models.wrappers import SequenceModelWrapper
-from memorax.utils import Timestep, Transition, burn_in, memory_metrics
+from memorax.utils import Timestep, Transition, memory_metrics
 from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvState, Key
 
 
@@ -196,7 +196,19 @@ class PPO:
         key, memory_key, dropout_key = jax.random.split(key, 3)
 
         if self.cfg.burn_in_length > 0:
-            initial_actor_carry = burn_in(self.actor_network, state.actor_params, initial_actor_carry, jax.tree.map(lambda x: x[:, : self.cfg.burn_in_length], transitions))
+            burn_in = jax.tree.map(
+                lambda x: x[:, : self.cfg.burn_in_length], transitions
+            )
+            initial_actor_carry, (_, _) = self.actor_network.apply(
+                jax.lax.stop_gradient(state.actor_params),
+                observation=burn_in.obs,
+                mask=burn_in.prev_done,
+                action=burn_in.prev_action,
+                reward=add_feature_axis(burn_in.prev_reward),
+                done=burn_in.prev_done,
+                initial_carry=initial_actor_carry,
+            )
+            initial_actor_carry = jax.lax.stop_gradient(initial_actor_carry)
             transitions = jax.tree.map(
                 lambda x: x[:, self.cfg.burn_in_length :], transitions
             )
@@ -231,9 +243,9 @@ class PPO:
                 * advantages,
             ).mean()
             return actor_loss - self.cfg.ent_coef * entropy, (
-                entropy,
-                approx_kl,
-                clipfrac,
+                entropy.mean(),
+                approx_kl.mean(),
+                clipfrac.mean(),
             )
 
         (actor_loss, aux), actor_grads = jax.value_and_grad(
@@ -248,7 +260,7 @@ class PPO:
             actor_params=actor_params,
             actor_optimizer_state=actor_optimizer_state,
         )
-        return key, state, actor_loss, aux
+        return key, state, actor_loss.mean(), aux
 
     def _update_critic(
         self, key, state: PPOState, initial_critic_carry, transitions, returns
@@ -256,7 +268,19 @@ class PPO:
         key, memory_key, dropout_key = jax.random.split(key, 3)
 
         if self.cfg.burn_in_length > 0:
-            initial_critic_carry = burn_in(self.critic_network, state.critic_params, initial_critic_carry, jax.tree.map(lambda x: x[:, : self.cfg.burn_in_length], transitions))
+            burn_in = jax.tree.map(
+                lambda x: x[:, : self.cfg.burn_in_length], transitions
+            )
+            initial_critic_carry, (_, _) = self.critic_network.apply(
+                jax.lax.stop_gradient(state.critic_params),
+                observation=burn_in.obs,
+                mask=burn_in.prev_done,
+                action=burn_in.prev_action,
+                reward=add_feature_axis(burn_in.prev_reward),
+                done=burn_in.prev_done,
+                initial_carry=initial_critic_carry,
+            )
+            initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
             transitions = jax.tree.map(
                 lambda x: x[:, self.cfg.burn_in_length :], transitions
             )
@@ -299,7 +323,7 @@ class PPO:
         state = state.replace(
             critic_params=critic_params, critic_optimizer_state=critic_optimizer_state
         )
-        return key, state, critic_loss
+        return key, state, critic_loss.mean()
 
     def _update_minibatch(self, carry, minibatch: tuple):
         key, state = carry
@@ -484,7 +508,7 @@ class PPO:
         ), transitions.replace(obs=None, next_obs=None, info=info)
 
     @partial(jax.jit, static_argnames=["self"])
-    def init(self, key: Key):
+    def init(self, key):
         (
             key,
             env_key,
@@ -558,11 +582,11 @@ class PPO:
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(self, key: Key, state: PPOState, num_steps: int):
+    def warmup(self, key, state, num_steps):
         return key, state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def train(self, key: Key, state: PPOState, num_steps: int):
+    @partial(jax.jit, static_argnums=(0, 3))
+    def train(self, key, state, num_steps):
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
@@ -576,8 +600,8 @@ class PPO:
 
         return key, state, transitions
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: Key, state: PPOState, num_steps: int):
+    @partial(jax.jit, static_argnames=["self", "num_steps", "deterministic"])
+    def evaluate(self, key, state, num_steps, deterministic=True):
         key, reset_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
@@ -603,8 +627,11 @@ class PPO:
             env_state=env_state,
         )
 
+        policy = (
+            self._deterministic_action if deterministic else self._stochastic_action
+        )
         (key, *_), transitions = jax.lax.scan(
-            partial(self._step, policy=self._deterministic_action),
+            partial(self._step, policy=policy),
             (key, state),
             length=num_steps,
         )

@@ -35,7 +35,6 @@ cfg = PPOConfig(
     num_envs=num_envs,
     num_eval_envs=num_envs,
     num_steps=16,  # num_envs * num_steps = 65,536 total samples (matches Brax batch_size * num_minibatches)
-    gamma=0.97,
     gae_lambda=0.95,
     num_minibatches=32,
     update_epochs=4,
@@ -83,7 +82,7 @@ critic_network = Network(
         )),
     ),
     torso=Identity(),
-    head=heads.VNetwork(kernel_init=nn.initializers.lecun_uniform()),
+    head=heads.VNetwork(gamma=0.97, kernel_init=nn.initializers.lecun_uniform()),
 )
 
 optimizer = optax.chain(

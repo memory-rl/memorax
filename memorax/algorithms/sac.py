@@ -25,7 +25,6 @@ class SACConfig:
     num_envs: int
     num_eval_envs: int
     buffer_size: int
-    gamma: float
     tau: float
     train_frequency: int
     target_update_frequency: int
@@ -397,9 +396,8 @@ class SAC:
 
         log_alpha = self.alpha_network.apply(state.alpha_params)
         alpha = jnp.exp(log_alpha)
-        target_q = batch.reward + self.cfg.gamma * (1 - batch.done) * (
-            remove_feature_axis(next_q) - alpha * next_log_probs
-        )
+        next_value = remove_feature_axis(next_q) - alpha * next_log_probs
+        target_q = self.critic_network.head.get_target(batch, next_value)
 
         target_q = jax.lax.stop_gradient(target_q)
 
@@ -415,8 +413,8 @@ class SAC:
             )
             q1, q2 = qs
             critic_loss = self.critic_network.head.loss(
-                q1, {}, target_q
-            ).mean() + self.critic_network.head.loss(q2, {}, target_q).mean()
+                q1, {}, target_q, batch
+            ).mean() + self.critic_network.head.loss(q2, {}, target_q, batch).mean()
 
             return critic_loss, {
                 "losses/critic_loss": critic_loss,

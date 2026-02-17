@@ -23,7 +23,6 @@ class PPOConfig:
     num_envs: int
     num_eval_envs: int
     num_steps: int
-    gamma: float
     gae_lambda: float
     num_minibatches: int
     update_epochs: int
@@ -142,8 +141,8 @@ class PPO:
 
     def _generalized_advantage_estimation(self, carry, transition):
         advantage, next_value = carry
-        delta = transition.reward + self.cfg.gamma * next_value * (1 - transition.done) - transition.value
-        advantage = delta + self.cfg.gamma * self.cfg.gae_lambda * (1 - transition.done) * advantage
+        delta = self.critic_network.head.get_target(transition, next_value) - transition.value
+        advantage = delta + self.critic_network.head.gamma * self.cfg.gae_lambda * (1 - transition.done) * advantage
         return (advantage, transition.value), advantage
 
     def _step(self, carry: tuple, _, *, policy: Callable):
@@ -300,14 +299,14 @@ class PPO:
             )
             values = remove_feature_axis(values)
 
-            critic_loss = self.critic_network.head.loss(values, aux, returns)
+            critic_loss = self.critic_network.head.loss(values, aux, returns, transitions)
             if self.cfg.clip_vloss:
                 clipped_value = transitions.value + jnp.clip(
                     (values - transitions.value),
                     -self.cfg.clip_coef,
                     self.cfg.clip_coef,
                 )
-                clipped_critic_loss = self.critic_network.head.loss(clipped_value, aux, returns)
+                clipped_critic_loss = self.critic_network.head.loss(clipped_value, aux, returns, transitions)
                 critic_loss = jnp.maximum(critic_loss, clipped_critic_loss)
             critic_loss = critic_loss.mean()
 

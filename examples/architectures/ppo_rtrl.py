@@ -27,7 +27,6 @@ cfg = PPOConfig(
     num_envs=8,
     num_eval_envs=16,
     num_steps=128,
-    gamma=0.99,
     gae_lambda=0.95,
     num_minibatches=4,
     update_epochs=4,

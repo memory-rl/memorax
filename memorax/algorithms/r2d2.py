@@ -23,7 +23,6 @@ class R2D2Config:
     num_envs: int
     num_eval_envs: int
     buffer_size: int
-    gamma: float
     tau: float
     target_network_frequency: int
     batch_size: int
@@ -274,16 +273,13 @@ class R2D2:
                 experience.done,
                 next_target_q_value,
                 self.cfg.n_step,
-                self.cfg.gamma,
+                self.q_network.head.gamma,
             )
             num_targets = n_step_targets.shape[1]
             experience = jax.tree.map(lambda x: x[:, :num_targets], experience)
             td_target = n_step_targets
         else:
-            td_target = (
-                experience.reward
-                + (1 - experience.done) * self.cfg.gamma * next_target_q_value
-            )
+            td_target = self.q_network.head.get_target(experience, next_target_q_value)
 
         beta = self.beta_schedule(state.step)
         buffer_size = jnp.where(
@@ -313,7 +309,7 @@ class R2D2:
             q_value = remove_feature_axis(q_value)
             td_error = q_value - td_target
 
-            loss = (importance_weights * self.q_network.head.loss(q_value, aux, td_target)).mean()
+            loss = (importance_weights * self.q_network.head.loss(q_value, aux, td_target, experience)).mean()
             return loss, (q_value, td_error, carry)
 
         (loss, (q_value, td_error, carry)), grads = jax.value_and_grad(

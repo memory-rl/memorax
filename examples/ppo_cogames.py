@@ -52,7 +52,6 @@ cfg = PPOConfig(
     num_envs=env.num_envs,  # Use num_envs from the env as this is num_envs x num_agents
     num_eval_envs=0,
     num_steps=128,
-    gamma=0.99,
     gae_lambda=0.95,
     num_minibatches=4,
     update_epochs=4,

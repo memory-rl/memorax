@@ -23,7 +23,6 @@ cfg = R2D2Config(
     num_envs=10,
     num_eval_envs=10,
     buffer_size=50_000,
-    gamma=0.99,
     tau=1.0,
     target_network_frequency=500,
     batch_size=32,

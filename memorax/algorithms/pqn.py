@@ -23,7 +23,6 @@ class PQNConfig:
     num_envs: int
     num_eval_envs: int
     num_steps: int
-    gamma: float
     td_lambda: float
     num_minibatches: int
     update_epochs: int
@@ -146,12 +145,10 @@ class PQN:
 
     def _td_lambda(self, carry, transition):
         lambda_return, next_q_value = carry
-        target_bootstrap = (
-            transition.reward + self.cfg.gamma * (1.0 - transition.done) * next_q_value
-        )
+        target_bootstrap = self.q_network.head.get_target(transition, next_q_value)
 
         delta = lambda_return - next_q_value
-        lambda_return = target_bootstrap + self.cfg.gamma * self.cfg.td_lambda * delta
+        lambda_return = target_bootstrap + self.q_network.head.gamma * self.cfg.td_lambda * delta
 
         lambda_return = (
             1.0 - transition.done
@@ -240,7 +237,7 @@ class PQN:
             q_value = remove_feature_axis(q_value)
 
             td_error = q_value - target
-            loss = self.q_network.head.loss(q_value, aux, target).mean()
+            loss = self.q_network.head.loss(q_value, aux, target, transitions).mean()
             return loss, (
                 q_value.mean(),
                 q_value.min(),

@@ -20,7 +20,6 @@ class DQNConfig:
     num_envs: int
     num_eval_envs: int
     buffer_size: int
-    gamma: float
     tau: float
     target_network_frequency: int
     batch_size: int
@@ -200,10 +199,7 @@ class DQN:
         )
         next_target_q_value = jnp.max(next_target_q_values, axis=-1)
 
-        td_target = (
-            experience.reward
-            + (1 - experience.done) * self.cfg.gamma * next_target_q_value
-        )
+        td_target = self.q_network.head.get_target(experience, next_target_q_value)
 
         def loss_fn(params):
             carry, (q_values, aux) = self.q_network.apply(
@@ -220,7 +216,7 @@ class DQN:
             q_value = jnp.take_along_axis(q_values, action, axis=-1)
             q_value = remove_feature_axis(q_value)
             td_error = q_value - td_target
-            loss = self.q_network.head.loss(q_value, aux, td_target).mean()
+            loss = self.q_network.head.loss(q_value, aux, td_target, experience).mean()
             return loss, (q_value, td_error, carry)
 
         (loss, (q_value, td_error, carry)), grads = jax.value_and_grad(

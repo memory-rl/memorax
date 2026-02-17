@@ -24,7 +24,6 @@ cfg = PPOConfig(
     num_envs=32,
     num_eval_envs=16,
     num_steps=64,
-    gamma=0.999,
     gae_lambda=0.95,
     num_minibatches=8,
     update_epochs=4,
@@ -58,7 +57,7 @@ critic_network = Network(
         ), nn.relu)),
     ),
     torso=RNN(cell=nn.GRUCell(features=256)),
-    head=heads.VNetwork(),
+    head=heads.VNetwork(gamma=0.999),
 )
 critic_optimizer = optax.chain(
     optax.clip_by_global_norm(1.0),

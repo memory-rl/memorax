@@ -16,12 +16,12 @@ Most JAX RL libraries treat memory as an afterthought, bolting an LSTM onto an e
 
 | | Details |
 |---|---|
-| 🤖 **Algorithms** | [DQN](https://arxiv.org/abs/1312.5602), [PPO](https://arxiv.org/abs/1707.06347), [SAC](https://arxiv.org/abs/1801.01290), [PQN](https://arxiv.org/abs/2407.04811v2#S4), [IPPO](https://arxiv.org/abs/2011.09533), [IRPPO](https://arxiv.org/abs/1810.04650), [R2D2](https://openreview.net/forum?id=r1lyTjAqYX) + memory-augmented variants with burn-in. [ICM](https://arxiv.org/abs/1705.05363) and [RND](https://arxiv.org/abs/1810.12894) for intrinsic motivation |
+| 🤖 **Algorithms** | [DQN](https://arxiv.org/abs/1312.5602), [PPO](https://arxiv.org/abs/1707.06347), [SAC](https://arxiv.org/abs/1801.01290), [PQN](https://arxiv.org/abs/2407.04811v2#S4), [MAPPO](https://arxiv.org/abs/2103.01955) ([IPPO](https://arxiv.org/abs/2011.09533), [IRPPO](https://arxiv.org/abs/1810.04650)), [R2D2](https://openreview.net/forum?id=r1lyTjAqYX) + memory-augmented variants with burn-in |
 | 🔁 **Sequence Models** | [LSTM](https://doi.org/10.1162/neco.1997.9.8.1735), [GRU](https://arxiv.org/abs/1406.1078), [xLSTM](https://arxiv.org/abs/2405.04517), [FFM](https://arxiv.org/abs/2310.04128), [SHM](https://arxiv.org/abs/2410.10132), [S5](https://arxiv.org/abs/2208.04933), [LRU](https://arxiv.org/abs/2303.06349), [Mamba](https://arxiv.org/abs/2312.00752), [MinGRU](https://arxiv.org/abs/2410.01201), [Self-Attention](https://arxiv.org/abs/1706.03762), [Linear Attention](https://arxiv.org/abs/2006.16236). Compose into `GTrXL`, `GPT-2`, and more. Support for [RTRL](https://doi.org/10.1162/neco.1989.1.2.270) |
-| 🧬 **Networks** | [ViT](https://arxiv.org/abs/2010.11929) encoder. [RoPE](https://arxiv.org/abs/2104.09864) and [ALiBi](https://arxiv.org/abs/2108.12409) positional embeddings. [MoE](https://arxiv.org/abs/1701.06538) for horizontal scaling. [RL²](https://arxiv.org/abs/1611.02779) wrapper for meta-RL. Composable `feature extractor` → `torso` → `head` pipeline |
-| 🎮 **Environments** | [Gymnax](https://github.com/RobertTLange/gymnax), [PopJym](https://github.com/EdanToledo/popjym), [PopGym Arcade](https://github.com/bolt-research/popgym-arcade), [Navix](https://github.com/epignatelli/navix), [Craftax](https://github.com/MichaelTMatthews/Craftax), [Brax](https://github.com/google/brax), [MuJoCo](https://github.com/google-deepmind/mujoco_playground), [gxm](https://github.com/huterguier/gxm), [XMiniGrid](https://github.com/corl-team/xland-minigrid), [JaxMARL](https://github.com/FLAIROx/JaxMARL) |
+| 🧬 **Networks** | [ViT](https://arxiv.org/abs/2010.11929) encoder. [RoPE](https://arxiv.org/abs/2104.09864) and [ALiBi](https://arxiv.org/abs/2108.12409) positional embeddings. [MoE](https://arxiv.org/abs/1701.06538) for horizontal scaling. [RL²](https://arxiv.org/abs/1611.02779) wrapper for meta-RL. [GVF/Horde](https://www.cs.swarthmore.edu/~meeden/DevelopmentalRobotics/horde1.pdf) heads. [C51](https://arxiv.org/abs/1707.06887) and [HL-Gauss](https://arxiv.org/abs/2403.03950) distributional value heads. Composable `feature extractor` → `torso` → `head` pipeline |
+| 🎮 **Environments** | [Gymnax](https://github.com/RobertTLange/gymnax), [PopJym](https://github.com/EdanToledo/popjym), [PopGym Arcade](https://github.com/bolt-research/popgym-arcade), [Navix](https://github.com/epignatelli/navix), [Craftax](https://github.com/MichaelTMatthews/Craftax), [Brax](https://github.com/google/brax), [MuJoCo](https://github.com/google-deepmind/mujoco_playground), [gxm](https://github.com/huterguier/gxm), [Grimax](https://github.com/noahfarr/grimax), [XMiniGrid](https://github.com/corl-team/xland-minigrid), [JaxMARL](https://github.com/FLAIROx/JaxMARL) |
 | 📦 **Buffers** | Pure JAX episode replay with prioritized sampling via [Flashbax](https://github.com/instadeepai/flashbax) |
-| 📊 **Logging** | CLI Dashboard, [W&B](https://wandb.ai), [TensorboardX](https://github.com/lanpa/tensorboardX), [Neptune](https://neptune.ai) |
+| 📊 **Logging** | CLI Dashboard, File, [W&B](https://wandb.ai), [TensorboardX](https://github.com/lanpa/tensorboardX), [Neptune](https://neptune.ai) |
 
 ## 📥 Installation
 
@@ -59,8 +59,8 @@ from memorax.networks import FeatureExtractor, Network, heads
 env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = DQNConfig(
-    name="dqn", num_envs=10, num_eval_envs=10, buffer_size=10_000,
-    gamma=0.99, tau=1.0, target_network_frequency=500, batch_size=64,
+    num_envs=10, num_eval_envs=10, buffer_size=10_000,
+    tau=1.0, target_network_frequency=500, batch_size=64,
     start_e=1.0, end_e=0.05, exploration_fraction=0.5, train_frequency=10,
 )
 
@@ -98,11 +98,9 @@ from memorax.networks import (
 env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = PPOConfig(
-    name="PPO-GTrXL",
     num_envs=8,
     num_eval_envs=16,
     num_steps=128,
-    gamma=0.99,
     gae_lambda=0.95,
     num_minibatches=4,
     update_epochs=4,

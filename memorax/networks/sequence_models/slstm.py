@@ -11,8 +11,14 @@ from jax import random
 
 from memorax.utils.typing import Array
 
-from .utils import (BlockDiagonalDense, CausalConv1d, MultiHeadLayerNorm,
-                    add_time_axis, powerlaw_init, remove_time_axis)
+from .utils import (
+    BlockDiagonalDense,
+    CausalConv1d,
+    MultiHeadLayerNorm,
+    add_time_axis,
+    powerlaw_init,
+    remove_time_axis,
+)
 
 
 class sLSTMCell(RNNCellBase):

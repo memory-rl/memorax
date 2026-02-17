@@ -2,15 +2,16 @@ from functools import partial
 from typing import Any, Callable
 
 import flax.linen as nn
-import gymnax
 import jax
 import jax.numpy as jnp
 import optax
 from flax import core, struct
 
-from memorax.networks.sequence_models.utils import (add_feature_axis,
-                                                    remove_feature_axis,
-                                                    remove_time_axis)
+from memorax.networks.sequence_models.utils import (
+    add_feature_axis,
+    remove_feature_axis,
+    remove_time_axis,
+)
 from memorax.utils import Timestep, Transition, memory_metrics
 from memorax.utils.typing import Array, Environment, EnvParams, EnvState, Key
 
@@ -18,7 +19,6 @@ from memorax.utils.typing import Array, Environment, EnvParams, EnvState, Key
 @struct.dataclass(frozen=True)
 class PQNConfig:
     num_envs: int
-    num_eval_envs: int
     num_steps: int
     td_lambda: float
     num_minibatches: int
@@ -117,11 +117,7 @@ class PQN:
             jnp.zeros_like(state.timestep.action),
             state.timestep.action,
         )
-        prev_reward = jnp.where(
-            state.timestep.done,
-            jnp.zeros_like(state.timestep.reward),
-            state.timestep.reward,
-        )
+        prev_reward = jnp.where(state.timestep.done, 0, state.timestep.reward)
         transition = Transition(
             obs=state.timestep.obs,
             action=action,
@@ -195,13 +191,11 @@ class PQN:
         minibatches = shuffle(batch)
 
         (key, state), metrics = jax.lax.scan(
-            self._update_minibatch, (key, state), xs=minibatches
+            self._update_minibatch, (key, state), minibatches
         )
         return (key, state, initial_carry, transitions, lambda_targets), metrics
 
-    def _update_minibatch(
-        self, carry, minibatch
-    ) -> tuple[tuple[PQNState, Array], tuple[Array, Array]]:
+    def _update_minibatch(self, carry, minibatch):
         key, state = carry
 
         carry, transitions, target = minibatch
@@ -266,7 +260,7 @@ class PQN:
 
         return (key, state), (loss, *aux)
 
-    def _learn(
+    def _update_step(
         self, carry: tuple[Key, PQNState], _
     ) -> tuple[tuple[Key, PQNState], dict]:
         key, state = carry
@@ -334,7 +328,7 @@ class PQN:
         return (key, state), transitions.replace(obs=None, next_obs=None, info=info)
 
     @partial(jax.jit, static_argnames=["self"])
-    def init(self, key) -> tuple[Key, PQNState, Array, gymnax.EnvState]:
+    def init(self, key) -> tuple[Key, PQNState]:
         key, env_key, q_key, memory_key = jax.random.split(key, 4)
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
@@ -346,7 +340,7 @@ class PQN:
             dtype=self.env.action_space(self.env_params).dtype,
         )
         reward = jnp.zeros((self.cfg.num_envs,), dtype=jnp.float32)
-        done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
+        done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool_)
         timestep = Timestep(
             obs=obs, action=action, reward=reward, done=done
         ).to_sequence()
@@ -387,7 +381,7 @@ class PQN:
         num_steps: int,
     ) -> tuple[Key, PQNState, dict]:
         (key, state), transitions = jax.lax.scan(
-            self._learn,
+            self._update_step,
             (key, state),
             length=(num_steps // (self.cfg.num_steps * self.cfg.num_envs)),
         )
@@ -399,20 +393,20 @@ class PQN:
         return key, state, transitions
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: Key, state: PQNState, num_steps: int) -> tuple[Key, dict]:
+    def evaluate(self, key: Key, state: PQNState, num_steps: int):
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
         action = jnp.zeros(
-            (self.cfg.num_eval_envs, *self.env.action_space(self.env_params).shape),
+            (self.cfg.num_envs, *self.env.action_space(self.env_params).shape),
             dtype=self.env.action_space(self.env_params).dtype,
         )
-        reward = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.float32)
-        done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
+        reward = jnp.zeros((self.cfg.num_envs,), dtype=jnp.float32)
+        done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool_)
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
-        carry = self.q_network.initialize_carry((self.cfg.num_eval_envs, None))
+        carry = self.q_network.initialize_carry((self.cfg.num_envs, None))
 
         state = state.replace(timestep=timestep, carry=carry, env_state=env_state)
 

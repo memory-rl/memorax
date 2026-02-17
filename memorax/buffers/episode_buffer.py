@@ -11,10 +11,13 @@ import chex
 import jax
 import jax.numpy as jnp
 from flashbax import utils
-from flashbax.buffers.trajectory_buffer import (Experience, TrajectoryBuffer,
-                                                TrajectoryBufferSample,
-                                                TrajectoryBufferState,
-                                                make_trajectory_buffer)
+from flashbax.buffers.trajectory_buffer import (
+    Experience,
+    TrajectoryBuffer,
+    TrajectoryBufferSample,
+    TrajectoryBufferState,
+    make_trajectory_buffer,
+)
 from flashbax.utils import add_dim_to_args
 
 

@@ -9,9 +9,15 @@ from jax.nn.initializers import lecun_normal, normal
 from memorax.utils.typing import Array, Carry
 
 from .memoroid import MemoroidCellBase
-from .utils import (discretize_bilinear, discretize_zoh, init_cv,
-                    init_log_steps, init_v_inv_b, make_dplr_hippo,
-                    truncated_standard_normal)
+from .utils import (
+    discretize_bilinear,
+    discretize_zoh,
+    init_cv,
+    init_log_steps,
+    init_v_inv_b,
+    make_dplr_hippo,
+    truncated_standard_normal,
+)
 
 
 def _c_init_complex_normal(key, shape):

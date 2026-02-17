@@ -1,8 +1,7 @@
 import jax
 from flax import struct
 
-from memorax.networks.sequence_models.utils import (add_time_axis,
-                                                    remove_time_axis)
+from memorax.networks.sequence_models.utils import add_time_axis, remove_time_axis
 from memorax.utils.typing import Array
 
 

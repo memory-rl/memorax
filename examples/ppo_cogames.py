@@ -7,8 +7,7 @@ import jax
 import optax
 import pufferlib
 from cogames.cli.mission import get_mission
-from cogames.cogs_vs_clips.cogsguard_reward_variants import \
-    apply_reward_variants
+from cogames.cogs_vs_clips.cogsguard_reward_variants import apply_reward_variants
 from mettagrid.envs.mettagrid_puffer_env import MettaGridPufferEnv
 from mettagrid.simulator import Simulator
 
@@ -51,16 +50,14 @@ env_params = env.default_params
 cfg = PPOConfig(
     name="PPO",
     num_envs=env.num_envs,  # Use num_envs from the env as this is num_envs x num_agents
-    num_eval_envs=0,
     num_steps=128,
     gae_lambda=0.95,
     num_minibatches=4,
     update_epochs=4,
     normalize_advantage=True,
-    clip_coef=0.2,
-    clip_vloss=True,
-    ent_coef=0.01,
-    vf_coef=0.5,
+    clip_coefficient=0.2,
+    clip_value_loss=True,
+    entropy_coefficient=0.01,
 )
 
 num_train_steps = 10_000 * env.num_envs

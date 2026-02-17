@@ -22,16 +22,14 @@ env, env_params = environment.make("gymnax::CartPole-v1")
 cfg = PPOConfig(
     name="PPO",
     num_envs=8,
-    num_eval_envs=16,
     num_steps=128,
     gae_lambda=0.95,
     num_minibatches=4,
     update_epochs=4,
     normalize_advantage=True,
-    clip_coef=0.2,
-    clip_vloss=True,
-    ent_coef=0.01,
-    vf_coef=0.5,
+    clip_coefficient=0.2,
+    clip_value_loss=True,
+    entropy_coefficient=0.01,
 )
 
 feature_extractor = FeatureExtractor(

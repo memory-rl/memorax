@@ -9,7 +9,10 @@ from flax.typing import Dtype, Initializer
 
 from memorax.networks.positional_embeddings import RelativePositionalEmbedding
 from memorax.networks.sequence_models.utils import (
-    get_attention_implementation, get_attention_mask, get_input_shape)
+    get_attention_implementation,
+    get_attention_mask,
+    get_input_shape,
+)
 from memorax.utils.typing import Array
 
 from .sequence_model import SequenceModel

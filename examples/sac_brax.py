@@ -27,7 +27,6 @@ cfg = SACConfig(
     critic_lr=3e-4,
     alpha_lr=3e-4,
     num_envs=10,
-    num_eval_envs=10,
     buffer_size=10_000,
     tau=1.0,
     target_update_frequency=500,

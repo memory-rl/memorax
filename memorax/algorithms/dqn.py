@@ -7,22 +7,34 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 
-from memorax.networks.sequence_models.utils import (add_feature_axis,
-                                                    remove_feature_axis,
-                                                    remove_time_axis)
-from memorax.utils import (Timestep, Transition, memory_metrics,
-                           periodic_incremental_update)
-from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
-                                  EnvParams, EnvState, Key)
+from memorax.networks.sequence_models.utils import (
+    add_feature_axis,
+    remove_feature_axis,
+    remove_time_axis,
+)
+from memorax.utils import (
+    Timestep,
+    Transition,
+    memory_metrics,
+    periodic_incremental_update,
+)
+from memorax.utils.typing import (
+    Array,
+    Buffer,
+    BufferState,
+    Environment,
+    EnvParams,
+    EnvState,
+    Key,
+)
 
 
 @struct.dataclass(frozen=True)
 class DQNConfig:
     num_envs: int
-    num_eval_envs: int
     buffer_size: int
     tau: float
-    target_network_frequency: int
+    target_update_frequency: int
     batch_size: int
     start_e: float
     end_e: float
@@ -60,12 +72,12 @@ class DQN:
         timestep = state.timestep.to_sequence()
         (carry, (q_values, _)), intermediates = self.q_network.apply(
             state.params,
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            state.carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=state.carry,
             rngs={"memory": memory_key},
             mutable=["intermediates"],
         )
@@ -98,16 +110,14 @@ class DQN:
         )
         return key, state, action, intermediates
 
-    def _step(
-        self, carry, _, *, policy: Callable, write_to_buffer: bool = True
-    ) -> tuple[Key, DQNState]:
+    def _step(self, carry, _, *, policy: Callable, write_to_buffer: bool = True):
         key, state = carry
 
         initial_carry = state.carry
 
         key, action_key, step_key = jax.random.split(key, 3)
         key, state, action, intermediates = policy(action_key, state)
-        num_envs = state.timestep.obs.shape[0]
+        num_envs, *_ = state.timestep.obs.shape
         step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
             self.env.step, in_axes=(0, 0, 0, None)
@@ -156,7 +166,7 @@ class DQN:
         )
         return (key, state), transition
 
-    def _update(self, key: Key, state: DQNState) -> tuple[DQNState, Array, Array]:
+    def _update(self, key: Key, state: DQNState):
         batch = self.buffer.sample(state.buffer_state, key)
 
         key, memory_key, next_memory_key = jax.random.split(key, 3)
@@ -176,22 +186,22 @@ class DQN:
             )
             initial_carry, (_, _) = self.q_network.apply(
                 jax.lax.stop_gradient(state.params),
-                burn_in.obs,
-                burn_in.prev_done,
-                burn_in.prev_action,
-                add_feature_axis(burn_in.prev_reward),
-                burn_in.prev_done,
-                initial_carry,
+                observation=burn_in.obs,
+                mask=burn_in.prev_done,
+                action=burn_in.prev_action,
+                reward=add_feature_axis(burn_in.prev_reward),
+                done=burn_in.prev_done,
+                initial_carry=initial_carry,
             )
             initial_carry = jax.lax.stop_gradient(initial_carry)
             initial_target_carry, (_, _) = self.q_network.apply(
                 jax.lax.stop_gradient(state.target_params),
-                burn_in.next_obs,
-                burn_in.done,
-                burn_in.action,
-                add_feature_axis(burn_in.reward),
-                burn_in.done,
-                initial_target_carry,
+                observation=burn_in.next_obs,
+                mask=burn_in.done,
+                action=burn_in.action,
+                reward=add_feature_axis(burn_in.reward),
+                done=burn_in.done,
+                initial_carry=initial_target_carry,
             )
             initial_target_carry = jax.lax.stop_gradient(initial_target_carry)
             experience = jax.tree.map(
@@ -200,12 +210,12 @@ class DQN:
 
         _, (next_target_q_values, _) = self.q_network.apply(
             state.target_params,
-            experience.next_obs,
-            experience.done,
-            experience.action,
-            add_feature_axis(experience.reward),
-            experience.done,
-            initial_target_carry,
+            observation=experience.next_obs,
+            mask=experience.done,
+            action=experience.action,
+            reward=add_feature_axis(experience.reward),
+            done=experience.done,
+            initial_carry=initial_target_carry,
             rngs={"memory": next_memory_key},
         )
         next_target_q_value = jnp.max(next_target_q_values, axis=-1)
@@ -215,12 +225,12 @@ class DQN:
         def loss_fn(params):
             carry, (q_values, aux) = self.q_network.apply(
                 params,
-                experience.obs,
-                experience.prev_done,
-                experience.prev_action,
-                add_feature_axis(experience.prev_reward),
-                experience.prev_done,
-                initial_carry,
+                observation=experience.obs,
+                mask=experience.prev_done,
+                action=experience.prev_action,
+                reward=add_feature_axis(experience.prev_reward),
+                done=experience.prev_done,
+                initial_carry=initial_carry,
                 rngs={"memory": memory_key},
             )
             action = add_feature_axis(experience.action)
@@ -241,7 +251,7 @@ class DQN:
             params,
             state.target_params,
             state.step,
-            self.cfg.target_network_frequency,
+            self.cfg.target_update_frequency,
             self.cfg.tau,
         )
 
@@ -262,7 +272,7 @@ class DQN:
 
         return state, info
 
-    def _learn(self, carry, _):
+    def _update_step(self, carry, _):
         key, state = carry
         (key, state), transitions = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
@@ -289,9 +299,11 @@ class DQN:
             env_keys, self.env_params
         )
         action_space = self.env.action_space(self.env_params)
-        action = jnp.zeros((self.cfg.num_envs,), dtype=action_space.dtype)
+        action = jnp.zeros(
+            (self.cfg.num_envs, *action_space.shape), dtype=action_space.dtype
+        )
         reward = jnp.zeros((self.cfg.num_envs,), dtype=jnp.float32)
-        done = jnp.ones(self.cfg.num_envs, dtype=jnp.bool)
+        done = jnp.ones((self.cfg.num_envs,), dtype=jnp.bool_)
         *_, info = jax.vmap(self.env.step, in_axes=(0, 0, 0, None))(
             env_keys, env_state, action, self.env_params
         )
@@ -302,32 +314,24 @@ class DQN:
         ).to_sequence()
         params = self.q_network.init(
             {"params": q_key, "memory": memory_key},
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=carry,
         )
-        target_params = self.q_network.init(
-            {"params": q_key, "memory": memory_key},
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            carry,
-        )
+        target_params = params
         optimizer_state = self.optimizer.init(params)
 
         _, intermediates = self.q_network.apply(
             params,
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=carry,
             rngs={"memory": memory_key},
             mutable=["intermediates"],
         )
@@ -380,14 +384,8 @@ class DQN:
         state: DQNState,
         num_steps: int,
     ):
-        (
-            (
-                key,
-                state,
-            ),
-            transitions,
-        ) = jax.lax.scan(
-            self._learn,
+        (key, state), transitions = jax.lax.scan(
+            self._update_step,
             (key, state),
             length=(num_steps // self.cfg.train_frequency),
         )
@@ -399,16 +397,18 @@ class DQN:
         return key, state, transitions
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: Key, state: DQNState, num_steps: int) -> tuple[Key, dict]:
+    def evaluate(self, key: Key, state: DQNState, num_steps: int):
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
         action_space = self.env.action_space(self.env_params)
-        action = jnp.zeros((self.cfg.num_eval_envs,), dtype=action_space.dtype)
-        reward = jnp.zeros((self.cfg.num_eval_envs,), dtype=jnp.float32)
-        done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool_)
+        action = jnp.zeros(
+            (self.cfg.num_envs, *action_space.shape), dtype=action_space.dtype
+        )
+        reward = jnp.zeros((self.cfg.num_envs,), dtype=jnp.float32)
+        done = jnp.ones((self.cfg.num_envs,), dtype=jnp.bool_)
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
         carry = self.q_network.initialize_carry(obs.shape)
 

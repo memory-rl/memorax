@@ -1,19 +1,20 @@
 from functools import partial
 from typing import Any, Callable, Optional
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
-from flax import core
-from flax import linen as nn
-from flax import struct
+from flax import core, struct
 
-from memorax.networks.sequence_models.utils import (add_feature_axis,
-                                                    add_time_axis,
-                                                    remove_feature_axis,
-                                                    remove_time_axis)
+from memorax.networks.sequence_models.utils import (
+    add_feature_axis,
+    add_time_axis,
+    remove_feature_axis,
+    remove_time_axis,
+)
 from memorax.utils import Timestep, Transition, memory_metrics
-from memorax.utils.typing import Array, Key
+from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvState, Key
 
 to_sequence = lambda timestep: jax.tree.map(
     lambda x: jax.vmap(add_time_axis)(x), timestep
@@ -27,16 +28,14 @@ from_sequence = lambda timestep: jax.tree.map(
 @struct.dataclass(frozen=True)
 class MAPPOConfig:
     num_envs: int
-    num_eval_envs: int
     num_steps: int
     gae_lambda: float
     num_minibatches: int
     update_epochs: int
     normalize_advantage: bool
-    clip_coef: float
-    clip_vloss: bool
-    ent_coef: float
-    vf_coef: float
+    clip_coefficient: float
+    clip_value_loss: bool
+    entropy_coefficient: float
     target_kl: Optional[float] = None
     burn_in_length: int = 0
     centralized_critic: bool = False
@@ -50,7 +49,7 @@ class MAPPOConfig:
 class MAPPOState:
     step: int
     timestep: Timestep
-    env_state: Any
+    env_state: EnvState
     actor_params: core.FrozenDict[str, Any]
     actor_optimizer_state: optax.OptState
     actor_carry: Array
@@ -62,7 +61,8 @@ class MAPPOState:
 @struct.dataclass(frozen=True)
 class MAPPO:
     cfg: MAPPOConfig
-    env: Any
+    env: Environment
+    env_params: EnvParams
     actor_network: nn.Module
     critic_network: nn.Module
     actor_optimizer: optax.GradientTransformation
@@ -94,16 +94,20 @@ class MAPPO:
 
         (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            state.actor_carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=state.actor_carry,
             mutable=["intermediates"],
         )
 
-        action = jnp.argmax(probs.logits, axis=-1)
+        action = (
+            jnp.argmax(probs.logits, axis=-1)
+            if isinstance(self.env.action_spaces[self.env.agents[0]], Discrete)
+            else probs.mode()
+        )
         log_prob = probs.log_prob(action)
 
         action = jax.vmap(remove_time_axis)(action)
@@ -120,12 +124,12 @@ class MAPPO:
 
         (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            state.actor_carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=state.actor_carry,
             rngs={"memory": actor_memory_key},
             mutable=["intermediates"],
         )
@@ -143,12 +147,12 @@ class MAPPO:
 
             critic_carry, (value, _) = self.critic_network.apply(
                 state.critic_params,
-                obs,
-                done,
-                prev_action,
-                add_feature_axis(reward),
-                done,
-                state.critic_carry,
+                observation=obs,
+                mask=done,
+                action=prev_action,
+                reward=add_feature_axis(reward),
+                done=done,
+                initial_carry=state.critic_carry,
                 rngs={"memory": critic_memory_key},
             )
 
@@ -159,12 +163,12 @@ class MAPPO:
         else:
             critic_carry, (value, _) = self.critic_network.apply(
                 state.critic_params,
-                timestep.obs,
-                timestep.done,
-                timestep.action,
-                add_feature_axis(timestep.reward),
-                timestep.done,
-                state.critic_carry,
+                observation=timestep.obs,
+                mask=timestep.done,
+                action=timestep.action,
+                reward=add_feature_axis(timestep.reward),
+                done=timestep.done,
+                initial_carry=state.critic_carry,
                 rngs={"memory": critic_memory_key},
             )
 
@@ -254,12 +258,12 @@ class MAPPO:
 
             initial_actor_carry, (_, _) = self.actor_network.apply(
                 jax.lax.stop_gradient(state.actor_params),
-                burn_in.obs,
-                burn_in.prev_done,
-                burn_in.prev_action,
-                add_feature_axis(burn_in.prev_reward),
-                burn_in.prev_done,
-                initial_actor_carry,
+                observation=burn_in.obs,
+                mask=burn_in.prev_done,
+                action=burn_in.prev_action,
+                reward=add_feature_axis(burn_in.prev_reward),
+                done=burn_in.prev_done,
+                initial_carry=initial_actor_carry,
             )
             initial_actor_carry = jax.lax.stop_gradient(initial_actor_carry)
             transitions = jax.tree.map(
@@ -270,12 +274,12 @@ class MAPPO:
         def actor_loss_fn(params):
             _, (probs, _) = self.actor_network.apply(
                 params,
-                transitions.obs,
-                transitions.prev_done,
-                transitions.prev_action,
-                add_feature_axis(transitions.prev_reward),
-                transitions.prev_done,
-                initial_actor_carry,
+                observation=transitions.obs,
+                mask=transitions.prev_done,
+                action=transitions.prev_action,
+                reward=add_feature_axis(transitions.prev_reward),
+                done=transitions.prev_done,
+                initial_carry=initial_actor_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
 
@@ -284,15 +288,19 @@ class MAPPO:
             ratio = jnp.exp(log_probs - transitions.log_prob)
             approx_kl = jnp.mean(transitions.log_prob - log_probs)
             clipfrac = jnp.mean(
-                (jnp.abs(ratio - 1.0) > self.cfg.clip_coef).astype(jnp.float32)
+                (jnp.abs(ratio - 1.0) > self.cfg.clip_coefficient).astype(jnp.float32)
             )
 
             actor_loss = -jnp.minimum(
                 ratio * advantages,
-                jnp.clip(ratio, 1.0 - self.cfg.clip_coef, 1.0 + self.cfg.clip_coef)
+                jnp.clip(
+                    ratio,
+                    1.0 - self.cfg.clip_coefficient,
+                    1.0 + self.cfg.clip_coefficient,
+                )
                 * advantages,
             ).mean()
-            return actor_loss - self.cfg.ent_coef * entropy, (
+            return actor_loss - self.cfg.entropy_coefficient * entropy, (
                 entropy.mean(),
                 approx_kl.mean(),
                 clipfrac.mean(),
@@ -336,12 +344,12 @@ class MAPPO:
 
                 initial_critic_carry, (_, _) = self.critic_network.apply(
                     jax.lax.stop_gradient(state.critic_params),
-                    burn_in_obs,
-                    burn_in_prev_done,
-                    burn_in_prev_action,
-                    add_feature_axis(burn_in_prev_reward),
-                    burn_in_prev_done,
-                    initial_critic_carry,
+                    observation=burn_in_obs,
+                    mask=burn_in_prev_done,
+                    action=burn_in_prev_action,
+                    reward=add_feature_axis(burn_in_prev_reward),
+                    done=burn_in_prev_done,
+                    initial_carry=initial_critic_carry,
                 )
                 initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
 
@@ -360,24 +368,24 @@ class MAPPO:
             def critic_loss_fn(params):
                 _, (values, aux) = self.critic_network.apply(
                     params,
-                    obs,
-                    prev_done,
-                    prev_action,
-                    add_feature_axis(prev_reward),
-                    prev_done,
-                    initial_critic_carry,
+                    observation=obs,
+                    mask=prev_done,
+                    action=prev_action,
+                    reward=add_feature_axis(prev_reward),
+                    done=prev_done,
+                    initial_carry=initial_critic_carry,
                     rngs={"memory": memory_key, "dropout": dropout_key},
                 )
 
                 critic_loss = self.critic_network.head.loss(
                     values, aux, returns_transformed, transitions
                 )
-                if self.cfg.clip_vloss:
+                if self.cfg.clip_value_loss:
                     old_values = jnp.moveaxis(transitions.value, 0, -1)
                     clipped_value = old_values + jnp.clip(
                         (values - old_values),
-                        -self.cfg.clip_coef,
-                        self.cfg.clip_coef,
+                        -self.cfg.clip_coefficient,
+                        self.cfg.clip_coefficient,
                     )
                     clipped_critic_loss = self.critic_network.head.loss(
                         clipped_value, aux, returns_transformed, transitions
@@ -395,12 +403,12 @@ class MAPPO:
 
                 initial_critic_carry, (_, _) = self.critic_network.apply(
                     jax.lax.stop_gradient(state.critic_params),
-                    burn_in.obs,
-                    burn_in.prev_done,
-                    burn_in.prev_action,
-                    add_feature_axis(burn_in.prev_reward),
-                    burn_in.prev_done,
-                    initial_critic_carry,
+                    observation=burn_in.obs,
+                    mask=burn_in.prev_done,
+                    action=burn_in.prev_action,
+                    reward=add_feature_axis(burn_in.prev_reward),
+                    done=burn_in.prev_done,
+                    initial_carry=initial_critic_carry,
                 )
                 initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
                 transitions = jax.tree.map(
@@ -411,12 +419,12 @@ class MAPPO:
             def critic_loss_fn(params):
                 _, (values, aux) = self.critic_network.apply(
                     params,
-                    transitions.obs,
-                    transitions.prev_done,
-                    transitions.prev_action,
-                    add_feature_axis(transitions.prev_reward),
-                    transitions.prev_done,
-                    initial_critic_carry,
+                    observation=transitions.obs,
+                    mask=transitions.prev_done,
+                    action=transitions.prev_action,
+                    reward=add_feature_axis(transitions.prev_reward),
+                    done=transitions.prev_done,
+                    initial_carry=initial_critic_carry,
                     rngs={"memory": memory_key, "dropout": dropout_key},
                 )
                 values = remove_feature_axis(values)
@@ -424,11 +432,11 @@ class MAPPO:
                 critic_loss = self.critic_network.head.loss(
                     values, aux, returns, transitions
                 )
-                if self.cfg.clip_vloss:
+                if self.cfg.clip_value_loss:
                     clipped_value = transitions.value + jnp.clip(
                         (values - transitions.value),
-                        -self.cfg.clip_coef,
-                        self.cfg.clip_coef,
+                        -self.cfg.clip_coefficient,
+                        self.cfg.clip_coefficient,
                     )
                     clipped_critic_loss = self.critic_network.head.loss(
                         clipped_value, aux, returns, transitions
@@ -586,24 +594,24 @@ class MAPPO:
 
             _, (value, _) = self.critic_network.apply(
                 state.critic_params,
-                obs,
-                done,
-                action,
-                add_feature_axis(reward),
-                done,
-                state.critic_carry,
+                observation=obs,
+                mask=done,
+                action=action,
+                reward=add_feature_axis(reward),
+                done=done,
+                initial_carry=state.critic_carry,
             )
             value = remove_time_axis(value)
             value = value.T
         else:
             _, (value, _) = self.critic_network.apply(
                 state.critic_params,
-                timestep.obs,
-                timestep.done,
-                timestep.action,
-                add_feature_axis(timestep.reward),
-                timestep.done,
-                state.critic_carry,
+                observation=timestep.obs,
+                mask=timestep.done,
+                action=timestep.action,
+                reward=add_feature_axis(timestep.reward),
+                done=timestep.done,
+                initial_carry=state.critic_carry,
             )
             value = jax.vmap(remove_time_axis)(value)
             value = remove_feature_axis(value)
@@ -694,7 +702,7 @@ class MAPPO:
             dtype=action_space.dtype,
         )
         reward = jnp.zeros((num_agents, self.cfg.num_envs), dtype=jnp.float32)
-        done = jnp.ones((num_agents, self.cfg.num_envs), dtype=jnp.bool)
+        done = jnp.ones((num_agents, self.cfg.num_envs), dtype=jnp.bool_)
 
         timestep = to_sequence(
             Timestep(obs=obs, action=action, reward=reward, done=done)
@@ -710,12 +718,12 @@ class MAPPO:
                 "memory": actor_memory_key,
                 "dropout": actor_dropout_key,
             },
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            actor_carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=actor_carry,
         )
 
         if self.cfg.centralized_critic:
@@ -729,12 +737,12 @@ class MAPPO:
                     "memory": critic_memory_key,
                     "dropout": critic_dropout_key,
                 },
-                obs,
-                timestep.done[0],
-                timestep.action[0],
-                add_feature_axis(timestep.reward[0]),
-                timestep.done[0],
-                critic_carry,
+                observation=obs,
+                mask=timestep.done[0],
+                action=timestep.action[0],
+                reward=add_feature_axis(timestep.reward[0]),
+                done=timestep.done[0],
+                initial_carry=critic_carry,
             )
         else:
             critic_carry = self.critic_network.initialize_carry(
@@ -746,12 +754,12 @@ class MAPPO:
                     "memory": critic_memory_key,
                     "dropout": critic_dropout_key,
                 },
-                timestep.obs,
-                timestep.done,
-                timestep.action,
-                add_feature_axis(timestep.reward),
-                timestep.done,
-                critic_carry,
+                observation=timestep.obs,
+                mask=timestep.done,
+                action=timestep.action,
+                reward=add_feature_axis(timestep.reward),
+                done=timestep.done,
+                initial_carry=critic_carry,
             )
 
         return (
@@ -770,11 +778,13 @@ class MAPPO:
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(self, key, state, num_steps):
+    def warmup(
+        self, key: Key, state: MAPPOState, num_steps: int
+    ) -> tuple[Key, MAPPOState]:
         return key, state
 
-    @partial(jax.jit, static_argnums=(0, 3))
-    def train(self, key, state, num_steps):
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
+    def train(self, key: Key, state: MAPPOState, num_steps: int):
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
@@ -789,31 +799,31 @@ class MAPPO:
         return key, state, transitions
 
     @partial(jax.jit, static_argnames=["self", "num_steps", "deterministic"])
-    def evaluate(self, key, state, num_steps, deterministic=True):
+    def evaluate(self, key: Key, state: MAPPOState, num_steps: int, deterministic=True):
         key, reset_key = jax.random.split(key)
         num_agents = self.env.num_agents
 
-        reset_keys = jax.random.split(reset_key, self.cfg.num_eval_envs)
-        obs, env_state = self._env_reset(reset_keys, self.cfg.num_eval_envs)
+        reset_keys = jax.random.split(reset_key, self.cfg.num_envs)
+        obs, env_state = self._env_reset(reset_keys, self.cfg.num_envs)
 
         action_space = self.env.action_spaces[self.env.agents[0]]
         action = jnp.zeros(
-            (num_agents, self.cfg.num_eval_envs, *action_space.shape),
+            (num_agents, self.cfg.num_envs, *action_space.shape),
             dtype=action_space.dtype,
         )
-        reward = jnp.zeros((num_agents, self.cfg.num_eval_envs), dtype=jnp.float32)
-        done = jnp.ones((num_agents, self.cfg.num_eval_envs), dtype=jnp.bool)
+        reward = jnp.zeros((num_agents, self.cfg.num_envs), dtype=jnp.float32)
+        done = jnp.ones((num_agents, self.cfg.num_envs), dtype=jnp.bool_)
 
         actor_carry = self.actor_network.initialize_carry(
-            (num_agents, self.cfg.num_eval_envs, None)
+            (num_agents, self.cfg.num_envs, None)
         )
         if self.cfg.centralized_critic:
             critic_carry = self.critic_network.initialize_carry(
-                (self.cfg.num_eval_envs, None)
+                (self.cfg.num_envs, None)
             )
         else:
             critic_carry = self.critic_network.initialize_carry(
-                (num_agents, self.cfg.num_eval_envs, None)
+                (num_agents, self.cfg.num_envs, None)
             )
 
         state = state.replace(

@@ -1,34 +1,32 @@
 from functools import partial
 from typing import Any, Callable, Optional
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import optax
-from flax import core
-from flax import linen as nn
-from flax import struct
+from flax import core, struct
 
-from memorax.networks.sequence_models.utils import (add_feature_axis,
-                                                    remove_feature_axis,
-                                                    remove_time_axis)
+from memorax.networks.sequence_models.utils import (
+    add_feature_axis,
+    remove_feature_axis,
+    remove_time_axis,
+)
 from memorax.utils import Timestep, Transition, memory_metrics
-from memorax.utils.typing import (Array, Discrete, Environment, EnvParams,
-                                  EnvState, Key)
+from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvState, Key
 
 
 @struct.dataclass(frozen=True)
 class PPOConfig:
     num_envs: int
-    num_eval_envs: int
     num_steps: int
     gae_lambda: float
     num_minibatches: int
     update_epochs: int
     normalize_advantage: bool
-    clip_coef: float
-    clip_vloss: bool
-    ent_coef: float
-    vf_coef: float
+    clip_coefficient: float
+    clip_value_loss: bool
+    entropy_coefficient: float
     target_kl: Optional[float] = None
     burn_in_length: int = 0
 
@@ -242,19 +240,19 @@ class PPO:
             ratio = jnp.exp(log_probs - transitions.log_prob)
             approx_kl = jnp.mean(transitions.log_prob - log_probs)
             clipfrac = jnp.mean(
-                (jnp.abs(ratio - 1.0) > self.cfg.clip_coef).astype(jnp.float32)
+                (jnp.abs(ratio - 1.0) > self.cfg.clip_coefficient).astype(jnp.float32)
             )
 
             actor_loss = -jnp.minimum(
                 ratio * advantages,
                 jnp.clip(
                     ratio,
-                    1.0 - self.cfg.clip_coef,
-                    1.0 + self.cfg.clip_coef,
+                    1.0 - self.cfg.clip_coefficient,
+                    1.0 + self.cfg.clip_coefficient,
                 )
                 * advantages,
             ).mean()
-            return actor_loss - self.cfg.ent_coef * entropy, (
+            return actor_loss - self.cfg.entropy_coefficient * entropy, (
                 entropy.mean(),
                 approx_kl.mean(),
                 clipfrac.mean(),
@@ -314,11 +312,11 @@ class PPO:
             critic_loss = self.critic_network.head.loss(
                 values, aux, returns, transitions
             )
-            if self.cfg.clip_vloss:
+            if self.cfg.clip_value_loss:
                 clipped_value = transitions.value + jnp.clip(
                     (values - transitions.value),
-                    -self.cfg.clip_coef,
-                    self.cfg.clip_coef,
+                    -self.cfg.clip_coefficient,
+                    self.cfg.clip_coefficient,
                 )
                 clipped_critic_loss = self.critic_network.head.loss(
                     clipped_value, aux, returns, transitions
@@ -545,7 +543,7 @@ class PPO:
             dtype=self.env.action_space(self.env_params).dtype,
         )
         reward = jnp.zeros((self.cfg.num_envs,), dtype=jnp.float32)
-        done = jnp.ones((self.cfg.num_envs,), dtype=jnp.bool)
+        done = jnp.ones((self.cfg.num_envs,), dtype=jnp.bool_)
         timestep = Timestep(
             obs=obs, action=action, reward=reward, done=done
         ).to_sequence()
@@ -598,11 +596,11 @@ class PPO:
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(self, key, state, num_steps):
+    def warmup(self, key: Key, state: PPOState, num_steps: int) -> tuple[Key, PPOState]:
         return key, state
 
-    @partial(jax.jit, static_argnums=(0, 3))
-    def train(self, key, state, num_steps):
+    @partial(jax.jit, static_argnames=["self", "num_steps"])
+    def train(self, key: Key, state: PPOState, num_steps: int):
         (key, state), transitions = jax.lax.scan(
             self._update_step,
             (key, state),
@@ -617,24 +615,24 @@ class PPO:
         return key, state, transitions
 
     @partial(jax.jit, static_argnames=["self", "num_steps", "deterministic"])
-    def evaluate(self, key, state, num_steps, deterministic=True):
+    def evaluate(self, key: Key, state: PPOState, num_steps: int, deterministic=True):
         key, reset_key = jax.random.split(key)
-        reset_key = jax.random.split(reset_key, self.cfg.num_eval_envs)
+        reset_key = jax.random.split(reset_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
         )
         action = jnp.zeros(
-            (self.cfg.num_eval_envs, *self.env.action_space(self.env_params).shape),
+            (self.cfg.num_envs, *self.env.action_space(self.env_params).shape),
             dtype=self.env.action_space(self.env_params).dtype,
         )
-        reward = jnp.zeros(self.cfg.num_eval_envs, dtype=jnp.float32)
-        done = jnp.ones(self.cfg.num_eval_envs, dtype=jnp.bool)
+        reward = jnp.zeros((self.cfg.num_envs,), dtype=jnp.float32)
+        done = jnp.ones((self.cfg.num_envs,), dtype=jnp.bool_)
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
         initial_actor_carry = self.actor_network.initialize_carry(
-            (self.cfg.num_eval_envs, None)
+            (self.cfg.num_envs, None)
         )
         initial_critic_carry = self.critic_network.initialize_carry(
-            (self.cfg.num_eval_envs, None)
+            (self.cfg.num_envs, None)
         )
         state = state.replace(
             timestep=timestep,

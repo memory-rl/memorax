@@ -10,9 +10,11 @@ from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import FeatureExtractor, Identity, Network, heads
-from memorax.utils.wrappers import (ClipActionWrapper,
-                                    NormalizeObservationWrapper,
-                                    ScaleRewardWrapper)
+from memorax.utils.wrappers import (
+    ClipActionWrapper,
+    NormalizeObservationWrapper,
+    ScaleRewardWrapper,
+)
 
 total_timesteps = 50_000_000
 num_envs = 4096
@@ -31,16 +33,14 @@ env = ScaleRewardWrapper(env, scale=10.0)
 cfg = PPOConfig(
     name="PPO",
     num_envs=num_envs,
-    num_eval_envs=num_envs,
     num_steps=16,  # num_envs * num_steps = 65,536 total samples (matches Brax batch_size * num_minibatches)
     gae_lambda=0.95,
     num_minibatches=32,
     update_epochs=4,
     normalize_advantage=True,
-    clip_coef=0.3,
-    clip_vloss=True,
-    ent_coef=0.01,
-    vf_coef=0.5,
+    clip_coefficient=0.3,
+    clip_value_loss=True,
+    entropy_coefficient=0.01,
 )
 
 # Brax policy network: 4 layers of 32 with swish

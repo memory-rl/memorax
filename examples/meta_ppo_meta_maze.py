@@ -8,8 +8,14 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (RNN, Embedding, FeatureExtractor, Network,
-                              RL2Wrapper, heads)
+from memorax.networks import (
+    RNN,
+    Embedding,
+    FeatureExtractor,
+    Network,
+    RL2Wrapper,
+    heads,
+)
 
 total_timesteps = 1_000_000
 num_train_steps = 100_000
@@ -26,16 +32,14 @@ env, env_params = environment.make("gymnax::MetaMaze-misc")
 cfg = PPOConfig(
     name="PPO",
     num_envs=32,
-    num_eval_envs=16,
     num_steps=64,
     gae_lambda=0.95,
     num_minibatches=8,
     update_epochs=4,
     normalize_advantage=True,
-    clip_coef=0.2,
-    clip_vloss=True,
-    ent_coef=0.01,
-    vf_coef=0.5,
+    clip_coefficient=0.2,
+    clip_value_loss=True,
+    entropy_coefficient=0.01,
 )
 
 actor_network = Network(

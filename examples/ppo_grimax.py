@@ -22,16 +22,14 @@ env, env_params = environment.make("grimax::DeadReckoning-v1", grid_size=20)
 cfg = PPOConfig(
     name="PPO",
     num_envs=2048,
-    num_eval_envs=64,
     num_steps=128,
     gae_lambda=0.95,
     num_minibatches=8,
     update_epochs=2,
     normalize_advantage=True,
-    clip_coef=0.2,
-    clip_vloss=True,
-    ent_coef=0.1,
-    vf_coef=0.5,
+    clip_coefficient=0.2,
+    clip_value_loss=True,
+    entropy_coefficient=0.1,
 )
 
 feature_extractor = FeatureExtractor(

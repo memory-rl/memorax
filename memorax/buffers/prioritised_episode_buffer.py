@@ -22,18 +22,22 @@ from chex import PRNGKey
 from flashbax import utils
 from flashbax.buffers import sum_tree
 from flashbax.buffers.prioritised_trajectory_buffer import (
-    SET_BATCH_FN, PrioritisedTrajectoryBuffer,
-    PrioritisedTrajectoryBufferSample, PrioritisedTrajectoryBufferState,
-    Probabilities, prioritised_init, set_priorities,
-    validate_device, validate_priority_exponent)
+    SET_BATCH_FN,
+    PrioritisedTrajectoryBuffer,
+    PrioritisedTrajectoryBufferSample,
+    PrioritisedTrajectoryBufferState,
+    Probabilities,
+    prioritised_init,
+    set_priorities,
+    validate_device,
+    validate_priority_exponent,
+)
 from flashbax.buffers.sum_tree import SumTreeState
-from flashbax.buffers.trajectory_buffer import (
-    Experience, can_sample)
+from flashbax.buffers.trajectory_buffer import Experience, can_sample
 from flashbax.utils import add_dim_to_args
 from jax import Array
 
-from .episode_buffer import (get_start_flags_from_done,
-                             validate_episode_buffer_args)
+from .episode_buffer import get_start_flags_from_done, validate_episode_buffer_args
 
 Indices = Array
 

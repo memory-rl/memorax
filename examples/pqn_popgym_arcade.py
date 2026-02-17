@@ -22,7 +22,6 @@ env, env_params = environment.make("popgym_arcade::BreakoutEasy")
 cfg = PQNConfig(
     name="PQN",
     num_envs=32,
-    num_eval_envs=16,
     num_steps=64,
     td_lambda=0.95,
     num_minibatches=8,

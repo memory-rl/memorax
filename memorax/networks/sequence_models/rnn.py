@@ -1,18 +1,15 @@
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Tuple
 
-import flax.linen as nn
 import jax
+from flax import linen as nn
 from flax.core.frozen_dict import FrozenDict
 from flax.core.scope import CollectionFilter, PRNGSequenceFilter
-from flax.linen import initializers
-from flax.linen.linear import default_kernel_init
-from flax.linen.recurrent import Carry
-from flax.typing import Initializer, InOutScanAxis
+from flax.typing import InOutScanAxis
 
-from memorax.networks.sequence_models.utils import (
-    get_time_axis_and_input_shape, mask_carry)
+from memorax.utils.typing import Array, Carry
 
 from .sequence_model import SequenceModel
+from .utils import get_time_axis_and_input_shape, mask_carry
 
 
 class RNN(SequenceModel):
@@ -23,17 +20,18 @@ class RNN(SequenceModel):
     variable_broadcast: CollectionFilter = "params"
     variable_carry: CollectionFilter = False
     split_rngs: Mapping[PRNGSequenceFilter, bool] = FrozenDict({"params": False})
-    kernel_init: Initializer = default_kernel_init
-    bias_init: Initializer = initializers.zeros_init()
 
-    @nn.compact
+    def setup(self):
+        if self.features is not None:
+            self.output_projection = nn.Dense(self.features)
+
     def __call__(
         self,
-        inputs: jax.Array,
-        mask: jax.Array,
+        inputs: Array,
+        mask: Array,
         initial_carry: Optional[Carry] = None,
         **kwargs,
-    ):
+    ) -> Tuple[Carry, Array]:
         time_axis, input_shape = get_time_axis_and_input_shape(inputs)
 
         if initial_carry is None:
@@ -62,10 +60,10 @@ class RNN(SequenceModel):
         carry, outputs = scan(self.cell, carry, inputs, mask)
 
         if self.features is not None:
-            outputs = nn.Dense(self.features)(outputs)
+            outputs = self.output_projection(outputs)
 
         return carry, outputs
 
     @nn.nowrap
-    def initialize_carry(self, key, input_shape):
+    def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
         return self.cell.initialize_carry(key, input_shape)

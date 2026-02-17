@@ -1,26 +1,22 @@
 from functools import partial
-from typing import Any, TypeVar
+from typing import Optional, Tuple
 
-import flax.linen as nn
 import jax
+import jax.numpy as jnp
+from flax import linen as nn
 from flax.linen import initializers
-from flax.linen.module import compact, nowrap
 from flax.linen.recurrent import RNNCellBase
-from flax.typing import Array, Dtype, Initializer, PRNGKey
-from jax import numpy as jnp
+from flax.typing import Dtype, Initializer
 from jax import random
 
-from memorax.networks.sequence_models.utils import (BlockDiagonalDense,
-                                                    CausalConv1d,
-                                                    MultiHeadLayerNorm,
-                                                    add_time_axis,
-                                                    powerlaw_init,
-                                                    remove_time_axis)
+from memorax.utils.typing import Array, Carry
 
-A = TypeVar("A")
-Carry = Any
-CarryHistory = Any
-Output = Any
+from .utils import (BlockDiagonalDense,
+                    CausalConv1d,
+                    MultiHeadLayerNorm,
+                    add_time_axis,
+                    powerlaw_init,
+                    remove_time_axis)
 
 
 class sLSTMCell(RNNCellBase):
@@ -47,49 +43,29 @@ class sLSTMCell(RNNCellBase):
     conv_kernel_size: int = 4
     eps: float = 1e-6
     dropout_rate: float = 0.0
-    dtype: Dtype | None = None
+    dtype: Optional[Dtype] = None
     param_dtype: Dtype = jnp.float32
 
-    @compact
-    def __call__(self, carry: tuple, inputs: Array) -> tuple[tuple, Array]:
-        """Process a single timestep.
-
-        Args:
-            carry: Tuple of (cell_state, conv_state) where cell_state = (c, n, m, h)
-            inputs: Input tensor of shape (B, F)
-
-        Returns:
-            Tuple of (new_carry, outputs) where outputs has shape (B, features)
-        """
-        cell_state, conv_state = carry
-        c, n, m, h = cell_state
-
-        B, *_ = inputs.shape
+    def setup(self):
         head_dim = self.hidden_dim // self.num_heads
         if self.hidden_dim % self.num_heads != 0:
             raise ValueError(
                 f"hidden_dim ({self.hidden_dim}) must be divisible by num_heads ({self.num_heads})."
             )
 
-        x_proj = nn.Dense(
+        self.input_projection = nn.Dense(
             features=self.hidden_dim,
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="in_proj",
-        )(inputs)
+        )
 
         if self.use_causal_conv:
-            x = add_time_axis(x_proj)
-            conv_state, conv_x = CausalConv1d(
+            self.causal_conv = CausalConv1d(
                 features=self.hidden_dim,
                 kernel_size=self.conv_kernel_size,
                 param_dtype=self.param_dtype,
-            )(x, conv_state)
-            conv_x_act = jax.nn.silu(conv_x)
-            conv_x_act = remove_time_axis(conv_x_act)
-        else:
-            conv_x_act = x_proj
+            )
 
         gate = partial(
             BlockDiagonalDense,
@@ -100,10 +76,10 @@ class sLSTMCell(RNNCellBase):
             param_dtype=self.param_dtype,
         )
 
-        i = gate(name="i")(conv_x_act)
-        f = gate(name="f")(conv_x_act)
-        z = gate(name="z")(x_proj)
-        o = gate(name="o")(x_proj)
+        self.i_gate = gate()
+        self.f_gate = gate()
+        self.z_gate = gate()
+        self.o_gate = gate()
 
         recurrent_gate = partial(
             BlockDiagonalDense,
@@ -115,110 +91,120 @@ class sLSTMCell(RNNCellBase):
             param_dtype=self.param_dtype,
         )
 
-        i = (
-            i
-            + recurrent_gate(name="ri")(h)
-            + self.param(
-                "i_bias",
-                nn.initializers.zeros_init(),
-                (self.hidden_dim,),
-                self.param_dtype,
-            )
+        self.ri = recurrent_gate()
+        self.rf = recurrent_gate()
+        self.rz = recurrent_gate()
+        self.ro = recurrent_gate()
+
+        self.i_bias = self.param(
+            "i_bias",
+            nn.initializers.zeros_init(),
+            (self.hidden_dim,),
+            self.param_dtype,
         )
-        f = (
-            f
-            + recurrent_gate(name="rf")(h)
-            + self.param(
-                "f_bias",
-                powerlaw_init(self.num_heads, head_dim=head_dim),
-                (self.hidden_dim,),
-                self.param_dtype,
-            )
+        self.f_bias = self.param(
+            "f_bias",
+            powerlaw_init(self.num_heads, head_dim=head_dim),
+            (self.hidden_dim,),
+            self.param_dtype,
         )
-        z = (
-            z
-            + recurrent_gate(name="rz")(h)
-            + self.param(
-                "z_bias",
-                nn.initializers.zeros_init(),
-                (self.hidden_dim,),
-                self.param_dtype,
-            )
+        self.z_bias = self.param(
+            "z_bias",
+            nn.initializers.zeros_init(),
+            (self.hidden_dim,),
+            self.param_dtype,
         )
-        o = (
-            o
-            + recurrent_gate(name="ro")(h)
-            + self.param(
-                "o_bias",
-                nn.initializers.zeros_init(),
-                (self.hidden_dim,),
-                self.param_dtype,
-            )
+        self.o_bias = self.param(
+            "o_bias",
+            nn.initializers.zeros_init(),
+            (self.hidden_dim,),
+            self.param_dtype,
         )
 
-        o = jax.nn.sigmoid(o)
-        log_f = -jax.nn.softplus(-f)
-        m_new = jnp.where(jnp.all(n == 0.0), i, jnp.maximum(log_f + m, i))
-        i_p = jnp.minimum(jnp.exp(i - m_new), jnp.ones_like(i))
-        f_p = jnp.minimum(jnp.exp(log_f + m - m_new), jnp.ones_like(f))
-
-        c_new = f_p * c + i_p * nn.tanh(z)
-        n_new = f_p * n + i_p
-        h_tilde = c_new / jnp.maximum(n_new, self.eps)
-        h_new = o * h_tilde
-
-        new_cell_state = (c_new, n_new, m_new, h_new)
-
-        y = nn.Dropout(
-            rate=self.dropout_rate, deterministic=not self.has_rng("dropout")
-        )(h_new)
-
-        y = y.reshape(B, self.num_heads, 1, head_dim)
-        y = MultiHeadLayerNorm(use_scale=True, use_bias=False)(y)
-
-        y = y.reshape(B, self.hidden_dim)
-        y = nn.Dense(
+        self.drop = nn.Dropout(rate=self.dropout_rate)
+        self.norm = MultiHeadLayerNorm(use_scale=True, use_bias=False)
+        self.output_projection = nn.Dense(
             features=self.features,
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-            name="out_proj",
-        )(y)
+        )
 
-        return (new_cell_state, conv_state), y
+    def __call__(self, carry: Tuple, inputs: Array) -> Tuple[Tuple, Array]:
+        """Process a single timestep.
 
-    @nowrap
+        Args:
+            carry: Tuple of ((c, n, m, h), buffer)
+            inputs: Input tensor of shape (B, F)
+
+        Returns:
+            Tuple of (new_carry, outputs) where outputs has shape (B, features)
+        """
+        (c, n, m, h), buffer = carry
+
+        B, *_ = inputs.shape
+        head_dim = self.hidden_dim // self.num_heads
+
+        x = self.input_projection(inputs)
+
+        if self.use_causal_conv:
+            buffer, u = self.causal_conv(add_time_axis(x), buffer)
+            u = jax.nn.silu(remove_time_axis(u))
+        else:
+            u = x
+
+        i = self.i_gate(u) + self.ri(h) + self.i_bias
+        f = self.f_gate(u) + self.rf(h) + self.f_bias
+        z = self.z_gate(x) + self.rz(h) + self.z_bias
+        o = jax.nn.sigmoid(self.o_gate(x) + self.ro(h) + self.o_bias)
+
+        log_f = -jax.nn.softplus(-f)
+        log_f_plus_m = log_f + m
+        m = jnp.where(jnp.all(n == 0.0), i, jnp.maximum(log_f_plus_m, i))
+        i = jnp.minimum(jnp.exp(i - m), jnp.ones_like(i))
+        f = jnp.minimum(jnp.exp(log_f_plus_m - m), jnp.ones_like(f))
+
+        c = f * c + i * nn.tanh(z)
+        n = f * n + i
+        h = o * (c / jnp.maximum(n, self.eps))
+
+        y = self.drop(h, deterministic=not self.has_rng("dropout"))
+        y = self.norm(y.reshape(B, self.num_heads, 1, head_dim))
+        y = self.output_projection(y.reshape(B, self.hidden_dim))
+
+        return ((c, n, m, h), buffer), y
+
+    @nn.nowrap
     def initialize_carry(
         self,
-        rng: PRNGKey,
-        input_shape: tuple[int, ...],
-    ) -> tuple:
+        key: jax.Array,
+        input_shape: Tuple[int, ...],
+    ) -> Tuple:
         """Initialize the carry state.
 
         Args:
-            rng: Random key for initialization.
+            key: Random key for initialization.
             input_shape: Shape of input (batch_size, features).
 
         Returns:
-            Initial carry tuple of (cell_state, conv_state).
+            Initial carry tuple of ((c, n, m, h), buffer).
         """
         *batch_dims, _ = input_shape
         carry_init = initializers.zeros_init()
 
-        key_c, key_n, key_h, key_m, key_conv = random.split(rng, 5)
+        key_c, key_n, key_h, key_m, key_buf = random.split(key, 5)
         mem_shape = (*batch_dims, self.hidden_dim)
 
         c = carry_init(key_c, mem_shape, self.param_dtype)
         n = carry_init(key_n, mem_shape, self.param_dtype)
         m = carry_init(key_m, mem_shape, self.param_dtype)
         h = carry_init(key_h, mem_shape, self.param_dtype)
-        cell_state = (c, n, m, h)
 
-        conv_state = carry_init(
-            key_conv, (*batch_dims, self.conv_kernel_size, self.hidden_dim)
+        buffer = carry_init(
+            key_buf, (*batch_dims, self.conv_kernel_size, self.hidden_dim)
         )
 
-        return cell_state, conv_state
+        return (c, n, m, h), buffer
 
     @property
     def num_feature_axes(self) -> int:

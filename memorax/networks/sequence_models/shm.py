@@ -1,23 +1,17 @@
 from functools import partial
-from typing import Any, TypeVar
+from typing import Optional, Tuple
 
-import flax.linen as nn
 import jax
-from flax.linen import LayerNorm, initializers
-from flax.linen.activation import sigmoid
-from flax.linen.linear import Dense, default_kernel_init
-from flax.linen.module import compact, nowrap
+import jax.numpy as jnp
+from flax import linen as nn
+from flax.linen import initializers
 from flax.linen.recurrent import RNNCellBase
-from flax.typing import Array, Dtype, Initializer, PRNGKey
-from jax import numpy as jnp
+from flax.typing import Dtype, Initializer
 from jax import random
 
-from memorax.networks.sequence_models.utils import xavier_uniform
+from memorax.utils.typing import Array, Carry
 
-A = TypeVar("A")
-Carry = Any
-CarryHistory = Any
-Output = Any
+from .utils import xavier_uniform
 
 
 class SHMCell(RNNCellBase):
@@ -28,17 +22,16 @@ class SHMCell(RNNCellBase):
     num_thetas: int = 128
     sample_theta: bool = True
 
-    kernel_init: Initializer = default_kernel_init
+    kernel_init: Initializer = nn.initializers.lecun_normal()
     bias_init: Initializer = initializers.zeros_init()
     theta_init: Initializer = xavier_uniform()
-    dtype: Dtype | None = None
+    dtype: Optional[Dtype] = None
     param_dtype: Dtype = jnp.float32
     carry_init: Initializer = initializers.zeros_init()
 
-    @compact
-    def __call__(self, carry: Array, inputs: Array) -> tuple[Array, Array]:
+    def setup(self):
         dense = partial(
-            Dense,
+            nn.Dense,
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
@@ -46,52 +39,60 @@ class SHMCell(RNNCellBase):
             bias_init=self.bias_init,
         )
 
-        inputs = LayerNorm(
-            epsilon=1e-5, dtype=self.dtype, param_dtype=self.param_dtype, name="ln"
-        )(inputs)
-
-        v = dense(name="value", features=self.features)(inputs)
-        k = jax.nn.relu(dense(name="key", features=self.features)(inputs))
-        q = jax.nn.relu(dense(name="query", features=self.features)(inputs))
-        v_c = dense(name="vc", features=self.features)(inputs)
-        eta = sigmoid(dense(name="eta", features=1)(inputs))
-
-        k = k / (1e-5 + jnp.sum(k, axis=-1, keepdims=True))
-        q = q / (1e-5 + jnp.sum(q, axis=-1, keepdims=True))
-
-        U = ((eta * v)[..., :, None]) * k[..., None, :]
-
-        theta_table = self.param(
+        self.ln = nn.LayerNorm(
+            epsilon=1e-5, dtype=self.dtype, param_dtype=self.param_dtype,
+        )
+        self.value = dense(features=self.features)
+        self.key = dense(features=self.features)
+        self.query = dense(features=self.features)
+        self.v_c = dense(features=self.features)
+        self.eta = dense(features=1)
+        self.theta_table = self.param(
             "theta_table",
             self.theta_init,
             (self.num_thetas, self.features),
             self.param_dtype,
         )
+        self.output_projection = nn.Dense(self.output_features)
+
+    def __call__(self, carry: Array, inputs: Array) -> Tuple[Array, Array]:
+        inputs = self.ln(inputs)
+
+        value = self.value(inputs)
+        key = jax.nn.relu(self.key(inputs))
+        query = jax.nn.relu(self.query(inputs))
+        v_c = self.v_c(inputs)
+        eta_val = nn.sigmoid(self.eta(inputs))
+
+        key = key / (1e-5 + jnp.sum(key, axis=-1, keepdims=True))
+        query = query / (1e-5 + jnp.sum(query, axis=-1, keepdims=True))
+
+        U = ((eta_val * value)[..., :, None]) * key[..., None, :]
 
         if self.sample_theta and self.has_rng("memory"):
             rng = self.make_rng("memory")
             batch_shape = v_c.shape[:-1]
             idx = random.randint(rng, batch_shape, 0, self.num_thetas, dtype=jnp.int32)
-            theta_t = theta_table[idx]
+            theta_t = self.theta_table[idx]
             theta_t = jnp.broadcast_to(theta_t, v_c.shape)
         else:
-            theta_t = jnp.broadcast_to(theta_table[0], v_c.shape)
+            theta_t = jnp.broadcast_to(self.theta_table[0], v_c.shape)
 
         C = 1.0 + jnp.tanh(theta_t[..., :, None] * v_c[..., None, :])
 
-        carry = carry * C + U
+        M = carry * C + U
 
-        h = jnp.einsum("...ij,...j->...i", carry, q)
+        h = jnp.einsum("...ij,...j->...i", M, query)
 
-        y = nn.Dense(self.output_features, name="output")(h)
+        y = self.output_projection(h)
 
-        return carry, y
+        return M, y
 
-    @nowrap
-    def initialize_carry(self, rng: PRNGKey, input_shape: tuple[int, ...]) -> Array:
+    @nn.nowrap
+    def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Array:
         batch_dims = input_shape[:-1]
         mem_shape = batch_dims + (self.features, self.features)
-        return self.carry_init(rng, mem_shape, self.param_dtype)
+        return self.carry_init(key, mem_shape, self.param_dtype)
 
     @property
     def num_feature_axes(self) -> int:

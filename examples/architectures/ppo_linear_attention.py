@@ -54,6 +54,7 @@ linear_attention = Residual(
     module=PreNorm(
         module=Memoroid(
             cell=LinearAttentionCell(
+                features=d_model,
                 head_dim=head_dim,
                 num_heads=num_heads,
                 kernel_init=nn.initializers.xavier_uniform(),

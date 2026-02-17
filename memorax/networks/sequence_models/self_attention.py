@@ -1,10 +1,11 @@
 from functools import partial
-from typing import Any, Optional
+from typing import Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
 from flax import struct
+from flax.typing import Dtype, Initializer
 
 from memorax.networks.positional_embeddings import RelativePositionalEmbedding
 from memorax.networks.sequence_models.utils import (
@@ -25,10 +26,10 @@ class SelfAttention(SequenceModel):
     features: int
     num_heads: int
     context_length: int
-    dtype: Any
-    param_dtype: Any
-    kernel_init: Any
-    bias_init: Any
+    dtype: Dtype
+    param_dtype: Dtype
+    kernel_init: Initializer
+    bias_init: Initializer
     positional_embedding: RelativePositionalEmbedding = (
         lambda query, key, query_pos, key_pos: (
             query,
@@ -36,6 +37,30 @@ class SelfAttention(SequenceModel):
             None,
         )
     )
+
+    def setup(self):
+        head_dim = self.features // self.num_heads
+
+        projection = partial(
+            nn.DenseGeneral,
+            features=(self.num_heads, head_dim),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+        )
+
+        self.query = projection()
+        self.key = projection()
+        self.value = projection()
+        self.output_projection = nn.DenseGeneral(
+            self.features,
+            axis=(-2, -1),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+        )
 
     @nn.nowrap
     def initialize_carry(self, key, input_shape):
@@ -52,7 +77,6 @@ class SelfAttention(SequenceModel):
         )
         return Carry(mask, key, value)
 
-    @nn.compact
     def __call__(
         self,
         x,
@@ -61,7 +85,7 @@ class SelfAttention(SequenceModel):
         memory: Optional[Array] = None,
         memory_mask: Optional[Array] = None,
         **kwargs,
-    ):
+    ) -> Tuple[Carry, Array]:
         if initial_carry is None:
             input_shape = get_input_shape(x)
             initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
@@ -79,22 +103,13 @@ class SelfAttention(SequenceModel):
             f"T must be less than or equal to context_length, but was T: {T}, context_length: {self.context_length}"
         )
 
-        projection = partial(
-            nn.DenseGeneral,
-            features=(self.num_heads, head_dim),
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-        )
+        query = self.query(x)
 
-        query = projection(name="query")(x)
-
-        key = projection(name="key")(jnp.concatenate([memory, x], axis=1))
+        key = self.key(jnp.concatenate([memory, x], axis=1))
         key = jnp.concatenate([key[:, :M], initial_carry.key, key[:, M:]], axis=1)
         key = key[:, -(M + self.context_length) :]
 
-        value = projection(name="value")(jnp.concatenate([memory, x], axis=1))
+        value = self.value(jnp.concatenate([memory, x], axis=1))
         value = jnp.concatenate(
             [value[:, :M], initial_carry.value, value[:, M:]], axis=1
         )
@@ -116,15 +131,7 @@ class SelfAttention(SequenceModel):
             implementation=implementation,
         ).astype(self.dtype)
 
-        y = nn.DenseGeneral(
-            self.features,
-            axis=(-2, -1),
-            dtype=self.dtype,
-            param_dtype=self.param_dtype,
-            kernel_init=self.kernel_init,
-            bias_init=self.bias_init,
-            name="out",
-        )(x)
+        y = self.output_projection(x)
 
         mask = jnp.concatenate([initial_carry.mask, mask], axis=1)[
             :, -self.context_length :

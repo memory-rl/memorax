@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 
 import jax
 
-import flax.linen as nn
+from flax import linen as nn
 
 from memorax.utils.typing import Array, Carry
 

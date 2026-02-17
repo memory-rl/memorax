@@ -1,19 +1,14 @@
-from functools import partial
-from typing import Any, Callable, Optional, Tuple
+from typing import Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
 from flax.linen import initializers
+from flax.typing import Dtype, Initializer
 
 from memorax.utils.typing import Array, Carry
 
 from .memoroid import MemoroidCellBase
-
-PRNGKey = Any
-Shape = Tuple[int, ...]
-Dtype = Any
-Initializer = Callable[[PRNGKey, Shape, Dtype], Array]
 
 
 class MinGRUCell(MemoroidCellBase):
@@ -31,22 +26,31 @@ class MinGRUCell(MemoroidCellBase):
     dtype: Optional[Dtype] = None
     param_dtype: Dtype = jnp.float32
 
-    @nn.compact
-    def __call__(self, inputs: Array, **kwargs) -> Carry:
-        B, T, _ = inputs.shape
-
-        dense = partial(
-            nn.Dense,
+    def setup(self):
+        self.z = nn.Dense(
             features=self.features,
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             kernel_init=self.kernel_init,
             bias_init=self.bias_init,
+            name="z",
+        )
+        self.h = nn.Dense(
+            features=self.features,
+            use_bias=False,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+            name="h",
         )
 
-        z = dense(name="z")(inputs)
-        h_tilde = dense(name="h")(inputs)
+    def __call__(self, x: Array, **kwargs) -> Carry:
+        B, T, _ = x.shape
+
+        z = self.z(x)
+        h_tilde = self.h(x)
 
         log_z = -nn.softplus(-z)
         log_h_tilde = jnp.where(
@@ -84,4 +88,3 @@ class MinGRUCell(MemoroidCellBase):
             (*batch_dims, 1, self.features), dtype=self.dtype or self.param_dtype
         )
         return (log_state, decay)
-

@@ -13,11 +13,11 @@ Core recurrence:
 This is associative when we track cumulative decay properly.
 """
 
-from typing import Tuple
+from typing import Optional, Tuple
 
-import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from flax import linen as nn
 from flax.linen import initializers
 from flax.typing import Dtype
 
@@ -33,9 +33,9 @@ class mLSTMCell(MemoroidCellBase):
     Uses gated linear attention with matrix memory, computed efficiently
     via associative scan. Architecture follows NX-AI/xlstm.
 
-    Element: (log_f, C, n, m) where:
-        - log_f: cumulative log forget gate for relative decay
+    Element: (C, log_f, n, m) where:
         - C: matrix memory contribution (k ⊗ v scaled by input gate)
+        - log_f: cumulative log forget gate for relative decay
         - n: normalizer contribution (k scaled by input gate)
         - m: max log value for numerical stability
 
@@ -56,7 +56,7 @@ class mLSTMCell(MemoroidCellBase):
     num_heads: int = 4
     conv_kernel_size: int = 4
     dropout_rate: float = 0.0
-    dtype: Dtype | None = None
+    dtype: Optional[Dtype] = None
     param_dtype: Dtype = jnp.float32
 
     def setup(self):
@@ -66,14 +66,14 @@ class mLSTMCell(MemoroidCellBase):
                 f"num_heads ({self.num_heads})."
             )
 
-        self.up_proj = nn.Dense(
+        self.up_projection = nn.Dense(
             2 * self.hidden_dim,
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
 
-        self.conv = nn.Conv(
+        self.causal_conv = nn.Conv(
             features=self.hidden_dim,
             kernel_size=(self.conv_kernel_size,),
             padding=((self.conv_kernel_size - 1, 0),),
@@ -82,21 +82,21 @@ class mLSTMCell(MemoroidCellBase):
             param_dtype=self.param_dtype,
         )
 
-        self.q_proj = BlockDiagonalDense(
+        self.query = BlockDiagonalDense(
             self.hidden_dim,
             num_heads=self.num_heads,
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
-        self.k_proj = BlockDiagonalDense(
+        self.key = BlockDiagonalDense(
             self.hidden_dim,
             num_heads=self.num_heads,
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
-        self.v_proj = BlockDiagonalDense(
+        self.value = BlockDiagonalDense(
             self.hidden_dim,
             num_heads=self.num_heads,
             use_bias=False,
@@ -132,7 +132,7 @@ class mLSTMCell(MemoroidCellBase):
             param_dtype=self.param_dtype,
         )
 
-        self.out_proj = nn.Dense(
+        self.output_projection = nn.Dense(
             self.features,
             use_bias=False,
             kernel_init=wang_init(self.hidden_dim, num_blocks=1),
@@ -146,46 +146,38 @@ class mLSTMCell(MemoroidCellBase):
         B, T, _ = x.shape
         head_dim = self.hidden_dim // self.num_heads
 
-        up = self.up_proj(x)
+        up = self.up_projection(x)
         x_mlstm, z = jnp.split(up, 2, axis=-1)
 
-        x_conv_act = nn.silu(self.conv(x_mlstm))
+        u = nn.silu(self.causal_conv(x_mlstm))
 
-        q = self.q_proj(x_conv_act).reshape(B, T, self.num_heads, head_dim)
-        k = self.k_proj(x_conv_act).reshape(B, T, self.num_heads, head_dim)
-        v = self.v_proj(x_mlstm).reshape(B, T, self.num_heads, head_dim)
+        query = self.query(u).reshape(B, T, self.num_heads, head_dim)
+        key = self.key(u).reshape(B, T, self.num_heads, head_dim)
+        value = self.value(x_mlstm).reshape(B, T, self.num_heads, head_dim)
 
-        return q, k, v, z, x_conv_act
+        return query, key, value, z, u
 
     def __call__(self, x: Array, **kwargs) -> Carry:
         B, T, _ = x.shape
         head_dim = self.hidden_dim // self.num_heads
 
-        q, k, v, _, _ = self._project(x)
+        query, key, value, _, _ = self._project(x)
 
-        qkv = jnp.concatenate([q, k, v], axis=-1).reshape(B, T, -1)
+        gate_input = jnp.concatenate([query, key, value], axis=-1).reshape(B, T, -1)
 
-        i_gate = self.i_gate(qkv).reshape(B, T, self.num_heads)
-        f_gate = self.f_gate(qkv).reshape(B, T, self.num_heads)
+        i_gate = self.i_gate(gate_input).reshape(B, T, self.num_heads)
+        f_gate = self.f_gate(gate_input).reshape(B, T, self.num_heads)
 
         log_f = -jax.nn.softplus(-f_gate)
         log_i = i_gate
 
+        # m = log_i makes exp(log_i - m) = 1 (self-normalizing)
         m = log_i[:, :, :, None, None]
-        i_stable = jnp.exp(log_i - m.squeeze(-1).squeeze(-1))
 
-        k = k / jnp.sqrt(head_dim)
+        key = key / jnp.sqrt(head_dim)
 
-        k_col = k[:, :, :, :, None]
-        v_row = v[:, :, :, None, :]
-        kv_outer = k_col @ v_row
-
-        i_expanded = i_stable[:, :, :, None, None]
-        C = i_expanded * kv_outer
-
-        n = i_stable[:, :, :, None] * k
-        n = n[:, :, :, :, None]
-
+        C = jnp.einsum("...i,...j->...ij", key, value)
+        n = key[:, :, :, :, None]
         log_f = log_f[:, :, :, None, None]
 
         return (C, log_f, n, m)
@@ -194,7 +186,7 @@ class mLSTMCell(MemoroidCellBase):
         C_a, log_f_a, n_a, m_a = a
         C_b, log_f_b, n_b, m_b = b
 
-        log_f_combined = log_f_a + log_f_b
+        log_f = log_f_a + log_f_b
 
         m_a_decayed = m_a + log_f_b
         m_combined = jnp.maximum(m_a_decayed, m_b)
@@ -202,38 +194,35 @@ class mLSTMCell(MemoroidCellBase):
         scale_a = jnp.exp(m_a_decayed - m_combined)
         scale_b = jnp.exp(m_b - m_combined)
 
-        C_combined = scale_a * C_a + scale_b * C_b
-        n_combined = scale_a * n_a + scale_b * n_b
+        C = scale_a * C_a + scale_b * C_b
+        n = scale_a * n_a + scale_b * n_b
 
-        return (C_combined, log_f_combined, n_combined, m_combined)
+        return (C, log_f, n, m_combined)
 
     def read(self, h: Carry, x: Array, **kwargs) -> Array:
         B, T, _ = x.shape
         head_dim = self.hidden_dim // self.num_heads
 
-        q, _, _, z, x_conv_act = self._project(x)
+        query, _, _, z, u = self._project(x)
 
         C, _, n, m = h
 
-        q_row = q[:, :, :, None, :]
-
-        qC = (q_row @ C).squeeze(-2)
-        qn = (q_row @ n).squeeze(-2).squeeze(-1)
-
-        max_val = jnp.exp(-m.squeeze(-1).squeeze(-1))
-        normalizer = jnp.maximum(jnp.abs(qn), max_val)[:, :, :, None]
-        h_tilde = qC / (normalizer + 1e-6)
+        denominator = jnp.maximum(
+            jnp.abs(jnp.einsum("...i,...i->...", query, n.squeeze(-1))),
+            jnp.exp(-m.squeeze(-1).squeeze(-1)),
+        )[:, :, :, None]
+        h_tilde = jnp.einsum("...j,...jk->...k", query, C) / (denominator + 1e-6)
 
         h_tilde = self.norm(
             h_tilde.transpose(0, 2, 1, 3)
         ).transpose(0, 2, 1, 3)
         h_tilde = h_tilde.reshape(B, T, self.hidden_dim)
 
-        h_tilde = h_tilde + self.learnable_skip * x_conv_act
+        h_tilde = h_tilde + self.learnable_skip * u
 
         y = h_tilde * nn.silu(z)
 
-        y = self.out_proj(y)
+        y = self.output_projection(y)
 
         y = self.drop(y, deterministic=not self.has_rng("dropout"))
 
@@ -252,65 +241,44 @@ class mLSTMCell(MemoroidCellBase):
 
     def local_jacobian(self, carry, z, inputs, **kwargs):
         B, T = inputs.shape[:2]
-        NH = self.num_heads
-        head_dim = self.hidden_dim // NH
-        H = NH * head_dim * head_dim
+        num_heads = self.num_heads
+        head_dim = self.hidden_dim // num_heads
+        H = num_heads * head_dim * head_dim
 
-        # Unpack full previous carry
-        C_acc, _, _, m_acc = carry
-        # Unpack scan elements
+        C, _, _, m = carry
         C_t, log_f_t, _, m_t = z
 
-        # Compute scale factors (same as binary_operator)
-        m_acc_decayed = m_acc + log_f_t
-        m_new = jnp.maximum(m_acc_decayed, m_t)
-        scale_old = jnp.exp(m_acc_decayed - m_new)
-        scale_new = jnp.exp(m_t - m_new)
+        # Scale factors (same logic as binary_operator)
+        m_decayed = m + log_f_t
+        m = jnp.maximum(m_decayed, m_t)
+        scale_a = jnp.exp(m_decayed - m)
+        scale_b = jnp.exp(m_t - m)
 
-        # RTRL decay for C: ∂C_new/∂C_acc = scale_old (scalar per head)
-        # Expand scale_old from (B,T,NH,1,1) to (B,T,NH*hd*hd)
+        # RTRL decay for C: ∂C/∂C_prev = scale_a (scalar per head)
         decay_flat = jnp.broadcast_to(
-            scale_old, (B, T, NH, head_dim, head_dim)
+            scale_a, (B, T, num_heads, head_dim, head_dim)
         ).reshape(B, T, H)
 
-        # Recompute f_gate_raw for ∂log_f/∂f_gate_bias
-        q, k, v, _, _ = self._project(inputs)
-        qkv = jnp.concatenate([q, k, v], axis=-1).reshape(B, T, -1)
-        f_gate_raw = self.f_gate(qkv).reshape(B, T, NH)
-        i_gate_raw = self.i_gate(qkv).reshape(B, T, NH)
+        # Recompute gates for Jacobians
+        query, key, value, _, _ = self._project(inputs)
+        gate_input = jnp.concatenate([query, key, value], axis=-1).reshape(B, T, -1)
+        f_gate = self.f_gate(gate_input).reshape(B, T, num_heads)
 
-        # ∂log_f/∂f_gate_bias[h] = σ(f_gate_raw[h])
-        sigma_f = jax.nn.sigmoid(f_gate_raw)  # (B, T, NH)
+        # Expand per-head scalars to 5D for broadcasting
+        sigma_f = jax.nn.sigmoid(f_gate)[:, :, :, None, None]
+        indicator = (m_decayed >= m_t)  # already (B,T,NH,1,1)
 
-        # indicator: m_acc + log_f >= m_t
-        indicator = (m_acc_decayed >= m_t).squeeze(-1).squeeze(-1)  # (B, T, NH)
+        # ∂C/∂log_f = scale_a*(1-ind)*C - scale_b*ind*C_t
+        dC_dlogf = scale_a * (1.0 - indicator) * C - scale_b * indicator * C_t
+        J_f_gate = (dC_dlogf * sigma_f).reshape(B, T, H)
 
-        # ∂C_new/∂log_f = scale_old*(1-ind)*C_acc - scale_new*ind*C_t
-        # Both shapes (B,T,NH,hd,hd)
-        dC_dlogf = (
-            scale_old * (1.0 - indicator[:, :, :, None, None]) * C_acc
-            - scale_new * indicator[:, :, :, None, None] * C_t
-        )
-
-        # J_f_bias[flat_h] = dC_dlogf[head_of(h)] * σ_f[head_of(h)]
-        # Since both dC_dlogf and σ_f are per-head, the Jacobian per state element is:
-        J_fgate = (dC_dlogf * sigma_f[:, :, :, None, None]).reshape(B, T, H)
-
-        # For i_gate_bias: ∂C_new/∂i_gate_bias affects scale_new * C_t through log_i → m → scale
-        # Simpler: ∂C_t/∂i_gate_bias since C_t = i_stable * kv_outer
-        # i_stable = exp(log_i - m_t), log_i = i_gate_raw, m_t = log_i (from __call__)
-        # So i_stable = exp(0) = 1 when m_t == log_i. ∂i_stable/∂i_gate_bias = 0 (self-normalizing)
-        # But ∂scale_new/∂i_gate_bias through m_t = log_i:
-        # ∂m_t/∂i_gate_bias = 1 (since m_t = log_i[:,:,:,None,None] = i_gate_raw[:,:,:,None,None])
-        # ∂scale_new/∂i_gate_bias = -scale_new * ∂m_new/∂m_t * 1
-        # ∂m_new/∂m_t = (1 - indicator)
-        # Also scale_old changes through m_new
-        dC_di = -scale_new * (1.0 - indicator[:, :, :, None, None]) * C_t
-        J_igate = dC_di.reshape(B, T, H)
+        # ∂C/∂i_gate through m_t = log_i (self-normalizing)
+        dC_di = -scale_b * (1.0 - indicator) * C_t
+        J_i_gate = dC_di.reshape(B, T, H)
 
         return decay_flat, {
-            "f_gate/bias": J_fgate,
-            "i_gate/bias": J_igate,
+            "f_gate/bias": J_f_gate,
+            "i_gate/bias": J_i_gate,
         }
 
     def get_param_indices(self):
@@ -323,5 +291,5 @@ class mLSTMCell(MemoroidCellBase):
         *batch_dims, _ = input_shape
         head_dim = self.hidden_dim // self.num_heads
         H = self.num_heads * head_dim * head_dim
-        z = jnp.zeros((*batch_dims, 1, H))
-        return {"f_gate/bias": z, "i_gate/bias": z}
+        zeros = jnp.zeros((*batch_dims, 1, H))
+        return {"f_gate/bias": zeros, "i_gate/bias": zeros}

@@ -44,8 +44,8 @@ class MambaCell(MemoroidCellBase):
 
     def setup(self):
         hidden_dim = self.num_heads * self.head_dim
-        bc_dim = self.num_heads * self.state_dim
-        conv_channels = hidden_dim + 2 * bc_dim
+        state_projection_dim = self.num_heads * self.state_dim
+        conv_channels = hidden_dim + 2 * state_projection_dim
 
         self.A_log = self.param("A_log", _A_log_init(), (self.num_heads,))
         self.D = self.param("D", nn.initializers.ones, (self.num_heads,))
@@ -59,9 +59,9 @@ class MambaCell(MemoroidCellBase):
             param_dtype=self.param_dtype,
         )
 
-        self.in_proj = projection(hidden_dim * 2)
-        self.B = projection(bc_dim)
-        self.C = projection(bc_dim)
+        self.input_projection = projection(hidden_dim * 2)
+        self.B = projection(state_projection_dim)
+        self.C = projection(state_projection_dim)
         self.dt = projection(self.num_heads)
         self.conv = nn.Conv(
             conv_channels,
@@ -72,7 +72,7 @@ class MambaCell(MemoroidCellBase):
             param_dtype=self.param_dtype,
         )
         self.norm = nn.RMSNorm(self.num_heads * self.head_dim)
-        self.out_proj = nn.Dense(
+        self.output_projection = nn.Dense(
             self.features,
             kernel_init=self.kernel_init,
             dtype=self.dtype,
@@ -80,108 +80,110 @@ class MambaCell(MemoroidCellBase):
         )
 
     def _project(self, x: Array):
-        batch_size, seq_len, _ = x.shape
+        B, T, _ = x.shape
         hidden_dim = self.num_heads * self.head_dim
-        bc_dim = self.num_heads * self.state_dim
+        state_projection_dim = self.num_heads * self.state_dim
 
-        proj = self.in_proj(x)
-        u, z = jnp.split(proj, 2, axis=-1)
+        proj = self.input_projection(x)
+        hidden, z = jnp.split(proj, 2, axis=-1)
 
-        B = self.B(x)
-        C = self.C(x)
+        B_proj = self.B(x)
+        C_proj = self.C(x)
 
-        xBC = jnp.concatenate([u, B, C], axis=-1)
-        xBC = nn.silu(self.conv(xBC))
+        conv_input = jnp.concatenate([hidden, B_proj, C_proj], axis=-1)
+        conv_input = nn.silu(self.conv(conv_input))
 
-        u = xBC[..., :hidden_dim].reshape(
-            batch_size, seq_len, self.num_heads, self.head_dim
+        hidden = conv_input[..., :hidden_dim].reshape(
+            B, T, self.num_heads, self.head_dim
         )
-        B = xBC[..., hidden_dim : hidden_dim + bc_dim].reshape(
-            batch_size, seq_len, self.num_heads, self.state_dim
+        B_proj = conv_input[..., hidden_dim : hidden_dim + state_projection_dim].reshape(
+            B, T, self.num_heads, self.state_dim
         )
-        C = xBC[..., hidden_dim + bc_dim :].reshape(
-            batch_size, seq_len, self.num_heads, self.state_dim
+        C_proj = conv_input[..., hidden_dim + state_projection_dim :].reshape(
+            B, T, self.num_heads, self.state_dim
         )
 
         dt = nn.softplus(self.dt(x) + self.dt_bias)
 
-        return u, B, C, z, dt
+        return hidden, B_proj, C_proj, z, dt
 
     def __call__(self, x: Array, **kwargs) -> Carry:
-        u, B, _, _, dt = self._project(x)
+        hidden, B_proj, _, _, dt = self._project(x)
 
         A = -jnp.exp(self.A_log)
         decay = jnp.exp(dt * A[None, None, :])[:, :, :, None, None]
 
-        state = jnp.einsum("bthn,bthd->bthnd", B * dt[..., None], u)
+        h = jnp.einsum("bthn,bthd->bthnd", B_proj * dt[..., None], hidden)
 
-        return (state, decay)
+        return (h, decay)
 
     def binary_operator(self, a: Carry, b: Carry) -> Carry:
-        state_i, decay_i = a
-        state_j, decay_j = b
-        return (decay_j * state_i + state_j, decay_j * decay_i)
+        h_i, decay_i = a
+        h_j, decay_j = b
+        return (decay_j * h_i + h_j, decay_j * decay_i)
 
-    def read(self, h: Carry, x: Array, **kwargs) -> Array:
-        batch_size, seq_len, _ = x.shape
-        state, _ = h
+    def read(self, carry: Carry, x: Array, **kwargs) -> Array:
+        B, T, _ = x.shape
+        h, _ = carry
 
-        u, _, C, z, _ = self._project(x)
+        hidden, _, C_proj, z, _ = self._project(x)
 
-        y = jnp.einsum("bthn,bthnd->bthd", C, state)
-        y = y + self.D[None, None, :, None] * u
-        y = y.reshape(batch_size, seq_len, self.num_heads * self.head_dim)
+        y = jnp.einsum("bthn,bthnd->bthd", C_proj, h)
+        y = y + self.D[None, None, :, None] * hidden
+        y = y.reshape(B, T, self.num_heads * self.head_dim)
         y = self.norm(y) * nn.silu(z)
 
-        return self.out_proj(y)
+        return self.output_projection(y)
 
-    def initialize_carry(self, key, input_shape: Tuple[int, ...]) -> Carry:
+    def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
         *batch_dims, _ = input_shape
-        state = jnp.zeros(
+        h = jnp.zeros(
             (*batch_dims, 1, self.num_heads, self.state_dim, self.head_dim),
             dtype=self.dtype,
         )
         decay = jnp.ones(
             (*batch_dims, 1, self.num_heads, 1, 1), dtype=self.dtype
         )
-        return (state, decay)
+        return (h, decay)
 
     def local_jacobian(self, carry, z, inputs, **kwargs):
         B, T = inputs.shape[:2]
-        NH, SD, HD = self.num_heads, self.state_dim, self.head_dim
-        H = NH * SD * HD
+        num_heads, state_dim, head_dim = self.num_heads, self.state_dim, self.head_dim
+        H = num_heads * state_dim * head_dim
 
         A = -jnp.exp(self.A_log)
-        state_contrib = z[0]
-        decay_5d = z[1]
-        decay_ph = decay_5d[:, :, :, 0, 0]
-        prev = carry[0]
+        h_t = z[0]
+        decay = z[1]
+        decay_per_head = decay[:, :, :, 0, 0]
+        h_prev = carry[0]
 
         # Recover dt from decay: decay = exp(dt * A) → dt = log(decay) / A
-        dt = jnp.log(jnp.maximum(decay_ph, 1e-30)) / A[None, None, :]
-        sigma_dt = 1.0 - jnp.exp(-dt)
+        dt = jnp.log(jnp.maximum(decay_per_head, 1e-30)) / A[None, None, :]
+        sigmoid_dt = 1.0 - jnp.exp(-dt)
+        dA_dA_log = -jnp.exp(self.A_log)
+        dt_safe = jnp.maximum(dt, 1e-8)
+
+        # Expand per-head scalars to 5D for broadcasting with (B,T,NH,SD,HD)
+        dt = dt[:, :, :, None, None]
+        dt_safe = dt_safe[:, :, :, None, None]
+        sigmoid_dt = sigmoid_dt[:, :, :, None, None]
+        A = A[None, None, :, None, None]
+        dA_dA_log = dA_dA_log[None, None, :, None, None]
 
         # Flatten decay: (B,T,NH,1,1) → (B,T,NH*SD*HD)
         decay_flat = jnp.broadcast_to(
-            decay_5d, (B, T, NH, SD, HD)
+            decay, (B, T, num_heads, state_dim, head_dim)
         ).reshape(B, T, H)
 
-        # ∂decay/∂A_log = decay * dt * (-exp(A_log))
-        dA_dAlog = -jnp.exp(self.A_log)
-        J_Alog = (
-            decay_5d * dt[:, :, :, None, None]
-            * dA_dAlog[None, None, :, None, None] * prev
+        # ∂h/∂A_log = decay * dt * (∂A/∂A_log) * h_prev
+        J_A_log = (decay * dt * dA_dA_log * h_prev).reshape(B, T, H)
+
+        # ∂h/∂dt_bias = sigmoid_dt * (A * decay * h_prev + h_t / dt)
+        J_dt_bias = (
+            sigmoid_dt * (A * decay * h_prev + h_t / dt_safe)
         ).reshape(B, T, H)
 
-        # ∂h/∂dt_bias = σ_dt * (A * decay * prev + state_contrib / dt)
-        dt_safe = jnp.maximum(dt, 1e-8)[:, :, :, None, None]
-        J_dtbias = (
-            sigma_dt[:, :, :, None, None]
-            * (A[None, None, :, None, None] * decay_5d * prev
-               + state_contrib / dt_safe)
-        ).reshape(B, T, H)
-
-        return decay_flat, {"A_log": J_Alog, "dt_bias": J_dtbias}
+        return decay_flat, {"A_log": J_A_log, "dt_bias": J_dt_bias}
 
     def get_param_indices(self):
         H = self.num_heads * self.state_dim * self.head_dim
@@ -191,5 +193,5 @@ class MambaCell(MemoroidCellBase):
     def initialize_sensitivity(self, key, input_shape):
         *batch_dims, _ = input_shape
         H = self.num_heads * self.state_dim * self.head_dim
-        z = jnp.zeros((*batch_dims, 1, H), dtype=self.dtype)
-        return {"A_log": z, "dt_bias": z}
+        zeros = jnp.zeros((*batch_dims, 1, H), dtype=self.dtype)
+        return {"A_log": zeros, "dt_bias": zeros}

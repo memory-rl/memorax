@@ -34,7 +34,11 @@ cfg = DQNConfig(
 learning_starts = 10_000
 
 q_network = Network(
-    feature_extractor=FeatureExtractor(observation_extractor=nn.Sequential((nn.Dense(120), nn.relu, nn.Dense(84), nn.relu))),
+    feature_extractor=FeatureExtractor(
+        observation_extractor=nn.Sequential(
+            (nn.Dense(120), nn.relu, nn.Dense(84), nn.relu)
+        )
+    ),
     head=heads.DiscreteQNetwork(
         action_dim=env.action_space(env_params).n,
     ),
@@ -85,7 +89,12 @@ for i in range(0, total_timesteps, num_train_steps):
     SPS = int(num_train_steps / (end - start))
 
     training_statistics = Logger.get_episode_statistics(transitions, "training")
-    data = {"training/SPS": SPS, **training_statistics, **transitions.losses, **transitions.infos}
+    data = {
+        "training/SPS": SPS,
+        **training_statistics,
+        **transitions.losses,
+        **transitions.infos,
+    }
     logger_state = logger.log(logger_state, data, step=state.step.item())
 
     key, transitions = agent.evaluate(key, state, num_steps=num_eval_steps)

@@ -9,7 +9,7 @@ from flashbax import make_item_buffer
 from memorax.algorithms import SAC, SACConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import FeatureExtractor, Network, RNN, heads
+from memorax.networks import RNN, FeatureExtractor, Network, heads
 
 total_timesteps = 1_000_000
 num_train_steps = 10_000
@@ -40,9 +40,12 @@ cfg = SACConfig(
 
 actor_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential((nn.Dense(
-            192, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu)),
+        observation_extractor=nn.Sequential(
+            (
+                nn.Dense(192, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+                nn.relu,
+            )
+        ),
     ),
     torso=RNN(cell=nn.GRUCell(features=256)),
     head=heads.SquashedGaussian(
@@ -62,9 +65,12 @@ critic_network = nn.vmap(
     axis_size=2,
 )(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential((nn.Dense(
-            192, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu)),
+        observation_extractor=nn.Sequential(
+            (
+                nn.Dense(192, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+                nn.relu,
+            )
+        ),
     ),
     torso=RNN(cell=nn.GRUCell(features=256)),
     head=heads.ContinuousQNetwork(),

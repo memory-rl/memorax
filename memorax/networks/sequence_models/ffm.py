@@ -139,9 +139,9 @@ class FFMCell(MemoroidCellBase):
         H = self.memory_size * self.context_size
 
         alpha = jnp.clip(self.alpha, min=-self.limit, max=-1e-8)
-        gamma = jnp.exp(jax.lax.complex(
-            alpha[:, None], self.omega[None, :]
-        )).reshape(1, 1, H)
+        gamma = jnp.exp(jax.lax.complex(alpha[:, None], self.omega[None, :])).reshape(
+            1, 1, H
+        )
 
         decay = jnp.broadcast_to(gamma, (B, T, H))
 

@@ -9,7 +9,7 @@ from flax.linen.recurrent import RNNCellBase
 from flax.typing import Dtype, Initializer
 from jax import random
 
-from memorax.utils.typing import Array, Carry
+from memorax.utils.typing import Array
 
 from .utils import xavier_uniform
 
@@ -40,7 +40,9 @@ class SHMCell(RNNCellBase):
         )
 
         self.ln = nn.LayerNorm(
-            epsilon=1e-5, dtype=self.dtype, param_dtype=self.param_dtype,
+            epsilon=1e-5,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
         )
         self.value = dense(features=self.features)
         self.key = dense(features=self.features)

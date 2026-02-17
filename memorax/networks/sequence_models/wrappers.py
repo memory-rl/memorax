@@ -1,4 +1,3 @@
-from typing import Optional
 
 import flax.linen as nn
 import jax

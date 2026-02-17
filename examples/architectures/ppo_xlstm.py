@@ -43,9 +43,12 @@ num_heads = 4
 num_layers = 2
 
 feature_extractor = FeatureExtractor(
-    observation_extractor=nn.Sequential((nn.Dense(
-        d_model, kernel_init=nn.initializers.orthogonal(scale=1.414)
-    ), nn.relu)),
+    observation_extractor=nn.Sequential(
+        (
+            nn.Dense(d_model, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+            nn.relu,
+        )
+    ),
 )
 
 

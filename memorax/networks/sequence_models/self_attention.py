@@ -91,7 +91,6 @@ class SelfAttention(SequenceModel):
             initial_carry = self.initialize_carry(jax.random.key(0), input_shape)
 
         B, T, *_ = x.shape
-        head_dim = self.features // self.num_heads
 
         if memory is None:
             memory = jnp.zeros((B, 0, self.features), dtype=self.dtype)
@@ -99,9 +98,9 @@ class SelfAttention(SequenceModel):
 
         _, M, *_ = memory.shape
 
-        assert T <= self.context_length, (
-            f"T must be less than or equal to context_length, but was T: {T}, context_length: {self.context_length}"
-        )
+        assert (
+            T <= self.context_length
+        ), f"T must be less than or equal to context_length, but was T: {T}, context_length: {self.context_length}"
 
         query = self.query(x)
 

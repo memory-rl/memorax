@@ -8,8 +8,8 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (FFN, RNN, FeatureExtractor, Network,
-                              PreNorm, Residual, Stack, heads)
+from memorax.networks import (FFN, RNN, FeatureExtractor, Network, PreNorm,
+                              Residual, Stack, heads)
 
 total_timesteps = 500_000
 num_train_steps = 10_000
@@ -40,9 +40,12 @@ hidden_dim = 128
 num_layers = 2
 
 feature_extractor = FeatureExtractor(
-    observation_extractor=nn.Sequential((nn.Dense(
-        d_model, kernel_init=nn.initializers.orthogonal(scale=1.414)
-    ), nn.relu)),
+    observation_extractor=nn.Sequential(
+        (
+            nn.Dense(d_model, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+            nn.relu,
+        )
+    ),
 )
 
 

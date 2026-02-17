@@ -1,5 +1,4 @@
 import jax
-import jax.numpy as jnp
 from flax import struct
 
 from memorax.networks.sequence_models.utils import (add_time_axis,

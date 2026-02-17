@@ -269,7 +269,7 @@ class FlattenMultiAgentObservationWrapper:
 
     def _flatten_obs(self, obs: Array) -> Array:
         """Flatten observations: (..., *obs_dims) -> (..., flat_dim)."""
-        return obs.reshape(obs.shape[:-len(self._raw_obs_shape)] + (-1,))
+        return obs.reshape(obs.shape[: -len(self._raw_obs_shape)] + (-1,))
 
     def reset(self, key: Key, params=None) -> Tuple[Array, PufferLibEnvState]:
         obs, state = self._env.reset(key, params)

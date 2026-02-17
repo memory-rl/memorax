@@ -10,11 +10,9 @@ from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import FeatureExtractor, Identity, Network, heads
-from memorax.utils.wrappers import (
-    ClipActionWrapper,
-    NormalizeObservationWrapper,
-    ScaleRewardWrapper,
-)
+from memorax.utils.wrappers import (ClipActionWrapper,
+                                    NormalizeObservationWrapper,
+                                    ScaleRewardWrapper)
 
 total_timesteps = 50_000_000
 num_envs = 4096
@@ -48,15 +46,17 @@ cfg = PPOConfig(
 # Brax policy network: 4 layers of 32 with swish
 actor_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential((
-            nn.Dense(32, kernel_init=nn.initializers.lecun_uniform()),
-            nn.swish,
-            nn.Dense(32, kernel_init=nn.initializers.lecun_uniform()),
-            nn.swish,
-            nn.Dense(32, kernel_init=nn.initializers.lecun_uniform()),
-            nn.swish,
-            nn.Dense(32, kernel_init=nn.initializers.lecun_uniform()),
-        )),
+        observation_extractor=nn.Sequential(
+            (
+                nn.Dense(32, kernel_init=nn.initializers.lecun_uniform()),
+                nn.swish,
+                nn.Dense(32, kernel_init=nn.initializers.lecun_uniform()),
+                nn.swish,
+                nn.Dense(32, kernel_init=nn.initializers.lecun_uniform()),
+                nn.swish,
+                nn.Dense(32, kernel_init=nn.initializers.lecun_uniform()),
+            )
+        ),
     ),
     torso=Identity(),
     head=heads.Gaussian(
@@ -69,17 +69,19 @@ actor_network = Network(
 # Brax value network: 5 layers of 256 with swish
 critic_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential((
-            nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
-            nn.swish,
-            nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
-            nn.swish,
-            nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
-            nn.swish,
-            nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
-            nn.swish,
-            nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
-        )),
+        observation_extractor=nn.Sequential(
+            (
+                nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
+                nn.swish,
+                nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
+                nn.swish,
+                nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
+                nn.swish,
+                nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
+                nn.swish,
+                nn.Dense(256, kernel_init=nn.initializers.lecun_uniform()),
+            )
+        ),
     ),
     torso=Identity(),
     head=heads.VNetwork(gamma=0.97, kernel_init=nn.initializers.lecun_uniform()),

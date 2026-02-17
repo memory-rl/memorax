@@ -114,7 +114,9 @@ class mLSTMCell(MemoroidCellBase):
         self.f_gate = nn.Dense(
             self.num_heads,
             kernel_init=initializers.zeros_init(),
-            bias_init=lambda key, shape, dtype=jnp.float32: jnp.linspace(3.0, 6.0, shape[0], dtype=dtype),
+            bias_init=lambda key, shape, dtype=jnp.float32: jnp.linspace(
+                3.0, 6.0, shape[0], dtype=dtype
+            ),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
         )
@@ -201,7 +203,6 @@ class mLSTMCell(MemoroidCellBase):
 
     def read(self, h: Carry, x: Array, **kwargs) -> Array:
         B, T, _ = x.shape
-        head_dim = self.hidden_dim // self.num_heads
 
         query, _, _, z, u = self._project(x)
 
@@ -213,9 +214,7 @@ class mLSTMCell(MemoroidCellBase):
         )[:, :, :, None]
         h_tilde = jnp.einsum("...j,...jk->...k", query, C) / (denominator + 1e-6)
 
-        h_tilde = self.norm(
-            h_tilde.transpose(0, 2, 1, 3)
-        ).transpose(0, 2, 1, 3)
+        h_tilde = self.norm(h_tilde.transpose(0, 2, 1, 3)).transpose(0, 2, 1, 3)
         h_tilde = h_tilde.reshape(B, T, self.hidden_dim)
 
         h_tilde = h_tilde + self.learnable_skip * u
@@ -266,7 +265,7 @@ class mLSTMCell(MemoroidCellBase):
 
         # Expand per-head scalars to 5D for broadcasting
         sigma_f = jax.nn.sigmoid(f_gate)[:, :, :, None, None]
-        indicator = (m_decayed >= m_t)  # already (B,T,NH,1,1)
+        indicator = m_decayed >= m_t  # already (B,T,NH,1,1)
 
         # ∂C/∂log_f = scale_a*(1-ind)*C - scale_b*ind*C_t
         dC_dlogf = scale_a * (1.0 - indicator) * C - scale_b * indicator * C_t

@@ -23,8 +23,7 @@ def _A_log_init(A_min=1.0, A_max=16.0):
 def _dt_bias_init(dt_min=0.001, dt_max=0.1):
     def init(key, shape):
         dt = jnp.exp(
-            jax.random.uniform(key, shape)
-            * (jnp.log(dt_max) - jnp.log(dt_min))
+            jax.random.uniform(key, shape) * (jnp.log(dt_max) - jnp.log(dt_min))
             + jnp.log(dt_min)
         )
         return dt + jnp.log(-jnp.expm1(-dt))
@@ -96,9 +95,9 @@ class MambaCell(MemoroidCellBase):
         hidden = conv_input[..., :hidden_dim].reshape(
             B, T, self.num_heads, self.head_dim
         )
-        B_proj = conv_input[..., hidden_dim : hidden_dim + state_projection_dim].reshape(
-            B, T, self.num_heads, self.state_dim
-        )
+        B_proj = conv_input[
+            ..., hidden_dim : hidden_dim + state_projection_dim
+        ].reshape(B, T, self.num_heads, self.state_dim)
         C_proj = conv_input[..., hidden_dim + state_projection_dim :].reshape(
             B, T, self.num_heads, self.state_dim
         )
@@ -141,9 +140,7 @@ class MambaCell(MemoroidCellBase):
             (*batch_dims, 1, self.num_heads, self.state_dim, self.head_dim),
             dtype=self.dtype,
         )
-        decay = jnp.ones(
-            (*batch_dims, 1, self.num_heads, 1, 1), dtype=self.dtype
-        )
+        decay = jnp.ones((*batch_dims, 1, self.num_heads, 1, 1), dtype=self.dtype)
         return (h, decay)
 
     def local_jacobian(self, carry, z, inputs, **kwargs):
@@ -179,9 +176,7 @@ class MambaCell(MemoroidCellBase):
         J_A_log = (decay * dt * dA_dA_log * h_prev).reshape(B, T, H)
 
         # ∂h/∂dt_bias = sigmoid_dt * (A * decay * h_prev + h_t / dt)
-        J_dt_bias = (
-            sigmoid_dt * (A * decay * h_prev + h_t / dt_safe)
-        ).reshape(B, T, H)
+        J_dt_bias = (sigmoid_dt * (A * decay * h_prev + h_t / dt_safe)).reshape(B, T, H)
 
         return decay_flat, {"A_log": J_A_log, "dt_bias": J_dt_bias}
 

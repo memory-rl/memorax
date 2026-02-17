@@ -3,7 +3,6 @@ from typing import Tuple
 
 import jax
 import jax.numpy as jnp
-from flax import linen as nn
 from flax.typing import Dtype
 from jax.nn.initializers import lecun_normal, normal
 
@@ -165,9 +164,7 @@ class S5Cell(MemoroidCellBase):
             lambda_real = jnp.minimum(lambda_real, -1e-4)
 
         lam = jax.lax.complex(lambda_real, lambda_imag).astype(jnp.complex64)
-        b_tilde = jax.lax.complex(
-            self.B[..., 0], self.B[..., 1]
-        ).astype(jnp.complex64)
+        b_tilde = jax.lax.complex(self.B[..., 0], self.B[..., 1]).astype(jnp.complex64)
         step = (
             self.step_rescale * jnp.exp(self.log_step[:, 0].astype(jnp.float32))
         ).astype(jnp.complex64)

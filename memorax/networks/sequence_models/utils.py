@@ -3,7 +3,6 @@ from typing import Callable, Literal, Tuple
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
-from flax.linen.dtypes import promote_dtype
 from flax.typing import Dtype, Initializer
 from jax.nn.initializers import lecun_normal
 
@@ -242,7 +241,9 @@ class MultiHeadLayerNorm(nn.Module):
             use_bias=False,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
-        )(x)
+        )(
+            x
+        )
 
         if self.use_scale:
             gamma = self.param(

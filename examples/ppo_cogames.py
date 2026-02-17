@@ -7,7 +7,8 @@ import jax
 import optax
 import pufferlib
 from cogames.cli.mission import get_mission
-from cogames.cogs_vs_clips.cogsguard_reward_variants import apply_reward_variants
+from cogames.cogs_vs_clips.cogsguard_reward_variants import \
+    apply_reward_variants
 from mettagrid.envs.mettagrid_puffer_env import MettaGridPufferEnv
 from mettagrid.simulator import Simulator
 

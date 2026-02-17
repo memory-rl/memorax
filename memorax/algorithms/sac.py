@@ -10,7 +10,8 @@ from flax import core, struct
 from memorax.networks.sequence_models.utils import (add_feature_axis,
                                                     remove_feature_axis,
                                                     remove_time_axis)
-from memorax.utils import Timestep, Transition, memory_metrics, periodic_incremental_update
+from memorax.utils import (Timestep, Transition, memory_metrics,
+                           periodic_incremental_update)
 from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
                                   EnvParams, EnvState, Key)
 
@@ -78,7 +79,7 @@ class SAC:
             timestep.done,
             state.actor_carry,
             temperature=0.0,
-            mutable=['intermediates'],
+            mutable=["intermediates"],
         )
         action = dist.sample(seed=sample_key)
         action = remove_time_axis(action)
@@ -95,7 +96,7 @@ class SAC:
             add_feature_axis(timestep.reward),
             timestep.done,
             state.actor_carry,
-            mutable=['intermediates'],
+            mutable=["intermediates"],
         )
         action = dist.sample(seed=sample_key)
         action = remove_time_axis(action)
@@ -130,11 +131,14 @@ class SAC:
 
         intermediates = jax.tree.map(
             lambda x: jnp.mean(x, axis=(1, 2)),
-            intermediates.get('intermediates', {}),
+            intermediates.get("intermediates", {}),
         )
 
         prev_action = jnp.where(
-            jnp.expand_dims(state.timestep.done, axis=tuple(range(state.timestep.done.ndim, state.timestep.action.ndim))),
+            jnp.expand_dims(
+                state.timestep.done,
+                axis=tuple(range(state.timestep.done.ndim, state.timestep.action.ndim)),
+            ),
             jnp.zeros_like(state.timestep.action),
             state.timestep.action,
         )
@@ -160,7 +164,12 @@ class SAC:
 
         state = state.replace(
             step=state.step + self.cfg.num_envs,
-            timestep=Timestep(obs=next_obs, action=action, reward=jnp.asarray(reward, dtype=jnp.float32), done=done),
+            timestep=Timestep(
+                obs=next_obs,
+                action=action,
+                reward=jnp.asarray(reward, dtype=jnp.float32),
+                done=done,
+            ),
             env_state=env_state,
             buffer_state=buffer_state,
             actor_carry=next_actor_carry,
@@ -226,13 +235,18 @@ class SAC:
         )
 
         _, intermediates = self.actor_network.apply(
-            actor_params, timestep.obs, timestep.done, timestep.action,
-            add_feature_axis(timestep.reward), timestep.done, actor_carry,
-            mutable=['intermediates'],
+            actor_params,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            actor_carry,
+            mutable=["intermediates"],
         )
         intermediates = jax.tree.map(
             lambda x: jnp.mean(x, axis=(1, 2)),
-            intermediates.get('intermediates', {}),
+            intermediates.get("intermediates", {}),
         )
 
         transition = Transition(
@@ -346,7 +360,10 @@ class SAC:
             )
             q = jnp.minimum(*qs)
             actor_loss = (log_probs * alpha - remove_feature_axis(q)).mean()
-            return actor_loss, (carry, {"losses/actor_loss": actor_loss, "losses/entropy": -log_probs.mean()})
+            return actor_loss, (
+                carry,
+                {"losses/actor_loss": actor_loss, "losses/entropy": -log_probs.mean()},
+            )
 
         (_, (carry, info)), grads = jax.value_and_grad(actor_loss_fn, has_aux=True)(
             state.actor_params
@@ -412,9 +429,10 @@ class SAC:
                 initial_critic_carry,
             )
             q1, q2 = qs
-            critic_loss = self.critic_network.head.loss(
-                q1, {}, target_q, batch
-            ).mean() + self.critic_network.head.loss(q2, {}, target_q, batch).mean()
+            critic_loss = (
+                self.critic_network.head.loss(q1, {}, target_q, batch).mean()
+                + self.critic_network.head.loss(q2, {}, target_q, batch).mean()
+            )
 
             return critic_loss, {
                 "losses/critic_loss": critic_loss,

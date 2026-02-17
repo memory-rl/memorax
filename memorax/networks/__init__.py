@@ -11,10 +11,9 @@ from memorax.networks.positional_embeddings import (
 from memorax.networks.sequence_models import (RNN, FFMCell,
                                               LinearAttentionCell, LRUCell,
                                               MambaCell, Memoroid,
-                                              MemoroidCellBase,
-                                              RL2Wrapper, MinGRUCell,
-                                              S5Cell, SelfAttention,
-                                              SequenceModel,
+                                              MemoroidCellBase, MinGRUCell,
+                                              RL2Wrapper, S5Cell,
+                                              SelfAttention, SequenceModel,
                                               SequenceModelWrapper, SHMCell,
                                               mLSTMCell, sLSTMCell)
 from memorax.networks.vit import PatchEmbedding, ViT

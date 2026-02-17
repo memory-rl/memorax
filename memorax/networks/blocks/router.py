@@ -1,4 +1,3 @@
-from typing import NamedTuple
 
 import flax.linen as nn
 import jax

@@ -101,17 +101,19 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
             )
 
             losses = {k: data.pop(k) for k in list(data) if k.startswith("losses/")}
-            state.stats["losses"].update(
-                {k: v.mean() for k, v in losses.items()}
-            )
+            state.stats["losses"].update({k: v.mean() for k, v in losses.items()})
 
-            metrics = {k: data.pop(k) for k in list(data) if k.startswith("training/") or k.startswith("evaluation/")}
-            state.stats["metrics"].update(
-                {k: v.mean() for k, v in metrics.items()}
-            )
+            metrics = {
+                k: data.pop(k)
+                for k in list(data)
+                if k.startswith("training/") or k.startswith("evaluation/")
+            }
+            state.stats["metrics"].update({k: v.mean() for k, v in metrics.items()})
 
             info = {
-                "/".join(p.key if hasattr(p, "key") else str(p) for p in path): jnp.mean(leaf)
+                "/".join(
+                    p.key if hasattr(p, "key") else str(p) for p in path
+                ): jnp.mean(leaf)
                 for path, leaf in jax.tree_util.tree_leaves_with_path(data)
             }
             state.stats["info"].update(info)

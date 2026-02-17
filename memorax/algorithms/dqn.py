@@ -10,7 +10,8 @@ from flax import core, struct
 from memorax.networks.sequence_models.utils import (add_feature_axis,
                                                     remove_feature_axis,
                                                     remove_time_axis)
-from memorax.utils import Timestep, Transition, memory_metrics, periodic_incremental_update
+from memorax.utils import (Timestep, Transition, memory_metrics,
+                           periodic_incremental_update)
 from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
                                   EnvParams, EnvState, Key)
 
@@ -52,7 +53,9 @@ class DQN:
     buffer: Buffer
     epsilon_schedule: optax.Schedule
 
-    def _greedy_action(self, key: Key, state: DQNState) -> tuple[Key, DQNState, Array, dict]:
+    def _greedy_action(
+        self, key: Key, state: DQNState
+    ) -> tuple[Key, DQNState, Array, dict]:
         key, memory_key = jax.random.split(key)
         timestep = state.timestep.to_sequence()
         (carry, (q_values, _)), intermediates = self.q_network.apply(
@@ -64,14 +67,16 @@ class DQN:
             timestep.done,
             state.carry,
             rngs={"memory": memory_key},
-            mutable=['intermediates'],
+            mutable=["intermediates"],
         )
         action = jnp.argmax(q_values, axis=-1)
         action = remove_time_axis(action)
         state = state.replace(carry=carry)
         return key, state, action, intermediates
 
-    def _random_action(self, key: Key, state: DQNState) -> tuple[Key, DQNState, Array, dict]:
+    def _random_action(
+        self, key: Key, state: DQNState
+    ) -> tuple[Key, DQNState, Array, dict]:
         key, action_key = jax.random.split(key)
         action_key = jax.random.split(action_key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
@@ -110,7 +115,7 @@ class DQN:
 
         intermediates = jax.tree.map(
             lambda x: jnp.mean(x, axis=(1, 2)),
-            intermediates.get('intermediates', {}),
+            intermediates.get("intermediates", {}),
         )
 
         prev_action = jnp.where(
@@ -140,8 +145,14 @@ class DQN:
 
         state = state.replace(
             step=state.step + self.cfg.num_envs,
-            timestep=Timestep(obs=next_obs, action=action, reward=jnp.asarray(reward, dtype=jnp.float32), done=done),
-            env_state=env_state,            buffer_state=buffer_state,
+            timestep=Timestep(
+                obs=next_obs,
+                action=action,
+                reward=jnp.asarray(reward, dtype=jnp.float32),
+                done=done,
+            ),
+            env_state=env_state,
+            buffer_state=buffer_state,
         )
         return (key, state), transition
 
@@ -310,13 +321,19 @@ class DQN:
         optimizer_state = self.optimizer.init(params)
 
         _, intermediates = self.q_network.apply(
-            params, timestep.obs, timestep.done, timestep.action,
-            add_feature_axis(timestep.reward), timestep.done, carry,
-            rngs={"memory": memory_key}, mutable=['intermediates'],
+            params,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            carry,
+            rngs={"memory": memory_key},
+            mutable=["intermediates"],
         )
         intermediates = jax.tree.map(
             lambda x: jnp.mean(x, axis=(1, 2)),
-            intermediates.get('intermediates', {}),
+            intermediates.get("intermediates", {}),
         )
 
         transition = Transition(
@@ -395,9 +412,7 @@ class DQN:
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
         carry = self.q_network.initialize_carry(obs.shape)
 
-        state = state.replace(
-            timestep=timestep, carry=carry, env_state=env_state
-        )
+        state = state.replace(timestep=timestep, carry=carry, env_state=env_state)
         (key, _), transitions = jax.lax.scan(
             partial(self._step, policy=self._greedy_action, write_to_buffer=False),
             (key, state),

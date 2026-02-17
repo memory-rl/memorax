@@ -1,4 +1,3 @@
-from typing import Callable, Optional, Sequence, Union
 
 import flax.linen as nn
 import jax.numpy as jnp

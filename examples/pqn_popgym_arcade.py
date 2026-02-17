@@ -31,26 +31,28 @@ cfg = PQNConfig(
 
 q_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential((
-            nn.Conv(features=64, kernel_size=(5, 5), strides=(2, 2)),
-            nn.relu,
-            nn.LayerNorm(),
-            lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
-            nn.Conv(features=128, kernel_size=(3, 3), strides=(2, 2)),
-            nn.relu,
-            nn.LayerNorm(),
-            lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
-            nn.Conv(features=256, kernel_size=(3, 3), strides=(2, 2)),
-            nn.relu,
-            nn.LayerNorm(),
-            lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
-            nn.Conv(features=512, kernel_size=(1, 1), strides=(1, 1)),
-            nn.relu,
-            nn.LayerNorm(),
-            lambda x: x.reshape((x.shape[0], x.shape[1], -1)),
-            nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
-            nn.relu,
-        )),
+        observation_extractor=nn.Sequential(
+            (
+                nn.Conv(features=64, kernel_size=(5, 5), strides=(2, 2)),
+                nn.relu,
+                nn.LayerNorm(),
+                lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
+                nn.Conv(features=128, kernel_size=(3, 3), strides=(2, 2)),
+                nn.relu,
+                nn.LayerNorm(),
+                lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
+                nn.Conv(features=256, kernel_size=(3, 3), strides=(2, 2)),
+                nn.relu,
+                nn.LayerNorm(),
+                lambda x: nn.max_pool(x, window_shape=(2, 2), strides=(2, 2)),
+                nn.Conv(features=512, kernel_size=(1, 1), strides=(1, 1)),
+                nn.relu,
+                nn.LayerNorm(),
+                lambda x: x.reshape((x.shape[0], x.shape[1], -1)),
+                nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+                nn.relu,
+            )
+        ),
         action_extractor=Embedding(
             num_embeddings=env.action_space(env_params).n,
             features=5,

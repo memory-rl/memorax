@@ -78,9 +78,7 @@ def _pallas_recurrence(x, a, init, mask):
             pl.BlockSpec((tile_size,), lambda b, d: (b, d * tile_size)),
             pl.BlockSpec((T,), lambda b, d: (b, 0)),
         ],
-        out_specs=pl.BlockSpec(
-            (T, tile_size), lambda b, d: (b, 0, d * tile_size)
-        ),
+        out_specs=pl.BlockSpec((T, tile_size), lambda b, d: (b, 0, d * tile_size)),
         out_shape=jax.ShapeDtypeStruct((B, T, padded_D), x.dtype),
     )(x, a, init_2d, mask)
 

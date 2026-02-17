@@ -8,8 +8,8 @@ import optax
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import (RNN, Embedding, FeatureExtractor,
-                              RL2Wrapper, Network, heads)
+from memorax.networks import (RNN, Embedding, FeatureExtractor, Network,
+                              RL2Wrapper, heads)
 
 total_timesteps = 1_000_000
 num_train_steps = 100_000
@@ -40,16 +40,19 @@ cfg = PPOConfig(
 
 actor_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential((nn.Dense(
-            192, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu)),
+        observation_extractor=nn.Sequential(
+            (
+                nn.Dense(192, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+                nn.relu,
+            )
+        ),
         action_extractor=Embedding(
             features=32,
             num_embeddings=env.action_space(env_params).n,
         ),
-        reward_extractor=nn.Sequential((nn.Dense(
-            16, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu)),
+        reward_extractor=nn.Sequential(
+            (nn.Dense(16, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu)
+        ),
         done_extractor=Embedding(
             features=16,
             num_embeddings=2,
@@ -69,16 +72,19 @@ actor_optimizer = optax.chain(
 
 critic_network = Network(
     feature_extractor=FeatureExtractor(
-        observation_extractor=nn.Sequential((nn.Dense(
-            192, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu)),
+        observation_extractor=nn.Sequential(
+            (
+                nn.Dense(192, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+                nn.relu,
+            )
+        ),
         action_extractor=Embedding(
             features=32,
             num_embeddings=env.action_space(env_params).n,
         ),
-        reward_extractor=nn.Sequential((nn.Dense(
-            16, kernel_init=nn.initializers.orthogonal(scale=1.414)
-        ), nn.relu)),
+        reward_extractor=nn.Sequential(
+            (nn.Dense(16, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu)
+        ),
         done_extractor=Embedding(
             features=16,
             num_embeddings=2,

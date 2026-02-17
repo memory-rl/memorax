@@ -47,4 +47,6 @@ class Network(nn.Module):
     @nn.nowrap
     def initialize_carry(self, input_shape):
         key = jax.random.key(0)
-        return getattr(self.torso, "initialize_carry", lambda k, s: None)(key, input_shape)
+        return getattr(self.torso, "initialize_carry", lambda k, s: None)(
+            key, input_shape
+        )

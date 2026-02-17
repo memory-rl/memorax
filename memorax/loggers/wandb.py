@@ -3,10 +3,9 @@ from dataclasses import field
 from typing import Literal, Optional
 
 import chex
-import wandb
 from wandb.sdk.wandb_run import Run
 
-from memorax.utils.stats import naniqm
+import wandb
 
 from .logger import BaseLogger, BaseLoggerState, PyTree
 

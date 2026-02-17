@@ -8,12 +8,9 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 
-from memorax.networks import SequenceModelWrapper
-from memorax.networks.sequence_models.utils import (
-    add_feature_axis,
-    remove_feature_axis,
-    remove_time_axis,
-)
+from memorax.networks.sequence_models.utils import (add_feature_axis,
+                                                    remove_feature_axis,
+                                                    remove_time_axis)
 from memorax.utils import Timestep, Transition, memory_metrics
 from memorax.utils.typing import Array, Environment, EnvParams, EnvState, Key
 
@@ -64,7 +61,7 @@ class PQN:
             reward=add_feature_axis(timestep.reward),
             done=timestep.done,
             initial_carry=state.carry,
-            mutable=['intermediates'],
+            mutable=["intermediates"],
         )
         q_values = remove_time_axis(q_values)
         action = jnp.argmax(q_values, axis=-1)
@@ -84,7 +81,9 @@ class PQN:
     ) -> tuple[Key, PQNState, Array, Array, dict]:
         key, state, random_action, _, _ = self._random_action(key, state)
 
-        key, state, greedy_action, q_values, intermediates = self._greedy_action(key, state)
+        key, state, greedy_action, q_values, intermediates = self._greedy_action(
+            key, state
+        )
 
         key, sample_key = jax.random.split(key)
         epsilon = self.epsilon_schedule(state.step)
@@ -110,7 +109,7 @@ class PQN:
 
         intermediates = jax.tree.map(
             lambda x: jnp.mean(x, axis=(1, 2)),
-            intermediates.get('intermediates', {}),
+            intermediates.get("intermediates", {}),
         )
 
         prev_action = jnp.where(
@@ -138,7 +137,12 @@ class PQN:
 
         state = state.replace(
             step=state.step + self.cfg.num_envs,
-            timestep=Timestep(obs=next_obs, action=action, reward=jnp.asarray(reward, dtype=jnp.float32), done=done),
+            timestep=Timestep(
+                obs=next_obs,
+                action=action,
+                reward=jnp.asarray(reward, dtype=jnp.float32),
+                done=done,
+            ),
             env_state=env_state,
         )
         return (key, state), transition
@@ -148,7 +152,9 @@ class PQN:
         target_bootstrap = self.q_network.head.get_target(transition, next_q_value)
 
         delta = lambda_return - next_q_value
-        lambda_return = target_bootstrap + self.q_network.head.gamma * self.cfg.td_lambda * delta
+        lambda_return = (
+            target_bootstrap + self.q_network.head.gamma * self.cfg.td_lambda * delta
+        )
 
         lambda_return = (
             1.0 - transition.done
@@ -408,9 +414,7 @@ class PQN:
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
         carry = self.q_network.initialize_carry((self.cfg.num_eval_envs, None))
 
-        state = state.replace(
-            timestep=timestep, carry=carry, env_state=env_state
-        )
+        state = state.replace(timestep=timestep, carry=carry, env_state=env_state)
 
         (key, *_), transitions = jax.lax.scan(
             partial(self._step, policy=self._greedy_action),

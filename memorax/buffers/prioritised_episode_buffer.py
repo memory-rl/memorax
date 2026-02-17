@@ -22,13 +22,13 @@ from chex import PRNGKey
 from flashbax import utils
 from flashbax.buffers import sum_tree
 from flashbax.buffers.prioritised_trajectory_buffer import (
-    SET_BATCH_FN, Priorities, PrioritisedTrajectoryBuffer,
+    SET_BATCH_FN, PrioritisedTrajectoryBuffer,
     PrioritisedTrajectoryBufferSample, PrioritisedTrajectoryBufferState,
-    Probabilities, get_sum_tree_capacity, prioritised_init, set_priorities,
+    Probabilities, prioritised_init, set_priorities,
     validate_device, validate_priority_exponent)
 from flashbax.buffers.sum_tree import SumTreeState
 from flashbax.buffers.trajectory_buffer import (
-    Experience, can_sample, validate_trajectory_buffer_args)
+    Experience, can_sample)
 from flashbax.utils import add_dim_to_args
 from jax import Array
 
@@ -265,14 +265,6 @@ def prioritised_episode_add(
         state.experience,
         batch,
     )
-
-    period = 1
-
-    new_valid_start = state.running_index
-    new_valid_end = state.running_index + add_sequence_length
-
-    old_invalid_start = state.running_index - max_length_time_axis
-    old_invalid_start = jnp.maximum(old_invalid_start, 0)
 
     new_item_time_indices = (
         jnp.arange(add_sequence_length) + state.current_index

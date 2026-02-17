@@ -15,7 +15,7 @@ from .utils import broadcast_mask, get_input_shape
 
 def _get_nested_param(params, name):
     """Get parameter by '/'-separated path for nested module params."""
-    for key in name.split('/'):
+    for key in name.split("/"):
         params = params[key]
     return params
 
@@ -47,8 +47,8 @@ def _propagate_sensitivities(decay, jacobians, sensitivity, mask):
     next_sensitivity = {}
 
     for name in sorted(jacobians.keys()):
-        J = jacobians[name]          # (B, T, H, *param_dims)
-        S = sensitivity[name]        # (B, 1, H, *param_dims)
+        J = jacobians[name]  # (B, T, H, *param_dims)
+        S = sensitivity[name]  # (B, 1, H, *param_dims)
         param_size = math.prod(J.shape[3:])
 
         out_shape = J.shape[2:]
@@ -165,7 +165,7 @@ class Memoroid(SequenceModel):
         param_indices = self.cell.get_param_indices()
 
         if sensitivity is not None:
-            params = self.variables['params']['cell']
+            params = self.variables["params"]["cell"]
             phantom = _compute_phantom(sensitivity, param_indices, params)
             if phantom is not None:
                 carry = (carry[0] + phantom.reshape(carry[0].shape), *carry[1:])
@@ -177,11 +177,14 @@ class Memoroid(SequenceModel):
         if sensitivity is not None:
             prev_carry = jax.tree.map(
                 lambda c, hh: jnp.concatenate([c, hh[:, :-1]], axis=1),
-                carry, h,
+                carry,
+                h,
             )
             decay, jacobians = self.cell.local_jacobian(prev_carry, z, inputs)
             if jacobians:
-                next_sensitivity = _propagate_sensitivities(decay, jacobians, sensitivity, mask)
+                next_sensitivity = _propagate_sensitivities(
+                    decay, jacobians, sensitivity, mask
+                )
             else:
                 next_sensitivity = sensitivity
 

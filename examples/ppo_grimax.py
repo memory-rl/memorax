@@ -35,11 +35,13 @@ cfg = PPOConfig(
 )
 
 feature_extractor = FeatureExtractor(
-    observation_extractor=nn.Sequential([
-        lambda x: x.reshape((*x.shape[:2], -1)),
-        nn.Dense(64),
-        nn.relu,
-    ]),
+    observation_extractor=nn.Sequential(
+        [
+            lambda x: x.reshape((*x.shape[:2], -1)),
+            nn.Dense(64),
+            nn.relu,
+        ]
+    ),
 )
 
 actor_network = Network(

@@ -2,47 +2,16 @@
 
 __version__ = "1.0.1"
 
-from memorax.algorithms import (
-    DQN,
-    MAPPO,
-    PPO,
-    PQN,
-    R2D2,
-    SAC,
-    DQNConfig,
-    DQNState,
-    MAPPOConfig,
-    MAPPOState,
-    PPOConfig,
-    PPOState,
-    PQNConfig,
-    PQNState,
-    R2D2Config,
-    R2D2State,
-    SACConfig,
-    SACState,
-)
-
+from memorax.algorithms import (DQN, MAPPO, PPO, PQN, R2D2, SAC, DQNConfig,
+                                DQNState, MAPPOConfig, MAPPOState, PPOConfig,
+                                PPOState, PQNConfig, PQNState, R2D2Config,
+                                R2D2State, SACConfig, SACState)
 from memorax.environments import make
-
-
-from memorax.loggers import (
-    ConsoleLogger,
-    DashboardLogger,
-    FileLogger,
-    Logger,
-    LoggerState,
-    NeptuneLogger,
-    TensorBoardLogger,
-    WandbLogger,
-)
-
-from memorax.networks import (
-    FeatureExtractor,
-    Network,
-    SequenceModel,
-    SequenceModelWrapper,
-)
+from memorax.loggers import (ConsoleLogger, DashboardLogger, FileLogger,
+                             Logger, LoggerState, NeptuneLogger,
+                             TensorBoardLogger, WandbLogger)
+from memorax.networks import (FeatureExtractor, Network, SequenceModel,
+                              SequenceModelWrapper)
 
 __all__ = [
     "__version__",

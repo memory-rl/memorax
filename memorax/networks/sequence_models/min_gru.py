@@ -60,7 +60,7 @@ class MinGRUCell(MemoroidCellBase):
         log_state = log_z + log_h_tilde
         decay = -nn.softplus(z)
 
-        self.sow('intermediates', 'gate', jnp.mean(z))
+        self.sow("intermediates", "gate", jnp.mean(z))
 
         return (log_state, decay)
 

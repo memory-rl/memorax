@@ -13,7 +13,8 @@ from memorax.buffers import compute_importance_weights
 from memorax.networks.sequence_models.utils import (add_feature_axis,
                                                     remove_feature_axis,
                                                     remove_time_axis)
-from memorax.utils import Timestep, Transition, memory_metrics, periodic_incremental_update
+from memorax.utils import (Timestep, Transition, memory_metrics,
+                           periodic_incremental_update)
 from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
                                   EnvParams, EnvState, Key)
 
@@ -109,7 +110,7 @@ class R2D2:
             timestep.done,
             state.carry,
             rngs={"memory": memory_key},
-            mutable=['intermediates'],
+            mutable=["intermediates"],
         )
         action = jnp.argmax(q_values, axis=-1)
         action = remove_time_axis(action)
@@ -156,7 +157,7 @@ class R2D2:
 
         intermediates = jax.tree.map(
             lambda x: jnp.mean(x, axis=(1, 2)),
-            intermediates.get('intermediates', {}),
+            intermediates.get("intermediates", {}),
         )
 
         prev_action = jnp.where(
@@ -186,7 +187,12 @@ class R2D2:
 
         state = state.replace(
             step=state.step + self.cfg.num_envs,
-            timestep=Timestep(obs=next_obs, action=action, reward=jnp.asarray(reward, dtype=jnp.float32), done=done),
+            timestep=Timestep(
+                obs=next_obs,
+                action=action,
+                reward=jnp.asarray(reward, dtype=jnp.float32),
+                done=done,
+            ),
             env_state=env_state,
             buffer_state=buffer_state,
         )
@@ -309,7 +315,10 @@ class R2D2:
             q_value = remove_feature_axis(q_value)
             td_error = q_value - td_target
 
-            loss = (importance_weights * self.q_network.head.loss(q_value, aux, td_target, experience)).mean()
+            loss = (
+                importance_weights
+                * self.q_network.head.loss(q_value, aux, td_target, experience)
+            ).mean()
             return loss, (q_value, td_error, carry)
 
         (loss, (q_value, td_error, carry)), grads = jax.value_and_grad(
@@ -412,13 +421,19 @@ class R2D2:
         optimizer_state = self.optimizer.init(params)
 
         _, intermediates = self.q_network.apply(
-            params, timestep.obs, timestep.done, timestep.action,
-            add_feature_axis(timestep.reward), timestep.done, carry,
-            rngs={"memory": memory_key}, mutable=['intermediates'],
+            params,
+            timestep.obs,
+            timestep.done,
+            timestep.action,
+            add_feature_axis(timestep.reward),
+            timestep.done,
+            carry,
+            rngs={"memory": memory_key},
+            mutable=["intermediates"],
         )
         intermediates = jax.tree.map(
             lambda x: jnp.mean(x, axis=(1, 2)),
-            intermediates.get('intermediates', {}),
+            intermediates.get("intermediates", {}),
         )
 
         transition = Transition(
@@ -499,9 +514,7 @@ class R2D2:
         timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
         carry = self.q_network.initialize_carry(obs.shape)
 
-        state = state.replace(
-            timestep=timestep, carry=carry, env_state=env_state
-        )
+        state = state.replace(timestep=timestep, carry=carry, env_state=env_state)
 
         (key, _), transitions = jax.lax.scan(
             partial(self._step, policy=self._greedy_action, write_to_buffer=False),

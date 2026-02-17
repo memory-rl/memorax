@@ -35,10 +35,14 @@ cfg = PPOConfig(
 )
 
 feature_extractor = FeatureExtractor(
-    observation_extractor=nn.Sequential((
-        nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu,
-        nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)), nn.relu,
-    )),
+    observation_extractor=nn.Sequential(
+        (
+            nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+            nn.relu,
+            nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+            nn.relu,
+        )
+    ),
 )
 actor_network = Network(
     feature_extractor=feature_extractor,

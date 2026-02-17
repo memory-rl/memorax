@@ -3,7 +3,6 @@ from typing import Tuple
 
 import jax
 import jax.numpy as jnp
-from flax import linen as nn
 from flax.typing import Dtype
 
 from memorax.utils.typing import Array, Carry

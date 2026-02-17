@@ -119,8 +119,6 @@ class LinearAttentionCell(MemoroidCellBase):
     def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
         """Initialize carry with zero S and z."""
         *batch_dims, _ = input_shape
-        S = jnp.zeros(
-            (*batch_dims, 1, self.num_heads, self.head_dim, self.head_dim)
-        )
+        S = jnp.zeros((*batch_dims, 1, self.num_heads, self.head_dim, self.head_dim))
         z = jnp.zeros((*batch_dims, 1, self.num_heads, self.head_dim))
         return (S, z)

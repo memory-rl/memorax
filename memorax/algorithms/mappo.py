@@ -83,9 +83,9 @@ class MAPPO:
         if self._env_vectorized:
             return self.env.step(keys[0], env_state, actions)
         else:
-            return jax.vmap(
-                self.env.step, in_axes=(0, 0, 1), out_axes=(1, 0, 1, 1, 0)
-            )(keys, env_state, actions)
+            return jax.vmap(self.env.step, in_axes=(0, 0, 1), out_axes=(1, 0, 1, 1, 0))(
+                keys, env_state, actions
+            )
 
     def _deterministic_action(
         self, key: Key, state: MAPPOState
@@ -100,7 +100,7 @@ class MAPPO:
             add_feature_axis(timestep.reward),
             timestep.done,
             state.actor_carry,
-            mutable=['intermediates'],
+            mutable=["intermediates"],
         )
 
         action = jnp.argmax(probs.logits, axis=-1)
@@ -127,7 +127,7 @@ class MAPPO:
             timestep.done,
             state.actor_carry,
             rngs={"memory": actor_memory_key},
-            mutable=['intermediates'],
+            mutable=["intermediates"],
         )
 
         action_keys = jax.random.split(action_key, self.env.num_agents)
@@ -178,8 +178,17 @@ class MAPPO:
 
     def _generalized_advantage_estimation(self, carry, transition):
         advantage, next_value = carry
-        delta = self.critic_network.head.get_target(transition, next_value) - transition.value
-        advantage = delta + self.critic_network.head.gamma * self.cfg.gae_lambda * (1 - transition.done) * advantage
+        delta = (
+            self.critic_network.head.get_target(transition, next_value)
+            - transition.value
+        )
+        advantage = (
+            delta
+            + self.critic_network.head.gamma
+            * self.cfg.gae_lambda
+            * (1 - transition.done)
+            * advantage
+        )
         return (advantage, transition.value), advantage
 
     def _step(self, carry: tuple, _, *, policy: Callable):
@@ -195,7 +204,7 @@ class MAPPO:
         )
         intermediates = jax.tree.map(
             lambda x: jnp.mean(x, axis=(1, 2)),
-            intermediates.get('intermediates', {}),
+            intermediates.get("intermediates", {}),
         )
 
         broadcast_dims = tuple(
@@ -223,7 +232,12 @@ class MAPPO:
 
         state = state.replace(
             step=state.step + num_envs,
-            timestep=Timestep(obs=next_obs, action=action, reward=jnp.asarray(reward, dtype=jnp.float32), done=done),
+            timestep=Timestep(
+                obs=next_obs,
+                action=action,
+                reward=jnp.asarray(reward, dtype=jnp.float32),
+                done=done,
+            ),
             env_state=env_state,
         )
         return (key, state), transition
@@ -305,7 +319,9 @@ class MAPPO:
 
         if self.cfg.centralized_critic:
             if initial_critic_carry is not None:
-                initial_critic_carry = jax.tree.map(lambda x: x[0], initial_critic_carry)
+                initial_critic_carry = jax.tree.map(
+                    lambda x: x[0], initial_critic_carry
+                )
 
             obs = jnp.moveaxis(transitions.obs, 0, 2)
             prev_done = transitions.prev_done[0]
@@ -353,7 +369,9 @@ class MAPPO:
                     rngs={"memory": memory_key, "dropout": dropout_key},
                 )
 
-                critic_loss = self.critic_network.head.loss(values, aux, returns_transformed, transitions)
+                critic_loss = self.critic_network.head.loss(
+                    values, aux, returns_transformed, transitions
+                )
                 if self.cfg.clip_vloss:
                     old_values = jnp.moveaxis(transitions.value, 0, -1)
                     clipped_value = old_values + jnp.clip(
@@ -361,11 +379,14 @@ class MAPPO:
                         -self.cfg.clip_coef,
                         self.cfg.clip_coef,
                     )
-                    clipped_critic_loss = self.critic_network.head.loss(clipped_value, aux, returns_transformed, transitions)
+                    clipped_critic_loss = self.critic_network.head.loss(
+                        clipped_value, aux, returns_transformed, transitions
+                    )
                     critic_loss = jnp.maximum(critic_loss, clipped_critic_loss)
                 critic_loss = critic_loss.mean()
 
                 return critic_loss
+
         else:
             if self.cfg.burn_in_length > 0:
                 burn_in = jax.tree.map(
@@ -400,14 +421,18 @@ class MAPPO:
                 )
                 values = remove_feature_axis(values)
 
-                critic_loss = self.critic_network.head.loss(values, aux, returns, transitions)
+                critic_loss = self.critic_network.head.loss(
+                    values, aux, returns, transitions
+                )
                 if self.cfg.clip_vloss:
                     clipped_value = transitions.value + jnp.clip(
                         (values - transitions.value),
                         -self.cfg.clip_coef,
                         self.cfg.clip_coef,
                     )
-                    clipped_critic_loss = self.critic_network.head.loss(clipped_value, aux, returns, transitions)
+                    clipped_critic_loss = self.critic_network.head.loss(
+                        clipped_value, aux, returns, transitions
+                    )
                     critic_loss = jnp.maximum(critic_loss, clipped_critic_loss)
                 critic_loss = critic_loss.mean()
 
@@ -498,7 +523,8 @@ class MAPPO:
                         jnp.take(x, permutation, axis=1).reshape(
                             num_agents, self.cfg.num_minibatches, -1, *x.shape[2:]
                         ),
-                        1, 0,
+                        1,
+                        0,
                     )
                     if x is not None
                     else None
@@ -670,9 +696,9 @@ class MAPPO:
         reward = jnp.zeros((num_agents, self.cfg.num_envs), dtype=jnp.float32)
         done = jnp.ones((num_agents, self.cfg.num_envs), dtype=jnp.bool)
 
-        timestep = to_sequence(Timestep(
-            obs=obs, action=action, reward=reward, done=done
-        ))
+        timestep = to_sequence(
+            Timestep(obs=obs, action=action, reward=reward, done=done)
+        )
 
         actor_carry = self.actor_network.initialize_carry(
             (num_agents, self.cfg.num_envs, None)
@@ -755,7 +781,9 @@ class MAPPO:
             length=num_steps // (self.cfg.num_envs * self.cfg.num_steps),
         )
         transitions = jax.tree.map(
-            lambda x: jnp.moveaxis(x, 3, 1).reshape(-1, x.shape[1], x.shape[2], *x.shape[4:]),
+            lambda x: jnp.moveaxis(x, 3, 1).reshape(
+                -1, x.shape[1], x.shape[2], *x.shape[4:]
+            ),
             transitions,
         )
         return key, state, transitions

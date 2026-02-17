@@ -10,7 +10,7 @@ from flax import core, struct
 from memorax.networks.sequence_models.utils import (add_feature_axis,
                                                     remove_feature_axis,
                                                     remove_time_axis)
-from memorax.utils import Timestep, Transition, memory_metrics, periodic_incremental_update
+from memorax.utils import Timestep, Transition, burn_in, memory_metrics, periodic_incremental_update
 from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
                                   EnvParams, EnvState, Key)
 
@@ -57,12 +57,12 @@ class DQN:
         timestep = state.timestep.to_sequence()
         (carry, (q_values, _)), intermediates = self.q_network.apply(
             state.params,
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            state.carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=state.carry,
             rngs={"memory": memory_key},
             mutable=['intermediates'],
         )
@@ -160,41 +160,21 @@ class DQN:
             initial_target_carry = jax.tree.map(lambda x: x[:, 0], experience.carry)
 
         if self.cfg.burn_in_length > 0:
-            burn_in = jax.tree.map(
-                lambda x: x[:, : self.cfg.burn_in_length], experience
-            )
-            initial_carry, (_, _) = self.q_network.apply(
-                jax.lax.stop_gradient(state.params),
-                burn_in.obs,
-                burn_in.prev_done,
-                burn_in.prev_action,
-                add_feature_axis(burn_in.prev_reward),
-                burn_in.prev_done,
-                initial_carry,
-            )
-            initial_carry = jax.lax.stop_gradient(initial_carry)
-            initial_target_carry, (_, _) = self.q_network.apply(
-                jax.lax.stop_gradient(state.target_params),
-                burn_in.next_obs,
-                burn_in.done,
-                burn_in.action,
-                add_feature_axis(burn_in.reward),
-                burn_in.done,
-                initial_target_carry,
-            )
-            initial_target_carry = jax.lax.stop_gradient(initial_target_carry)
+            burn_in_transitions = jax.tree.map(lambda x: x[:, : self.cfg.burn_in_length], experience)
+            initial_carry = burn_in(self.q_network, state.params, initial_carry, burn_in_transitions)
+            initial_target_carry = burn_in(self.q_network, state.target_params, initial_target_carry, burn_in_transitions, target=True)
             experience = jax.tree.map(
                 lambda x: x[:, self.cfg.burn_in_length :], experience
             )
 
         _, (next_target_q_values, _) = self.q_network.apply(
             state.target_params,
-            experience.next_obs,
-            experience.done,
-            experience.action,
-            add_feature_axis(experience.reward),
-            experience.done,
-            initial_target_carry,
+            observation=experience.next_obs,
+            mask=experience.done,
+            action=experience.action,
+            reward=add_feature_axis(experience.reward),
+            done=experience.done,
+            initial_carry=initial_target_carry,
             rngs={"memory": next_memory_key},
         )
         next_target_q_value = jnp.max(next_target_q_values, axis=-1)
@@ -204,12 +184,12 @@ class DQN:
         def loss_fn(params):
             carry, (q_values, aux) = self.q_network.apply(
                 params,
-                experience.obs,
-                experience.prev_done,
-                experience.prev_action,
-                add_feature_axis(experience.prev_reward),
-                experience.prev_done,
-                initial_carry,
+                observation=experience.obs,
+                mask=experience.prev_done,
+                action=experience.prev_action,
+                reward=add_feature_axis(experience.prev_reward),
+                done=experience.prev_done,
+                initial_carry=initial_carry,
                 rngs={"memory": memory_key},
             )
             action = add_feature_axis(experience.action)
@@ -291,28 +271,34 @@ class DQN:
         ).to_sequence()
         params = self.q_network.init(
             {"params": q_key, "memory": memory_key},
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=carry,
         )
         target_params = self.q_network.init(
             {"params": q_key, "memory": memory_key},
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=carry,
         )
         optimizer_state = self.optimizer.init(params)
 
         _, intermediates = self.q_network.apply(
-            params, timestep.obs, timestep.done, timestep.action,
-            add_feature_axis(timestep.reward), timestep.done, carry,
-            rngs={"memory": memory_key}, mutable=['intermediates'],
+            params,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=carry,
+            rngs={"memory": memory_key},
+            mutable=['intermediates'],
         )
         intermediates = jax.tree.map(
             lambda x: jnp.mean(x, axis=(1, 2)),

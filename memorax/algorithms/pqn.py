@@ -14,7 +14,7 @@ from memorax.networks.sequence_models.utils import (
     remove_feature_axis,
     remove_time_axis,
 )
-from memorax.utils import Timestep, Transition, memory_metrics
+from memorax.utils import Timestep, Transition, burn_in, memory_metrics
 from memorax.utils.typing import Array, Environment, EnvParams, EnvState, Key
 
 
@@ -203,19 +203,7 @@ class PQN:
         key, memory_key, dropout_key = jax.random.split(key, 3)
 
         if self.cfg.burn_in_length > 0:
-            burn_in = jax.tree.map(
-                lambda x: x[:, : self.cfg.burn_in_length], transitions
-            )
-            carry, (_, _) = self.q_network.apply(
-                jax.lax.stop_gradient(state.params),
-                observation=burn_in.obs,
-                mask=burn_in.prev_done,
-                action=burn_in.prev_action,
-                reward=add_feature_axis(burn_in.prev_reward),
-                done=burn_in.prev_done,
-                initial_carry=carry,
-            )
-            carry = jax.lax.stop_gradient(carry)
+            carry = burn_in(self.q_network, state.params, carry, jax.tree.map(lambda x: x[:, : self.cfg.burn_in_length], transitions))
             transitions = jax.tree.map(
                 lambda x: x[:, self.cfg.burn_in_length :], transitions
             )

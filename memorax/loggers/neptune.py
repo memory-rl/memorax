@@ -22,7 +22,8 @@ class NeptuneLogger(BaseLogger[NeptuneLoggerState]):
     project: Optional[str] = None
     mode: str = "disabled"
 
-    def init(self, cfg: dict) -> NeptuneLoggerState:
+    def init(self, **kwargs) -> NeptuneLoggerState:
+        cfg = kwargs["cfg"]
         runs = {
             seed: Run(project=f"{self.workspace}/{self.project}", mode=self.mode)
             for seed in range(cfg["num_seeds"])

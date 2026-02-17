@@ -19,7 +19,8 @@ class TensorBoardLoggerState(BaseLoggerState):
 class TensorBoardLogger(BaseLogger[TensorBoardLoggerState]):
     log_dir: str = "tensorboard"
 
-    def init(self, cfg: dict) -> TensorBoardLoggerState:
+    def init(self, **kwargs) -> TensorBoardLoggerState:
+        cfg = kwargs["cfg"]
         writers = {
             seed: SummaryWriter(log_dir=self.log_dir)
             for seed in range(cfg["num_seeds"])

@@ -1,13 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeAlias, TypeVar
+from typing import Any, Generic, TypeVar
 
 import jax
 import jax.numpy as jnp
 from flax import struct
 
-from memorax.utils.typing import Array
-
-PyTree: TypeAlias = Any
+from memorax.utils.typing import Array, PyTree
 
 
 @struct.dataclass(frozen=True)

@@ -105,16 +105,15 @@ class HLGaussVNetwork(nn.Module):
     def loss(self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray, **kwargs) -> jnp.ndarray:
         """Two-hot cross-entropy loss."""
         logits = aux["logits"]
-        bin_width = (self.v_max - self.v_min) / (self.num_bins - 1)
 
         targets = remove_feature_axis(targets)
         targets = jnp.clip(targets, self.v_min, self.v_max)
 
-        lower_idx = ((targets - self.v_min) / bin_width).astype(jnp.int32)
+        lower_idx = ((targets - self.v_min) / self.bin_width).astype(jnp.int32)
         lower_idx = jnp.clip(lower_idx, 0, self.num_bins - 2)
         upper_idx = lower_idx + 1
 
-        upper_weight = (targets - (self.v_min + lower_idx * bin_width)) / bin_width
+        upper_weight = (targets - (self.v_min + lower_idx * self.bin_width)) / self.bin_width
         lower_weight = 1.0 - upper_weight
 
         log_probs = jax.nn.log_softmax(logits, axis=-1)
@@ -167,15 +166,14 @@ class C51QNetwork(nn.Module):
     @nn.nowrap
     def loss(self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray, **kwargs) -> jnp.ndarray:
         logits = aux["logits"]
-        delta_z = (self.v_max - self.v_min) / (self.num_atoms - 1)
 
         targets = jnp.clip(targets, self.v_min, self.v_max)
 
-        lower_idx = ((targets - self.v_min) / delta_z).astype(jnp.int32)
+        lower_idx = ((targets - self.v_min) / self.delta_z).astype(jnp.int32)
         lower_idx = jnp.clip(lower_idx, 0, self.num_atoms - 2)
         upper_idx = lower_idx + 1
 
-        upper_weight = (targets - (self.v_min + lower_idx * delta_z)) / delta_z
+        upper_weight = (targets - (self.v_min + lower_idx * self.delta_z)) / self.delta_z
         lower_weight = 1.0 - upper_weight
 
         log_probs = jax.nn.log_softmax(logits, axis=-1)

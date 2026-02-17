@@ -10,7 +10,7 @@ from flax import core, struct
 from memorax.networks.sequence_models.utils import (add_feature_axis,
                                                     remove_feature_axis,
                                                     remove_time_axis)
-from memorax.utils import Timestep, Transition, memory_metrics, periodic_incremental_update
+from memorax.utils import Timestep, Transition, burn_in, memory_metrics, periodic_incremental_update
 from memorax.utils.typing import (Array, Buffer, BufferState, Environment,
                                   EnvParams, EnvState, Key)
 
@@ -71,12 +71,12 @@ class SAC:
         timestep = state.timestep.to_sequence()
         (next_carry, (dist, _)), intermediates = self.actor_network.apply(
             state.actor_params,
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            state.actor_carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=state.actor_carry,
             temperature=0.0,
             mutable=['intermediates'],
         )
@@ -89,12 +89,12 @@ class SAC:
         timestep = state.timestep.to_sequence()
         (next_carry, (dist, _)), intermediates = self.actor_network.apply(
             state.actor_params,
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            state.actor_carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=state.actor_carry,
             mutable=['intermediates'],
         )
         action = dist.sample(seed=sample_key)
@@ -187,12 +187,12 @@ class SAC:
         actor_carry = self.actor_network.initialize_carry(obs.shape)
         actor_params = self.actor_network.init(
             actor_key,
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            actor_carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=actor_carry,
         )
         actor_optimizer_state = self.actor_optimizer.init(actor_params)
         actor_carry = self.actor_network.initialize_carry(obs.shape)
@@ -200,21 +200,21 @@ class SAC:
         critic_carry = self.critic_network.initialize_carry(obs.shape)
         critic_params = self.critic_network.init(
             critic_key,
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            critic_carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=critic_carry,
         )
         critic_target_params = self.critic_network.init(
             critic_key,
-            timestep.obs,
-            timestep.done,
-            timestep.action,
-            add_feature_axis(timestep.reward),
-            timestep.done,
-            critic_carry,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=critic_carry,
         )
         critic_optimizer_state = self.critic_optimizer.init(critic_params)
 
@@ -226,8 +226,13 @@ class SAC:
         )
 
         _, intermediates = self.actor_network.apply(
-            actor_params, timestep.obs, timestep.done, timestep.action,
-            add_feature_axis(timestep.reward), timestep.done, actor_carry,
+            actor_params,
+            observation=timestep.obs,
+            mask=timestep.done,
+            action=timestep.action,
+            reward=add_feature_axis(timestep.reward),
+            done=timestep.done,
+            initial_carry=actor_carry,
             mutable=['intermediates'],
         )
         intermediates = jax.tree.map(
@@ -280,12 +285,12 @@ class SAC:
 
         _, (dist, _) = self.actor_network.apply(
             state.actor_params,
-            batch.obs,
-            batch.prev_done,
-            batch.prev_action,
-            add_feature_axis(batch.prev_reward),
-            batch.prev_done,
-            initial_actor_carry,
+            observation=batch.obs,
+            mask=batch.prev_done,
+            action=batch.prev_action,
+            reward=add_feature_axis(batch.prev_reward),
+            done=batch.prev_done,
+            initial_carry=initial_actor_carry,
         )
 
         key, sample_key = jax.random.split(key)
@@ -327,22 +332,22 @@ class SAC:
         def actor_loss_fn(actor_params):
             carry, (dist, _) = self.actor_network.apply(
                 actor_params,
-                batch.obs,
-                batch.prev_done,
-                batch.prev_action,
-                add_feature_axis(batch.prev_reward),
-                batch.prev_done,
-                initial_actor_carry,
+                observation=batch.obs,
+                mask=batch.prev_done,
+                action=batch.prev_action,
+                reward=add_feature_axis(batch.prev_reward),
+                done=batch.prev_done,
+                initial_carry=initial_actor_carry,
             )
             actions, log_probs = dist.sample_and_log_prob(seed=key)
             _, (qs, _) = self.critic_network.apply(
                 state.critic_params,
-                batch.obs,
-                batch.prev_done,
-                actions,
-                add_feature_axis(batch.prev_reward),
-                batch.prev_done,
-                initial_critic_carry,
+                observation=batch.obs,
+                mask=batch.prev_done,
+                action=actions,
+                reward=add_feature_axis(batch.prev_reward),
+                done=batch.prev_done,
+                initial_carry=initial_critic_carry,
             )
             q = jnp.minimum(*qs)
             actor_loss = (log_probs * alpha - remove_feature_axis(q)).mean()
@@ -374,23 +379,23 @@ class SAC:
     ):
         _, (dist, _) = self.actor_network.apply(
             state.actor_params,
-            batch.next_obs,
-            batch.done,
-            batch.action,
-            add_feature_axis(batch.reward),
-            batch.done,
-            initial_actor_carry,
+            observation=batch.next_obs,
+            mask=batch.done,
+            action=batch.action,
+            reward=add_feature_axis(batch.reward),
+            done=batch.done,
+            initial_carry=initial_actor_carry,
         )
         next_actions, next_log_probs = dist.sample_and_log_prob(seed=key)
 
         _, (next_qs, _) = self.critic_network.apply(
             state.critic_target_params,
-            batch.next_obs,
-            batch.done,
-            next_actions,
-            add_feature_axis(batch.reward),
-            batch.done,
-            initial_target_critic_carry,
+            observation=batch.next_obs,
+            mask=batch.done,
+            action=next_actions,
+            reward=add_feature_axis(batch.reward),
+            done=batch.done,
+            initial_carry=initial_target_critic_carry,
         )
         next_q = jnp.minimum(*next_qs)
 
@@ -404,12 +409,12 @@ class SAC:
         def critic_loss_fn(critic_params):
             _, (qs, _) = self.critic_network.apply(
                 critic_params,
-                batch.obs,
-                batch.prev_done,
-                batch.action,
-                add_feature_axis(batch.prev_reward),
-                batch.prev_done,
-                initial_critic_carry,
+                observation=batch.obs,
+                mask=batch.prev_done,
+                action=batch.action,
+                reward=add_feature_axis(batch.prev_reward),
+                done=batch.prev_done,
+                initial_carry=initial_critic_carry,
             )
             q1, q2 = qs
             critic_loss = self.critic_network.head.loss(
@@ -458,42 +463,12 @@ class SAC:
             initial_actor_carry = jax.tree.map(lambda x: x[:, 0], batch.carry)
 
         if self.cfg.burn_in_length > 0:
-            burn_in = jax.tree.map(lambda x: x[:, : self.cfg.burn_in_length], batch)
-            initial_actor_carry, (_, _) = self.actor_network.apply(
-                jax.lax.stop_gradient(state.actor_params),
-                burn_in.obs,
-                burn_in.prev_done,
-                burn_in.prev_action,
-                add_feature_axis(burn_in.prev_reward),
-                burn_in.prev_done,
-                initial_actor_carry,
+            burn_in_transitions = jax.tree.map(lambda x: x[:, : self.cfg.burn_in_length], batch)
+            initial_actor_carry = burn_in(self.actor_network, state.actor_params, initial_actor_carry, burn_in_transitions)
+            initial_critic_carry = burn_in(self.critic_network, state.critic_params, initial_critic_carry, burn_in_transitions)
+            initial_target_critic_carry = burn_in(
+                self.critic_network, state.critic_target_params, initial_target_critic_carry, burn_in_transitions, target=True
             )
-            initial_actor_carry = jax.lax.stop_gradient(initial_actor_carry)
-
-            initial_critic_carry, _ = self.critic_network.apply(
-                jax.lax.stop_gradient(state.critic_params),
-                burn_in.obs,
-                burn_in.prev_done,
-                burn_in.prev_action,
-                add_feature_axis(burn_in.prev_reward),
-                burn_in.prev_done,
-                initial_critic_carry,
-            )
-            initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
-
-            initial_target_critic_carry, _ = self.critic_network.apply(
-                jax.lax.stop_gradient(state.critic_target_params),
-                burn_in.next_obs,
-                burn_in.done,
-                burn_in.action,
-                add_feature_axis(burn_in.reward),
-                burn_in.done,
-                initial_target_critic_carry,
-            )
-            initial_target_critic_carry = jax.lax.stop_gradient(
-                initial_target_critic_carry
-            )
-
             batch = jax.tree.map(lambda x: x[:, self.cfg.burn_in_length :], batch)
 
         state, critic_info = self._update_critic(

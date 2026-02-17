@@ -24,7 +24,8 @@ class FileLogger(BaseLogger[FileLoggerState]):
     environment: str
     directory: str = "logs"
 
-    def init(self, cfg: dict) -> FileLoggerState:
+    def init(self, **kwargs) -> FileLoggerState:
+        cfg = kwargs["cfg"]
         if "actor" in cfg["algorithm"]:
             cell = cfg["algorithm"]["actor"]["torso"]["_target_"]
             if "RNN" in cell:

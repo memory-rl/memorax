@@ -16,7 +16,7 @@ class ConsoleLoggerState(BaseLoggerState):
 
 @struct.dataclass(frozen=True)
 class ConsoleLogger(BaseLogger[ConsoleLoggerState]):
-    def init(self, cfg) -> ConsoleLoggerState:
+    def init(self, **kwargs) -> ConsoleLoggerState:
         return ConsoleLoggerState()
 
     def log(

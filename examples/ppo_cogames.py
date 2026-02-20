@@ -6,8 +6,8 @@ import flax.linen as nn
 import jax
 import optax
 import pufferlib
-from cogames.cli.mission import get_mission
-from cogames.cogs_vs_clips.cogsguard_reward_variants import apply_reward_variants
+from cogames.cogs_vs_clips.missions import CogsGuardBasicMission
+from cogames.cogs_vs_clips.reward_variants import apply_reward_variants
 from mettagrid.envs.mettagrid_puffer_env import MettaGridPufferEnv
 from mettagrid.simulator import Simulator
 
@@ -23,8 +23,8 @@ seed = 0
 num_envs = 8  # Number of parallel environments
 
 
-def make(env_id, variants=None, **kwargs):
-    _, cfg, _ = get_mission(env_id)
+def make(variants=None, **kwargs):
+    cfg = CogsGuardBasicMission.make_env()
 
     if variants:
         apply_reward_variants(cfg, variants=variants)
@@ -33,14 +33,10 @@ def make(env_id, variants=None, **kwargs):
     return MettaGridPufferEnv(simulator, cfg, **kwargs)
 
 
-_, env_cfg, _ = get_mission("cogsguard_arena.basic")
-
-simulator = Simulator()
 puffer_env = pufferlib.vector.make(
     partial(make, variants=["credit"]),
     num_envs=num_envs,
     backend=pufferlib.vector.Serial,
-    env_kwargs={"env_id": "cogsguard_arena.basic"},
 )
 
 env = PufferLibWrapper(puffer_env)
@@ -48,7 +44,6 @@ env_params = env.default_params
 
 
 cfg = PPOConfig(
-    name="PPO",
     num_envs=env.num_envs,  # Use num_envs from the env as this is num_envs x num_agents
     num_steps=128,
     gae_lambda=0.95,
@@ -63,12 +58,15 @@ cfg = PPOConfig(
 num_train_steps = 10_000 * env.num_envs
 
 feature_extractor = FeatureExtractor(
-    observation_extractor=ViT(features=128, num_layers=2, num_heads=4),
+    observation_extractor=nn.Sequential(
+        (
+            ViT(features=128, num_layers=2, num_heads=4),
+            nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
+        )
+    ),
 )
-torso = nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414))
 actor_network = Network(
     feature_extractor=feature_extractor,
-    torso=torso,
     head=heads.Categorical(
         action_dim=env.num_actions,
         kernel_init=nn.initializers.orthogonal(scale=0.01),
@@ -77,7 +75,6 @@ actor_network = Network(
 
 critic_network = Network(
     feature_extractor=feature_extractor,
-    torso=torso,
     head=heads.VNetwork(
         kernel_init=nn.initializers.orthogonal(scale=1.0),
     ),
@@ -118,7 +115,7 @@ for i in range(0, total_timesteps, num_train_steps):
 
     training_statistics = Logger.get_episode_statistics(transitions, "training")
     training_statistics = jax.tree.map(lambda x: x[None], training_statistics)
-    info = jax.tree.map(lambda x: x.mean(), transitions.info)
+    info = jax.tree.map(lambda x: x.mean(), transitions.metadata)
     info = jax.tree.map(lambda x: x[None], info)
     data = {"training/SPS": SPS, **training_statistics, **info}
     logger_state = logger.log(logger_state, data, step=state.step.item())

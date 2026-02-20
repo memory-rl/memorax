@@ -20,7 +20,6 @@ num_seeds = 1
 env, env_params = environment.make("gymnax::Pendulum-v1")
 
 cfg = PPOConfig(
-    name="PPO",
     num_envs=32,
     num_steps=64,
     gae_lambda=0.95,
@@ -117,7 +116,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    infos = jax.vmap(lambda t: t.infos)(transitions)
+    infos = jax.vmap(lambda t: t.info)(transitions)
     data = {"training/SPS": SPS, **training_statistics, **losses, **infos}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 

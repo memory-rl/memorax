@@ -18,7 +18,6 @@ num_eval_steps = 5_000
 env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = DQNConfig(
-    name="dqn",
     num_envs=10,
     buffer_size=10_000,
     tau=1.0,
@@ -92,7 +91,7 @@ for i in range(0, total_timesteps, num_train_steps):
         "training/SPS": SPS,
         **training_statistics,
         **transitions.losses,
-        **transitions.infos,
+        **transitions.info,
     }
     logger_state = logger.log(logger_state, data, step=state.step.item())
 

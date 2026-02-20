@@ -22,7 +22,6 @@ env, env_params = environment.make("brax::ant", mode="V")
 
 
 cfg = SACConfig(
-    name="SAC",
     actor_lr=3e-4,
     critic_lr=3e-4,
     alpha_lr=3e-4,
@@ -147,7 +146,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    infos = jax.vmap(lambda t: t.infos)(transitions)
+    infos = jax.vmap(lambda t: t.info)(transitions)
     data = {"training/SPS": SPS, **training_statistics, **losses, **infos}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 

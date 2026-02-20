@@ -20,7 +20,6 @@ num_seeds = 5
 env, env_params = environment.make("gymnax::Breakout-MinAtar")
 
 cfg = PQNConfig(
-    name="PQN",
     num_envs=32,
     num_steps=64,
     td_lambda=0.95,
@@ -32,7 +31,7 @@ q_network = Network(
     feature_extractor=FeatureExtractor(
         observation_extractor=nn.Sequential(
             (
-                nn.Conv(features=16, kernel_size=(3, 3), strides=(1,)),
+                nn.Conv(features=16, kernel_size=(3, 3), strides=(1, 1)),
                 nn.relu,
                 lambda x: x.reshape((x.shape[0], x.shape[1], -1)),
                 nn.Dense(128, kernel_init=nn.initializers.orthogonal(scale=1.414)),
@@ -104,7 +103,7 @@ for i in range(0, total_timesteps, num_train_steps):
     losses = jax.vmap(
         lambda transition: jax.tree.map(lambda x: x.mean(), transition.losses)
     )(transitions)
-    infos = jax.vmap(lambda t: t.infos)(transitions)
+    infos = jax.vmap(lambda t: t.info)(transitions)
     data = {"training/SPS": SPS, **training_statistics, **losses, **infos}
     logger_state = logger.log(logger_state, data, step=state.step[0].item())
 

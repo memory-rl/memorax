@@ -118,17 +118,23 @@ class PQN:
             state.timestep.action,
         )
         prev_reward = jnp.where(state.timestep.done, 0, state.timestep.reward)
-        transition = Transition(
+        first = Timestep(
             obs=state.timestep.obs,
+            action=prev_action,
+            reward=prev_reward,
+            done=state.timestep.done,
+        )
+        second = Timestep(
+            obs=next_obs,
             action=action,
             reward=reward,
             done=done,
-            info={**info, "intermediates": intermediates},
+        )
+        transition = Transition(
+            first=first,
+            second=second,
+            metadata={**info, "intermediates": intermediates},
             value=q_values,
-            next_obs=next_obs,
-            prev_action=prev_action,
-            prev_reward=prev_reward,
-            prev_done=state.timestep.done,
         )
 
         state = state.replace(
@@ -153,8 +159,8 @@ class PQN:
         )
 
         lambda_return = (
-            1.0 - transition.done
-        ) * lambda_return + transition.done * transition.reward
+            1.0 - transition.second.done
+        ) * lambda_return + transition.second.done * transition.second.reward
 
         q_value = jnp.max(transition.value, axis=-1)
         return (lambda_return, q_value), lambda_return
@@ -208,11 +214,11 @@ class PQN:
             )
             carry, (_, _) = self.q_network.apply(
                 jax.lax.stop_gradient(state.params),
-                observation=burn_in.obs,
-                mask=burn_in.prev_done,
-                action=burn_in.prev_action,
-                reward=add_feature_axis(burn_in.prev_reward),
-                done=burn_in.prev_done,
+                observation=burn_in.first.obs,
+                mask=burn_in.first.done,
+                action=burn_in.first.action,
+                reward=add_feature_axis(burn_in.first.reward),
+                done=burn_in.first.done,
                 initial_carry=carry,
             )
             carry = jax.lax.stop_gradient(carry)
@@ -224,20 +230,20 @@ class PQN:
         def loss_fn(params):
             _, (q_values, aux) = self.q_network.apply(
                 params,
-                observation=transitions.obs,
-                mask=transitions.prev_done,
-                action=transitions.prev_action,
-                reward=add_feature_axis(transitions.prev_reward),
-                done=transitions.prev_done,
+                observation=transitions.first.obs,
+                mask=transitions.first.done,
+                action=transitions.first.action,
+                reward=add_feature_axis(transitions.first.reward),
+                done=transitions.first.done,
                 initial_carry=carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
-            action = add_feature_axis(transitions.action)
+            action = add_feature_axis(transitions.second.action)
             q_value = jnp.take_along_axis(q_values, action, axis=-1)
             q_value = remove_feature_axis(q_value)
 
             td_error = q_value - target
-            loss = self.q_network.head.loss(q_value, aux, target, transitions).mean()
+            loss = self.q_network.head.loss(q_value, aux, target, transitions=transitions).mean()
             return loss, (
                 q_value.mean(),
                 q_value.min(),
@@ -312,8 +318,8 @@ class PQN:
             lambda x: jnp.expand_dims(x, axis=(0, 1)),
             memory_metrics(state.carry, initial_carry),
         )
-        info = {
-            **transitions.info,
+        metadata = {
+            **transitions.metadata,
             "losses/loss": loss,
             "losses/q_value": q_value,
             "losses/q_value_min": q_value_min,
@@ -325,7 +331,11 @@ class PQN:
             **memory,
         }
 
-        return (key, state), transitions.replace(obs=None, next_obs=None, info=info)
+        return (key, state), transitions.replace(
+            first=transitions.first.replace(obs=None),
+            second=transitions.second.replace(obs=None),
+            metadata=metadata,
+        )
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key) -> tuple[Key, PQNState]:
@@ -416,4 +426,7 @@ class PQN:
             length=num_steps,
         )
 
-        return key, transitions.replace(obs=None, next_obs=None)
+        return key, transitions.replace(
+            first=transitions.first.replace(obs=None),
+            second=transitions.second.replace(obs=None),
+        )

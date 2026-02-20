@@ -22,11 +22,11 @@ from flashbax.utils import add_dim_to_args
 
 
 def get_full_start_flags(experience: Experience) -> jnp.ndarray:
-    return jnp.ones_like(experience.prev_done)
+    return jnp.ones_like(experience.first.done)
 
 
 def get_start_flags_from_done(experience: Experience) -> jnp.ndarray:
-    return jnp.roll(experience.prev_done, shift=1, axis=1)
+    return jnp.roll(experience.first.done, shift=1, axis=1)
 
 
 def validate_sample_batch_size(sample_batch_size: int, max_length: int):

@@ -145,7 +145,7 @@ class PPO:
             delta
             + self.critic_network.head.gamma
             * self.cfg.gae_lambda
-            * (1 - transition.done)
+            * (1 - transition.second.done)
             * advantage
         )
         return (advantage, transition.value), advantage
@@ -175,17 +175,24 @@ class PPO:
             jnp.zeros_like(state.timestep.action),
             state.timestep.action,
         )
-        transition = Transition(
+        first = Timestep(
             obs=state.timestep.obs,
+            action=prev_action,
+            reward=jnp.where(state.timestep.done, 0, state.timestep.reward),
+            done=state.timestep.done,
+        )
+        second = Timestep(
+            obs=next_obs,
             action=action,
             reward=reward,
             done=done,
-            info={**info, "intermediates": intermediates},
+        )
+        transition = Transition(
+            first=first,
+            second=second,
+            metadata={**info, "intermediates": intermediates},
             log_prob=log_prob,
             value=value,
-            prev_action=prev_action,
-            prev_reward=jnp.where(state.timestep.done, 0, state.timestep.reward),
-            prev_done=state.timestep.done,
         )
 
         state = state.replace(
@@ -211,11 +218,11 @@ class PPO:
             )
             initial_actor_carry, (_, _) = self.actor_network.apply(
                 jax.lax.stop_gradient(state.actor_params),
-                observation=burn_in.obs,
-                mask=burn_in.prev_done,
-                action=burn_in.prev_action,
-                reward=add_feature_axis(burn_in.prev_reward),
-                done=burn_in.prev_done,
+                observation=burn_in.first.obs,
+                mask=burn_in.first.done,
+                action=burn_in.first.action,
+                reward=add_feature_axis(burn_in.first.reward),
+                done=burn_in.first.done,
                 initial_carry=initial_actor_carry,
             )
             initial_actor_carry = jax.lax.stop_gradient(initial_actor_carry)
@@ -227,15 +234,15 @@ class PPO:
         def actor_loss_fn(params):
             _, (probs, _) = self.actor_network.apply(
                 params,
-                observation=transitions.obs,
-                mask=transitions.prev_done,
-                action=transitions.prev_action,
-                reward=add_feature_axis(transitions.prev_reward),
-                done=transitions.prev_done,
+                observation=transitions.first.obs,
+                mask=transitions.first.done,
+                action=transitions.first.action,
+                reward=add_feature_axis(transitions.first.reward),
+                done=transitions.first.done,
                 initial_carry=initial_actor_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
-            log_probs = probs.log_prob(transitions.action)
+            log_probs = probs.log_prob(transitions.second.action)
             entropy = probs.entropy().mean()
             ratio = jnp.exp(log_probs - transitions.log_prob)
             approx_kl = jnp.mean(transitions.log_prob - log_probs)
@@ -283,11 +290,11 @@ class PPO:
             )
             initial_critic_carry, (_, _) = self.critic_network.apply(
                 jax.lax.stop_gradient(state.critic_params),
-                observation=burn_in.obs,
-                mask=burn_in.prev_done,
-                action=burn_in.prev_action,
-                reward=add_feature_axis(burn_in.prev_reward),
-                done=burn_in.prev_done,
+                observation=burn_in.first.obs,
+                mask=burn_in.first.done,
+                action=burn_in.first.action,
+                reward=add_feature_axis(burn_in.first.reward),
+                done=burn_in.first.done,
                 initial_carry=initial_critic_carry,
             )
             initial_critic_carry = jax.lax.stop_gradient(initial_critic_carry)
@@ -299,18 +306,18 @@ class PPO:
         def critic_loss_fn(params):
             _, (values, aux) = self.critic_network.apply(
                 params,
-                observation=transitions.obs,
-                mask=transitions.prev_done,
-                action=transitions.prev_action,
-                reward=add_feature_axis(transitions.prev_reward),
-                done=transitions.prev_done,
+                observation=transitions.first.obs,
+                mask=transitions.first.done,
+                action=transitions.first.action,
+                reward=add_feature_axis(transitions.first.reward),
+                done=transitions.first.done,
                 initial_carry=initial_critic_carry,
                 rngs={"memory": memory_key, "dropout": dropout_key},
             )
             values = remove_feature_axis(values)
 
             critic_loss = self.critic_network.head.loss(
-                values, aux, returns, transitions
+                values, aux, returns, transitions=transitions
             )
             if self.cfg.clip_value_loss:
                 clipped_value = transitions.value + jnp.clip(
@@ -319,7 +326,7 @@ class PPO:
                     self.cfg.clip_coefficient,
                 )
                 clipped_critic_loss = self.critic_network.head.loss(
-                    clipped_value, aux, returns, transitions
+                    clipped_value, aux, returns, transitions=transitions
                 )
                 critic_loss = jnp.maximum(critic_loss, clipped_critic_loss)
             critic_loss = critic_loss.mean()
@@ -506,8 +513,8 @@ class PPO:
             lambda x: jnp.expand_dims(x, axis=(0, 1)),
             memory_metrics(state.actor_carry, initial_actor_carry),
         )
-        info = {
-            **transitions.info,
+        metadata = {
+            **transitions.metadata,
             "losses/actor_loss": actor_loss,
             "losses/critic_loss": critic_loss,
             "losses/entropy": entropy,
@@ -519,7 +526,11 @@ class PPO:
         return (
             key,
             state,
-        ), transitions.replace(obs=None, next_obs=None, info=info)
+        ), transitions.replace(
+            first=transitions.first.replace(obs=None),
+            second=transitions.second.replace(obs=None),
+            metadata=metadata,
+        )
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -650,4 +661,7 @@ class PPO:
             length=num_steps,
         )
 
-        return key, transitions.replace(obs=None, next_obs=None)
+        return key, transitions.replace(
+            first=transitions.first.replace(obs=None),
+            second=transitions.second.replace(obs=None),
+        )

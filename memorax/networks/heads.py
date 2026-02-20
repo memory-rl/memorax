@@ -25,7 +25,7 @@ class DiscreteQNetwork(nn.Module):
     @nn.nowrap
     def get_target(self, transition, next_value):
         next_value = jax.lax.stop_gradient(next_value)
-        return transition.reward + self.gamma * (1 - transition.done) * next_value
+        return transition.second.reward + self.gamma * (1 - transition.second.done) * next_value
 
     def loss(
         self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray, **kwargs
@@ -50,7 +50,7 @@ class ContinuousQNetwork(nn.Module):
     @nn.nowrap
     def get_target(self, transition, next_value):
         next_value = jax.lax.stop_gradient(next_value)
-        return transition.reward + self.gamma * (1 - transition.done) * next_value
+        return transition.second.reward + self.gamma * (1 - transition.second.done) * next_value
 
     def loss(
         self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray, **kwargs
@@ -71,7 +71,7 @@ class VNetwork(nn.Module):
     @nn.nowrap
     def get_target(self, transition, next_value):
         next_value = jax.lax.stop_gradient(next_value)
-        return transition.reward + self.gamma * (1 - transition.done) * next_value
+        return transition.second.reward + self.gamma * (1 - transition.second.done) * next_value
 
     def loss(
         self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray, **kwargs
@@ -105,7 +105,7 @@ class HLGaussVNetwork(nn.Module):
     @nn.nowrap
     def get_target(self, transition, next_value):
         next_value = jax.lax.stop_gradient(next_value)
-        return transition.reward + self.gamma * (1 - transition.done) * next_value
+        return transition.second.reward + self.gamma * (1 - transition.second.done) * next_value
 
     @nn.nowrap
     def loss(
@@ -171,7 +171,7 @@ class C51QNetwork(nn.Module):
     @nn.nowrap
     def get_target(self, transition, next_value):
         next_value = jax.lax.stop_gradient(next_value)
-        return transition.reward + self.gamma * (1 - transition.done) * next_value
+        return transition.second.reward + self.gamma * (1 - transition.second.done) * next_value
 
     @nn.nowrap
     def loss(
@@ -219,26 +219,19 @@ class Categorical(nn.Module):
 
 class Gaussian(nn.Module):
     action_dim: int
-    transform: Callable | distrax.Bijector = lambda x: x
     kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, **kwargs) -> tuple[distrax.Transformed, dict]:
+    def __call__(self, x: jnp.ndarray, **kwargs) -> tuple[distrax.MultivariateNormalDiag, dict]:
         mean = nn.Dense(
             self.action_dim, kernel_init=self.kernel_init, bias_init=self.bias_init
         )(x)
 
         log_std = self.param("log_std", nn.initializers.zeros, self.action_dim)
         std = jnp.exp(log_std)
-        dist = distrax.MultivariateNormalDiag(loc=mean, scale_diag=std)
 
-        bijector = self.transform
-        if not isinstance(bijector, distrax.Bijector):
-            bijector = distrax.Lambda(bijector)
-        bijector = distrax.Block(bijector, ndims=1)
-
-        return distrax.Transformed(dist, bijector), {}
+        return distrax.MultivariateNormalDiag(loc=mean, scale_diag=std), {}
 
 
 class SquashedGaussian(nn.Module):
@@ -305,7 +298,7 @@ class GVF(nn.Module):
     def get_target(self, transition, next_value):
         next_value = jax.lax.stop_gradient(next_value)
         return (
-            self.cumulant(transition) + self.gamma * (1 - transition.done) * next_value
+            self.cumulant(transition) + self.gamma * (1 - transition.second.done) * next_value
         )
 
     @nn.nowrap
@@ -333,12 +326,13 @@ class Horde(nn.Module):
         return self.head.get_target(transition, next_value)
 
     @nn.nowrap
-    def loss(self, output, aux, targets, transitions):
-        loss = self.head.loss(output, aux, targets, transitions)
+    def loss(self, output, aux, targets, **kwargs):
+        loss = self.head.loss(output, aux, targets, **kwargs)
+        transitions = kwargs.get("transitions")
         for name, demon in self.demons.items():
             values, _ = aux["demons"][name]
             padding = ((0, 0, 0),) + ((-1, 1, 0),) + ((0, 0, 0),) * (values.ndim - 2)
             next_values = jax.lax.pad(values, 0.0, padding)
             demon_targets = demon.get_target(transitions, next_values)
-            loss = loss + demon.loss(*aux["demons"][name], demon_targets, transitions)
+            loss = loss + demon.loss(*aux["demons"][name], demon_targets, transitions=transitions)
         return loss

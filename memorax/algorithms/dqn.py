@@ -135,16 +135,22 @@ class DQN:
         )
         prev_reward = jnp.where(state.timestep.done, 0, state.timestep.reward)
 
-        transition = Transition(
+        first = Timestep(
             obs=state.timestep.obs,
+            action=prev_action,
+            reward=prev_reward,
+            done=state.timestep.done,
+        )
+        second = Timestep(
+            obs=next_obs,
             action=action,
             reward=reward,
-            next_obs=next_obs,
             done=done,
-            info={**info, "intermediates": intermediates},
-            prev_action=prev_action,
-            prev_reward=prev_reward,
-            prev_done=state.timestep.done,
+        )
+        transition = Transition(
+            first=first,
+            second=second,
+            metadata={**info, "intermediates": intermediates},
             carry=initial_carry,
         )
 
@@ -186,21 +192,21 @@ class DQN:
             )
             initial_carry, (_, _) = self.q_network.apply(
                 jax.lax.stop_gradient(state.params),
-                observation=burn_in.obs,
-                mask=burn_in.prev_done,
-                action=burn_in.prev_action,
-                reward=add_feature_axis(burn_in.prev_reward),
-                done=burn_in.prev_done,
+                observation=burn_in.first.obs,
+                mask=burn_in.first.done,
+                action=burn_in.first.action,
+                reward=add_feature_axis(burn_in.first.reward),
+                done=burn_in.first.done,
                 initial_carry=initial_carry,
             )
             initial_carry = jax.lax.stop_gradient(initial_carry)
             initial_target_carry, (_, _) = self.q_network.apply(
                 jax.lax.stop_gradient(state.target_params),
-                observation=burn_in.next_obs,
-                mask=burn_in.done,
-                action=burn_in.action,
-                reward=add_feature_axis(burn_in.reward),
-                done=burn_in.done,
+                observation=burn_in.second.obs,
+                mask=burn_in.second.done,
+                action=burn_in.second.action,
+                reward=add_feature_axis(burn_in.second.reward),
+                done=burn_in.second.done,
                 initial_carry=initial_target_carry,
             )
             initial_target_carry = jax.lax.stop_gradient(initial_target_carry)
@@ -210,11 +216,11 @@ class DQN:
 
         _, (next_target_q_values, _) = self.q_network.apply(
             state.target_params,
-            observation=experience.next_obs,
-            mask=experience.done,
-            action=experience.action,
-            reward=add_feature_axis(experience.reward),
-            done=experience.done,
+            observation=experience.second.obs,
+            mask=experience.second.done,
+            action=experience.second.action,
+            reward=add_feature_axis(experience.second.reward),
+            done=experience.second.done,
             initial_carry=initial_target_carry,
             rngs={"memory": next_memory_key},
         )
@@ -225,19 +231,19 @@ class DQN:
         def loss_fn(params):
             carry, (q_values, aux) = self.q_network.apply(
                 params,
-                observation=experience.obs,
-                mask=experience.prev_done,
-                action=experience.prev_action,
-                reward=add_feature_axis(experience.prev_reward),
-                done=experience.prev_done,
+                observation=experience.first.obs,
+                mask=experience.first.done,
+                action=experience.first.action,
+                reward=add_feature_axis(experience.first.reward),
+                done=experience.first.done,
                 initial_carry=initial_carry,
                 rngs={"memory": memory_key},
             )
-            action = add_feature_axis(experience.action)
+            action = add_feature_axis(experience.second.action)
             q_value = jnp.take_along_axis(q_values, action, axis=-1)
             q_value = remove_feature_axis(q_value)
             td_error = q_value - td_target
-            loss = self.q_network.head.loss(q_value, aux, td_target, experience).mean()
+            loss = self.q_network.head.loss(q_value, aux, td_target, transitions=experience).mean()
             return loss, (q_value, td_error, carry)
 
         (loss, (q_value, td_error, carry)), grads = jax.value_and_grad(
@@ -283,12 +289,16 @@ class DQN:
         key, update_key = jax.random.split(key)
         state, info = self._update(update_key, state)
 
-        info = {
-            **transitions.info,
+        metadata = {
+            **transitions.metadata,
             **jax.tree.map(lambda x: jnp.expand_dims(x, axis=(0, 1)), info),
         }
 
-        return (key, state), transitions.replace(obs=None, next_obs=None, info=info)
+        return (key, state), transitions.replace(
+            first=transitions.first.replace(obs=None),
+            second=transitions.second.replace(obs=None),
+            metadata=metadata,
+        )
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key):
@@ -340,16 +350,11 @@ class DQN:
             intermediates.get("intermediates", {}),
         )
 
+        dummy_timestep = Timestep(obs=obs, action=action, reward=reward, done=done)
         transition = Transition(
-            obs=obs,
-            action=action,
-            reward=reward,
-            next_obs=obs,
-            done=done,
-            info={**info, "intermediates": intermediates},
-            prev_action=action,
-            prev_reward=reward,
-            prev_done=done,
+            first=dummy_timestep,
+            second=dummy_timestep,
+            metadata={**info, "intermediates": intermediates},
             carry=carry,
         )
         buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
@@ -419,4 +424,7 @@ class DQN:
             length=num_steps,
         )
 
-        return key, transitions.replace(obs=None, next_obs=None)
+        return key, transitions.replace(
+            first=transitions.first.replace(obs=None),
+            second=transitions.second.replace(obs=None),
+        )

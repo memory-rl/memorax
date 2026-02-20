@@ -4,33 +4,28 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from memorax.utils.timestep import Timestep
 from memorax.utils.typing import Array, PyTree
 
 
 @struct.dataclass(frozen=True)
 class Transition:
-    obs: Optional[PyTree] = None
-    action: Optional[PyTree] = None
-    reward: Optional[PyTree] = None
-    done: Optional[PyTree] = None
-    info: Optional[dict] = None
-    prev_action: Optional[PyTree] = None
-    prev_reward: Optional[PyTree] = None
-    prev_done: Optional[PyTree] = None
-    next_obs: Optional[PyTree] = None
+    first: Optional[Timestep] = None
+    second: Optional[Timestep] = None
     log_prob: Optional[PyTree] = None
     value: Optional[PyTree] = None
-    env_state: Optional[PyTree] = None
     carry: Optional[PyTree] = None
+    metadata: Optional[dict] = None
 
     @property
     def num_episodes(self) -> Array:
-        assert self.done is not None
-        return self.done.sum()
+        assert self.second is not None and self.second.done is not None
+        return self.second.done.sum()
 
     @property
     def episode_lengths(self):
-        assert self.done is not None
+        assert self.second is not None and self.second.done is not None
+        done = self.second.done
 
         def step(carry_len, done_t):
             curr_len = carry_len + 1
@@ -38,14 +33,16 @@ class Transition:
             next_len = jnp.where(done_t, jnp.zeros_like(curr_len), curr_len)
             return next_len, out
 
-        init_len = jnp.zeros_like(self.done[0], dtype=jnp.int32)
-        _, episode_lengths = jax.lax.scan(step, init_len, self.done)
-        return jnp.where(self.done, episode_lengths, jnp.nan)
+        init_len = jnp.zeros_like(done[0], dtype=jnp.int32)
+        _, episode_lengths = jax.lax.scan(step, init_len, done)
+        return jnp.where(done, episode_lengths, jnp.nan)
 
     @property
     def episode_returns(self):
-        assert self.reward is not None
-        assert self.done is not None
+        assert self.second is not None
+        assert self.second.reward is not None and self.second.done is not None
+        reward = self.second.reward
+        done = self.second.done
 
         def step(carry_sum, inp):
             r_t, d_t = inp
@@ -54,19 +51,21 @@ class Transition:
             next_s = jnp.where(d_t, jnp.zeros_like(s), s)
             return next_s, out
 
-        init_sum = jnp.zeros_like(self.reward[0])
-        _, episode_returns = jax.lax.scan(step, init_sum, (self.reward, self.done))
-        return jnp.where(self.done, episode_returns, jnp.nan)
+        init_sum = jnp.zeros_like(reward[0])
+        _, episode_returns = jax.lax.scan(step, init_sum, (reward, done))
+        return jnp.where(done, episode_returns, jnp.nan)
 
     @property
     def losses(self):
-        assert self.info is not None
-        return {k: v.mean() for k, v in self.info.items() if k.startswith("losses")}
+        if self.metadata is None:
+            return {}
+        return {k: v.mean() for k, v in self.metadata.items() if k.startswith("losses")}
 
     @property
-    def infos(self):
-        assert self.info is not None
+    def info(self):
+        if self.metadata is None:
+            return {}
         return jax.tree.map(
             jnp.mean,
-            {k: v for k, v in self.info.items() if not k.startswith("losses")},
+            {k: v for k, v in self.metadata.items() if not k.startswith("losses")},
         )

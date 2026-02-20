@@ -1,3 +1,5 @@
+from typing import Optional
+
 import jax
 from flax import struct
 
@@ -7,10 +9,10 @@ from memorax.utils.typing import Array
 
 @struct.dataclass(frozen=True)
 class Timestep:
-    obs: Array
-    action: Array
-    reward: Array
-    done: Array
+    obs: Optional[Array] = None
+    action: Optional[Array] = None
+    reward: Optional[Array] = None
+    done: Optional[Array] = None
 
     def to_sequence(self):
         return jax.tree.map(add_time_axis, self)

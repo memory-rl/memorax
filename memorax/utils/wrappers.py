@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Optional, Tuple, Union
+from typing import Callable, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -63,6 +63,109 @@ class MaskObservationWrapper(GymnaxWrapper):
         obs, state, reward, done, info = self._env.step(key, state, action, params)
         obs = obs[self.mask_dims]
         return obs, state, reward, done, info
+
+
+@struct.dataclass
+class PeriodicObservationWrapperState:
+    step: int
+    env_state: environment.EnvState
+
+
+class PeriodicObservationWrapper(GymnaxWrapper):
+    def __init__(self, env, period: int, fill_fn: Callable[[Key, tuple], Array] = lambda key, shape: jnp.zeros(shape)):
+        super().__init__(env)
+        self.period = period
+        self.fill_fn = fill_fn
+
+    @partial(jax.jit, static_argnums=(0, -1))
+    def reset(
+        self, key: Key, params: Optional[environment.EnvParams] = None
+    ) -> Tuple[Array, environment.EnvState]:
+        obs, state = self._env.reset(key, params)
+        state = PeriodicObservationWrapperState(step=0, env_state=state)
+        return obs, state
+
+    @partial(jax.jit, static_argnums=(0, -1))
+    def step(
+        self,
+        key: Key,
+        state: PeriodicObservationWrapperState,
+        action: Union[int, float],
+        params: Optional[environment.EnvParams] = None,
+    ) -> Tuple[Array, environment.EnvState, float, bool, dict]:
+        key, fill_key = jax.random.split(key)
+        obs, env_state, reward, done, info = self._env.step(
+            key, state.env_state, action, params
+        )
+        new_step = state.step + 1
+        visible = new_step % self.period == 0
+        fill = self.fill_fn(fill_key, obs.shape)
+        obs = jnp.where(visible, obs, fill)
+        state = PeriodicObservationWrapperState(step=new_step, env_state=env_state)
+        return obs, state, reward, done, info
+
+
+class FlickeringObservationWrapper(GymnaxWrapper):
+    def __init__(
+        self, env, p: float, fill_fn: Callable[[Key, tuple], Array] = lambda key, shape: jnp.zeros(shape)
+    ):
+        super().__init__(env)
+        self.p = p
+        self.fill_fn = fill_fn
+
+    @partial(jax.jit, static_argnums=(0, -1))
+    def step(
+        self,
+        key: Key,
+        state: environment.EnvState,
+        action: Union[int, float],
+        params: Optional[environment.EnvParams] = None,
+    ) -> Tuple[Array, environment.EnvState, float, bool, dict]:
+        key, flicker_key, fill_key = jax.random.split(key, 3)
+        obs, state, reward, done, info = self._env.step(key, state, action, params)
+        visible = jax.random.uniform(flicker_key) >= self.p
+        fill = self.fill_fn(fill_key, obs.shape)
+        obs = jnp.where(visible, obs, fill)
+        return obs, state, reward, done, info
+
+
+@struct.dataclass
+class DelayedObservationWrapperState:
+    buffer: jnp.ndarray
+    env_state: environment.EnvState
+
+
+class DelayedObservationWrapper(GymnaxWrapper):
+    def __init__(self, env, delay: int):
+        super().__init__(env)
+        self.delay = delay
+
+    @partial(jax.jit, static_argnums=(0, -1))
+    def reset(
+        self, key: Key, params: Optional[environment.EnvParams] = None
+    ) -> Tuple[Array, environment.EnvState]:
+        obs, env_state = self._env.reset(key, params)
+        buffer = jnp.zeros((self.delay,) + obs.shape)
+        buffer = buffer.at[0].set(obs)
+        state = DelayedObservationWrapperState(buffer=buffer, env_state=env_state)
+        return jnp.zeros_like(obs), state
+
+    @partial(jax.jit, static_argnums=(0, -1))
+    def step(
+        self,
+        key: Key,
+        state: DelayedObservationWrapperState,
+        action: Union[int, float],
+        params: Optional[environment.EnvParams] = None,
+    ) -> Tuple[Array, environment.EnvState, float, bool, dict]:
+        obs, env_state, reward, done, info = self._env.step(
+            key, state.env_state, action, params
+        )
+        delayed_obs = state.buffer[-1]
+        buffer = jnp.roll(state.buffer, shift=1, axis=0)
+        buffer = buffer.at[0].set(obs)
+        state = DelayedObservationWrapperState(buffer=buffer, env_state=env_state)
+        return delayed_obs, state, reward, done, info
 
 
 @struct.dataclass
@@ -140,6 +243,44 @@ class NormalizeObservationWrapper(GymnaxWrapper):
             done,
             info,
         )
+
+
+class NoisyObservationWrapper(GymnaxWrapper):
+    def __init__(
+        self,
+        env,
+        noise_dims: list,
+        noise_fn: Callable[[Key, tuple], Array],
+    ):
+        super().__init__(env)
+        self.noise_dims = jnp.array(noise_dims, dtype=int)
+        self.noise_fn = noise_fn
+
+    def _add_noise(self, key: Key, obs: Array) -> Array:
+        noise = jnp.zeros_like(obs)
+        sampled = self.noise_fn(key, self.noise_dims.shape)
+        noise = noise.at[self.noise_dims].set(sampled)
+        return obs + noise
+
+    @partial(jax.jit, static_argnums=(0, -1))
+    def reset(
+        self, key: Key, params: Optional[environment.EnvParams] = None
+    ) -> Tuple[Array, environment.EnvState]:
+        key, noise_key = jax.random.split(key)
+        obs, state = self._env.reset(key, params)
+        return self._add_noise(noise_key, obs), state
+
+    @partial(jax.jit, static_argnums=(0, -1))
+    def step(
+        self,
+        key: Key,
+        state: environment.EnvState,
+        action: Union[int, float],
+        params: Optional[environment.EnvParams] = None,
+    ) -> Tuple[Array, environment.EnvState, float, bool, dict]:
+        key, noise_key = jax.random.split(key)
+        obs, state, reward, done, info = self._env.step(key, state, action, params)
+        return self._add_noise(noise_key, obs), state, reward, done, info
 
 
 class ClipActionWrapper(GymnaxWrapper):

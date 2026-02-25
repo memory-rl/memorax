@@ -286,6 +286,36 @@ class Beta(nn.Module):
         return log_beta
 
 
+class Options(nn.Module):
+    head: nn.Module
+    num_options: int
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray, **kwargs) -> tuple[tuple, dict]:
+        class Option(nn.Module):
+            head: nn.Module
+
+            @nn.compact
+            def __call__(self, x: jnp.ndarray, **kwargs) -> tuple[tuple, dict]:
+                intra_probs, aux = self.head(x, **kwargs)
+                termination_logit = nn.Dense(1)(x)
+                return (intra_probs, termination_logit), aux
+
+        (intra_probs, termination_logits), aux = nn.vmap(
+            Option,
+            variable_axes={"params": 0},
+            split_rngs={"params": True},
+            in_axes=None,
+            out_axes=-2,
+            axis_size=self.num_options,
+        )(head=self.head)(x, **kwargs)
+        termination_logits = jnp.squeeze(termination_logits, -1)
+
+        option_logits = nn.Dense(self.num_options)(x)
+
+        return (intra_probs, termination_logits, option_logits), aux
+
+
 class GVF(nn.Module):
     head: nn.Module
     gamma: float

@@ -315,6 +315,10 @@ class Options(nn.Module):
 
         return (intra_probs, termination_logits, option_logits), aux
 
+    @nn.nowrap
+    def loss(self, output, aux, targets, **kwargs):
+        return self.head.loss(output, aux, targets, **kwargs)
+
 
 class GVF(nn.Module):
     head: nn.Module

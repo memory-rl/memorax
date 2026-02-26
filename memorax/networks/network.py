@@ -35,6 +35,7 @@ class Network(nn.Module):
             done=done,
             initial_carry=initial_carry,
             **embeddings,
+            **kwargs,
         ):
             case (carry, x):
                 pass

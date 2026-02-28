@@ -32,6 +32,19 @@ max_steps_in_episode = {
     "RepeatPreviousEasy": 52,
     "RepeatPreviousMedium": 104,
     "RepeatPreviousHard": 156,
+    "MinesweeperEasy": 14,
+    "MinesweeperMedium": 30,
+    "MinesweeperHard": 54,
+    "MultiArmedBanditEasy": 200,
+    "MultiArmedBanditMedium": 400,
+    "MultiArmedBanditHard": 600,
+    "StatelessPendulumEasy": 200,
+    "StatelessPendulumMedium": 150,
+    "StatelessPendulumHard": 100,
+    "NoisyStatelessPendulumEasy": 200,
+    "NoisyStatelessPendulumMedium": 200,
+    "NoisyStatelessPendulumHard": 200,
+    "NoisyStatelessMetaCartPole": 3200,
 }
 
 
@@ -41,12 +54,7 @@ class EnvParams:
     max_steps_in_episode: int
 
 
-class PopJaxRLWrapper(GymnaxWrapper):
-    def __init__(self, env):
-        super().__init__(env)
-        env_id = type(env).__name__
-        self.max_steps_in_episode = max_steps_in_episode[env_id]
-
+class PopJymWrapper(GymnaxWrapper):
     def reset(self, key, params):
         return self._env.reset(key, params.env_params)
 
@@ -61,7 +69,7 @@ def make(env_id, **kwargs):
     import popjym
 
     env, env_params = popjym.make(env_id, **kwargs)
-    env = PopJaxRLWrapper(env)
+    env = PopJymWrapper(env)
     env_params = EnvParams(
         env_params=env_params, max_steps_in_episode=max_steps_in_episode[env_id]
     )

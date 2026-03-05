@@ -7,13 +7,12 @@ import jax.numpy as jnp
 import optax
 from flax import core, struct
 
-from memorax.networks.sequence_models.utils import (
-    add_feature_axis,
-    remove_feature_axis,
-    remove_time_axis,
-)
+from memorax.networks.sequence_models.utils import (add_feature_axis,
+                                                    remove_feature_axis,
+                                                    remove_time_axis)
 from memorax.utils import Timestep, Transition, memory_metrics
-from memorax.utils.typing import Array, Discrete, Environment, EnvParams, EnvState, Key
+from memorax.utils.typing import (Array, Discrete, Environment, EnvParams,
+                                  EnvState, Key)
 
 
 @struct.dataclass(frozen=True)
@@ -170,19 +169,18 @@ class PPO:
         broadcast_dims = tuple(
             range(state.timestep.done.ndim, state.timestep.action.ndim)
         )
-        prev_action = jnp.where(
-            jnp.expand_dims(state.timestep.done, axis=broadcast_dims),
-            jnp.zeros_like(state.timestep.action),
-            state.timestep.action,
-        )
         first = Timestep(
             obs=state.timestep.obs,
-            action=prev_action,
+            action=jnp.where(
+                jnp.expand_dims(state.timestep.done, axis=broadcast_dims),
+                jnp.zeros_like(state.timestep.action),
+                state.timestep.action,
+            ),
             reward=jnp.where(state.timestep.done, 0, state.timestep.reward),
             done=state.timestep.done,
         )
         second = Timestep(
-            obs=next_obs,
+            obs=None,
             action=action,
             reward=reward,
             done=done,

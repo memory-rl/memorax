@@ -112,20 +112,18 @@ class PQN:
             intermediates.get("intermediates", {}),
         )
 
-        prev_action = jnp.where(
-            state.timestep.done,
-            jnp.zeros_like(state.timestep.action),
-            state.timestep.action,
-        )
-        prev_reward = jnp.where(state.timestep.done, 0, state.timestep.reward)
         first = Timestep(
             obs=state.timestep.obs,
-            action=prev_action,
-            reward=prev_reward,
+            action=jnp.where(
+                state.timestep.done,
+                jnp.zeros_like(state.timestep.action),
+                state.timestep.action,
+            ),
+            reward=jnp.where(state.timestep.done, 0, state.timestep.reward),
             done=state.timestep.done,
         )
         second = Timestep(
-            obs=next_obs,
+            obs=None,
             action=action,
             reward=reward,
             done=done,
@@ -243,7 +241,9 @@ class PQN:
             q_value = remove_feature_axis(q_value)
 
             td_error = q_value - target
-            loss = self.q_network.head.loss(q_value, aux, target, transitions=transitions).mean()
+            loss = self.q_network.head.loss(
+                q_value, aux, target, transitions=transitions
+            ).mean()
             return loss, (
                 q_value.mean(),
                 q_value.min(),

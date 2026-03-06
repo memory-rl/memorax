@@ -12,7 +12,7 @@ version = "1.0.1"
 description = "A unified JAX/Flax framework for memory-augmented reinforcement learning with support for RNNs, SSMs, and Transformers"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.11,<=3.13"
+requires-python = ">=3.12,<3.13"
 authors = [{ name = "Noah Farr" }]
 keywords = ["jax", "flax", "reinforcement-learning", "memory", "rnn", "ssm", "transformer", "pomdp"]
 
@@ -40,7 +40,10 @@ navix     = ["navix>=0.7.0"]
 craftax   = ["craftax>=1.5.0"]
 popgym-arcade    = ["popgym-arcade>=0.0.4"]
 playground= ["playground>=0.0.5", "warp-lang>=1.9.1"]
+grimax    = ["grimax"]
+cogames   = ["cogames"]
 gxm       = ["gxm"]
+pobax     = ["pobax"]
 popjym    = ["popjym"]
 xminigrid = ["xminigrid"]
 jaxmarl   = ["jaxmarl", "brax"]
@@ -81,6 +84,9 @@ requires-dist = []
 
 
 [tool.uv.sources]
+grimax  = { git = "ssh://git@github.com/noahfarr/grimax" }
+cogames = { git = "https://github.com/Metta-AI/cogames" }
 gxm     = { git = "https://github.com/huterguier/gxm", rev = "dev", extra = "gxm" }
+pobax   = { git = "https://github.com/taodav/pobax" }
 popjym  = { git = "https://github.com/EdanToledo/popjym.git", extra = "popjym" }
 performax = { git = "https://github.com/noahfarr/performax.git" }

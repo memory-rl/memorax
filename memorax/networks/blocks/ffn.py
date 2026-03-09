@@ -50,6 +50,35 @@ class FFN(nn.Module, Block):
         return None
 
 
+class Projection(nn.Module, Block):
+    """Single linear projection."""
+
+    features: int
+    use_bias: bool = True
+    kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
+    bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
+
+    @nn.compact
+    def __call__(
+        self,
+        inputs: Array,
+        mask: Optional[Array] = None,
+        initial_carry: Optional[Carry] = None,
+        **kwargs,
+    ) -> tuple[Carry, Array]:
+        x = nn.Dense(
+            self.features,
+            use_bias=self.use_bias,
+            kernel_init=self.kernel_init,
+            bias_init=self.bias_init,
+        )(inputs)
+        return None, x
+
+    @nn.nowrap
+    def initialize_carry(self, key, input_shape):
+        return None
+
+
 class GLU(nn.Module, Block):
 
     features: int

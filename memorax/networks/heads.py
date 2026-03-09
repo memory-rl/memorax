@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 from flax.linen.initializers import constant
 
-from memorax.networks.sequence_models.utils import remove_feature_axis
+from memorax.networks.sequence_models.utils import add_feature_axis, remove_feature_axis
 
 
 class DiscreteQNetwork(nn.Module):
@@ -367,6 +367,6 @@ class Horde(nn.Module):
             values, _ = aux["demons"][name]
             padding = ((0, 0, 0),) + ((-1, 1, 0),) + ((0, 0, 0),) * (values.ndim - 2)
             next_values = jax.lax.pad(values, 0.0, padding)
-            demon_targets = demon.get_target(transitions, next_values)
-            loss = loss + demon.loss(*aux["demons"][name], demon_targets, transitions=transitions)
+            demon_targets = demon.get_target(transitions, remove_feature_axis(next_values))
+            loss = loss + demon.loss(*aux["demons"][name], add_feature_axis(demon_targets), transitions=transitions)
         return loss

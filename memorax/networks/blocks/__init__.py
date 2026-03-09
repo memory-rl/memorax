@@ -1,5 +1,5 @@
 from .base import Block
-from .ffn import FFN, GLU
+from .ffn import FFN, GLU, Projection
 from .moe import MoE
 from .normalization import PostNorm, PreNorm
 from .residual import GatedResidual, Residual

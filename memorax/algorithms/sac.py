@@ -543,7 +543,7 @@ class SAC:
         info = {**critic_info, **actor_info, **alpha_info}
 
         if experience.carry is not None:
-            initial_carry = jax.tree.map(lambda x: x[:, -1], experience.carry)
+            initial_carry = jax.tree.map(lambda x: x[:, -1:], experience.carry)
             info.update(memory_metrics(actor_carry, initial_carry))
 
         return state, info

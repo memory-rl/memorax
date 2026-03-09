@@ -264,7 +264,7 @@ class DQN:
         info = {"losses/loss": loss, "losses/q_value": q_value.mean()}
 
         if experience.carry is not None:
-            initial_carry = jax.tree.map(lambda x: x[:, -1], experience.carry)
+            initial_carry = jax.tree.map(lambda x: x[:, -1:], experience.carry)
             info.update(memory_metrics(carry, initial_carry))
 
         buffer_state = state.buffer_state

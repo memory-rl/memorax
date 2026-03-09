@@ -362,7 +362,7 @@ class R2D2:
         }
 
         if experience.carry is not None:
-            initial_carry = jax.tree.map(lambda x: x[:, -1], experience.carry)
+            initial_carry = jax.tree.map(lambda x: x[:, -1:], experience.carry)
             info.update(memory_metrics(carry, initial_carry))
 
         state = state.replace(

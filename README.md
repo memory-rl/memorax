@@ -1,6 +1,6 @@
 <h1 align="center">
   <a href="https://github.com/memory-rl/memorax/blob/main/images/memorax_logo.png"><img src="https://github.com/memory-rl/memorax/blob/main/images/memorax_logo.png?raw=true" /></a><br>
-  <b>Memory-Augmented Reinforcement Learning in JAX 🧠</b><br>
+  <b>Memory-Augmented Reinforcement Learning in JAX </b><br>
 </h1>
 
 <p align="center">

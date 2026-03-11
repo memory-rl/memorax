@@ -8,11 +8,7 @@ from memorax.algorithms import ACLambda, ACLambdaConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import FeatureExtractor, Network, heads, initializers
-from memorax.utils.wrappers import NormalizeObservationWrapper, NormalizeRewardWrapper
-
-total_timesteps = 5_000_000
-num_train_steps = 10_000
-num_eval_steps = 10_000
+from memorax.environments.wrappers import NormalizeObservationWrapper, NormalizeRewardWrapper
 
 seed = 0
 num_seeds = 5

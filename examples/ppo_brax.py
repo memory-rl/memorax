@@ -9,7 +9,7 @@ from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import FeatureExtractor, Identity, Network, heads
-from memorax.utils.wrappers import (
+from memorax.environments.wrappers import (
     ClipActionWrapper,
     NormalizeObservationWrapper,
     ScaleRewardWrapper,

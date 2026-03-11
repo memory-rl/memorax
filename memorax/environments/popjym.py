@@ -2,7 +2,7 @@ from typing import Any
 
 from flax import struct
 
-from memorax.utils.wrappers import GymnaxWrapper
+from memorax.environments.wrappers import GymnaxWrapper
 
 max_steps_in_episode = {
     "AutoencodeEasy": 105,

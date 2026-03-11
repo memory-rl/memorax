@@ -1,7 +1,7 @@
 import numpy as np
 from gymnax.environments import spaces
 
-from memorax.utils.wrappers import GymnaxWrapper
+from memorax.environments.wrappers import GymnaxWrapper
 
 
 class NavixGymnaxWrapper(GymnaxWrapper):

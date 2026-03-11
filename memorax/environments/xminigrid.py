@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from flax import struct
 from gymnax.environments import spaces
 
-from memorax.utils.wrappers import GymnaxWrapper
+from memorax.environments.wrappers import GymnaxWrapper
 
 
 @struct.dataclass(frozen=True)

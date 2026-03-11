@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from gymnax.environments import spaces
 
-from memorax.utils.wrappers import GymnaxWrapper
+from memorax.environments.wrappers import GymnaxWrapper
 
 
 class TimeLimitWrapper(GymnaxWrapper):

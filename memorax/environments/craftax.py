@@ -3,7 +3,7 @@ from typing import Any
 from flax.struct import dataclass
 from gymnax.environments import spaces
 
-from memorax.utils.wrappers import GymnaxWrapper
+from memorax.environments.wrappers import GymnaxWrapper
 
 
 class PixelCraftaxEnvWrapper(GymnaxWrapper):

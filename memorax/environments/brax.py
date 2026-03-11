@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 from gymnax.environments import EnvParams, spaces
 
-from memorax.utils.wrappers import GymnaxWrapper, MaskObservationWrapper
+from memorax.environments.wrappers import GymnaxWrapper, MaskObservationWrapper
 
 mask_dims = {
     "ant": {

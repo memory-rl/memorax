@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from gymnax.environments import spaces
 
 from memorax.utils.typing import Array, EnvParams, Key
-from memorax.utils.wrappers import GymnaxWrapper
+from memorax.environments.wrappers import GymnaxWrapper
 
 
 class GxmGymnaxWrapper(GymnaxWrapper):

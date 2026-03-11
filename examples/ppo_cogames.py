@@ -14,7 +14,7 @@ from mettagrid.simulator import Simulator
 from memorax.algorithms import PPO, PPOConfig
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import FeatureExtractor, Network, ViT, heads
-from memorax.utils.wrappers import PufferLibWrapper
+from memorax.environments.pufferlib import PufferLibWrapper
 
 total_timesteps = 50_000_000
 min_steps_per_env = 10_000  # Minimum steps per env per training call

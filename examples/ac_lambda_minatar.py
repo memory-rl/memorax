@@ -6,20 +6,23 @@ import jax
 
 from memorax.algorithms import ACLambda, ACLambdaConfig
 from memorax.environments import environment
+from memorax.environments.wrappers import (
+    NormalizeObservationWrapper,
+    NormalizeRewardWrapper,
+)
 from memorax.loggers import DashboardLogger, Logger
 from memorax.networks import FeatureExtractor, Network, heads, initializers
 from memorax.networks.layers import Flatten
-from memorax.environments.wrappers import NormalizeObservationWrapper, NormalizeRewardWrapper
 
 seed = 0
-num_seeds = 5
+num_seeds = 1
 
 env, env_params = environment.make("gymnax::Breakout-MinAtar")
 env = NormalizeObservationWrapper(env)
 env = NormalizeRewardWrapper(env, gamma=0.99)
 
 total_timesteps = 10_000_000
-num_train_steps = 100_000
+num_train_steps = 200_000
 num_eval_steps = env_params.max_steps_in_episode
 
 cfg = ACLambdaConfig(

@@ -157,7 +157,7 @@ class sLSTMCell(RNNCellBase):
 
         log_f = -jax.nn.softplus(-f)
         log_f_plus_m = log_f + m
-        m = jnp.where(jnp.all(n == 0.0), i, jnp.maximum(log_f_plus_m, i))
+        m = jnp.where(jnp.all(n == 0.0, axis=-1, keepdims=True), i, jnp.maximum(log_f_plus_m, i))
         i = jnp.minimum(jnp.exp(i - m), jnp.ones_like(i))
         f = jnp.minimum(jnp.exp(log_f_plus_m - m), jnp.ones_like(f))
 

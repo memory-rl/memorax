@@ -28,7 +28,7 @@ def make_dplr_hippo(
     p = v.conj().T @ p
     b_orig = b
     b = v.conj().T @ b
-    return lambda_real + 1j * lambda_imag, p, v.conj().T @ b, v, b_orig
+    return lambda_real + 1j * lambda_imag, p, b, v, b_orig
 
 
 def discretize_bilinear(

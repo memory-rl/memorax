@@ -136,6 +136,7 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
             refresh=True,
         )
         state.live.stop()
+        state.console.show_cursor(True)
 
     def get_dashboard(
         self, stats: dict[str, Any], progress: Progress, task: Any

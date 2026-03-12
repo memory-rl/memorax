@@ -1,3 +1,4 @@
+import atexit
 from abc import ABC, abstractmethod
 from typing import Any, Generic, TypeVar
 
@@ -47,7 +48,9 @@ class Logger(BaseLogger[LoggerState]):
             self.loggers,
             is_leaf=self._is_leaf,
         )
-        return LoggerState(logger_states=logger_states)
+        state = LoggerState(logger_states=logger_states)
+        atexit.register(self.finish, state)
+        return state
 
     def log(self, state: LoggerState, data: PyTree, step: int) -> LoggerState:
         logger_states = jax.tree.map(

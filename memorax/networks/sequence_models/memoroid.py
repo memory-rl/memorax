@@ -12,7 +12,6 @@ from memorax.utils.axes import (
     get_input_shape,
     init,
     last,
-    remove_time_axis,
     tail,
 )
 from memorax.utils.typing import Array, Carry
@@ -122,23 +121,29 @@ class Memoroid(SequenceModel):
         mask = add_feature_axis(mask)
         next_sensitivity = {}
 
+        @jax.vmap
+        def binary_operator(a, b):
+            state_i, decay_i = a
+            state_j, decay_j = b
+            return (decay_j * state_i + state_j, decay_j * decay_i)
+
         for name in sorted(jacobians.keys()):
-            J = jacobians[name]  # (B, T, H, *param_dims)
-            S = sensitivity[name]  # (B, 1, H, *param_dims)
+            J = jacobians[name]
+            S = sensitivity[name]
             _, _, _, *param_shape = J.shape
             param_size = math.prod(param_shape)
 
             J = J.reshape(B, T, H * param_size)
             S = S.reshape(B, 1, H * param_size)
-            a = jnp.repeat(decay, param_size, axis=-1)
+            a = jnp.where(mask, 0, jnp.repeat(decay, param_size, axis=-1))
 
-            def step(S, inputs):
-                J_t, a_t, m_t = inputs
-                return jnp.where(m_t, J_t, a_t * S + J_t), None
+            state = jnp.concatenate([S, J], axis=1)
+            a = jnp.concatenate([jnp.ones_like(S), a], axis=1)
 
-            xs = jax.tree.map(lambda x: jnp.moveaxis(x, 1, 0), (J, a, mask))
-            S, _ = jax.lax.scan(step, remove_time_axis(S), xs)
-            next_sensitivity[name] = S.reshape(B, 1, H, *param_shape)
+            state, _ = jax.lax.associative_scan(
+                binary_operator, (state, a), axis=1
+            )
+            next_sensitivity[name] = last(state).reshape(B, 1, H, *param_shape)
 
         return next_sensitivity
 

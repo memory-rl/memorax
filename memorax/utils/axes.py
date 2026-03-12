@@ -12,6 +12,22 @@ def remove_time_axis(x: jax.Array):
     return x.squeeze(1)
 
 
+def head(x: jax.Array):
+    return x[:, :1]
+
+
+def tail(x: jax.Array):
+    return x[:, 1:]
+
+
+def init(x: jax.Array):
+    return x[:, :-1]
+
+
+def last(x: jax.Array):
+    return x[:, -1:]
+
+
 def add_feature_axis(x: jax.Array):
     return x[..., None]
 

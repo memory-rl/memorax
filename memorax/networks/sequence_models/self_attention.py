@@ -89,10 +89,10 @@ class SelfAttention(SequenceModel):
     features: int
     num_heads: int
     context_length: int
-    dtype: Dtype
-    param_dtype: Dtype
-    kernel_init: Initializer
-    bias_init: Initializer
+    dtype: Dtype = jnp.float32
+    param_dtype: Dtype = jnp.float32
+    kernel_init: Initializer = nn.initializers.lecun_normal()
+    bias_init: Initializer = nn.initializers.zeros_init()
     positional_embedding: RelativePositionalEmbedding = (
         lambda query, key, query_pos, key_pos: (
             query,

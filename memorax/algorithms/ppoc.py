@@ -322,8 +322,8 @@ class PPOC:
             action_entropy = intra_probs.entropy().mean()
 
             action_ratio = jnp.exp(action_log_probs - transitions.log_prob)
-            approx_kl = jnp.mean(transitions.log_prob - action_log_probs)
-            clipfrac = jnp.mean(
+            approximate_kl = jnp.mean(transitions.log_prob - action_log_probs)
+            clip_fraction = jnp.mean(
                 (jnp.abs(action_ratio - 1.0) > self.cfg.clip_coefficient).astype(
                     jnp.float32
                 )
@@ -374,8 +374,8 @@ class PPOC:
 
             return total_loss, (
                 action_entropy,
-                approx_kl,
-                clipfrac,
+                approximate_kl,
+                clip_fraction,
                 option_entropy,
                 option_loss,
                 termination_loss,
@@ -544,7 +544,7 @@ class PPOC:
         (key, state), (
             actor_loss,
             critic_loss,
-            (action_entropy, approx_kl, clipfrac, option_entropy, option_loss, termination_loss),
+            (action_entropy, approximate_kl, clip_fraction, option_entropy, option_loss, termination_loss),
         ) = jax.lax.scan(
             self._update_minibatch,
             (key, state),
@@ -557,8 +557,8 @@ class PPOC:
                 actor_loss,
                 critic_loss,
                 action_entropy,
-                approx_kl,
-                clipfrac,
+                approximate_kl,
+                clip_fraction,
                 option_entropy,
                 option_loss,
                 termination_loss,
@@ -634,12 +634,12 @@ class PPOC:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         def cond_fun(carry):
-            *_, (_, _, _, approx_kl, _, _, _, _), epoch = carry
+            *_, (_, _, _, approximate_kl, _, _, _, _), epoch = carry
 
             cond = epoch < self.cfg.update_epochs
 
             if self.cfg.target_kl:
-                cond = cond & (approx_kl < self.cfg.target_kl)
+                cond = cond & (approximate_kl < self.cfg.target_kl)
 
             return cond
 
@@ -664,8 +664,8 @@ class PPOC:
             actor_loss,
             critic_loss,
             action_entropy,
-            approx_kl,
-            clipfrac,
+            approximate_kl,
+            clip_fraction,
             option_entropy,
             option_loss,
             termination_loss,
@@ -676,8 +676,8 @@ class PPOC:
             "losses/actor_loss": actor_loss,
             "losses/critic_loss": critic_loss,
             "losses/entropy": action_entropy,
-            "losses/approx_kl": approx_kl,
-            "losses/clipfrac": clipfrac,
+            "losses/approximate_kl": approximate_kl,
+            "losses/clip_fraction": clip_fraction,
             "losses/option_entropy": option_entropy,
             "losses/option_loss": option_loss,
             "losses/termination_loss": termination_loss,

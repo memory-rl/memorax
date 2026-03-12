@@ -293,8 +293,8 @@ class MAPPO:
             log_probs = probs.log_prob(transitions.second.action)
             entropy = probs.entropy().mean()
             ratio = jnp.exp(log_probs - transitions.log_prob)
-            approx_kl = jnp.mean(transitions.log_prob - log_probs)
-            clipfrac = jnp.mean(
+            approximate_kl = jnp.mean(transitions.log_prob - log_probs)
+            clip_fraction = jnp.mean(
                 (jnp.abs(ratio - 1.0) > self.cfg.clip_coefficient).astype(jnp.float32)
             )
 
@@ -309,8 +309,8 @@ class MAPPO:
             ).mean()
             return actor_loss - self.cfg.entropy_coefficient * entropy, (
                 entropy.mean(),
-                approx_kl.mean(),
-                clipfrac.mean(),
+                approximate_kl.mean(),
+                clip_fraction.mean(),
             )
 
         (actor_loss, aux), actor_grads = jax.value_and_grad(
@@ -550,7 +550,7 @@ class MAPPO:
 
         minibatches = shuffle(batch)
 
-        (key, state), (actor_loss, critic_loss, (entropy, approx_kl, clipfrac)) = (
+        (key, state), (actor_loss, critic_loss, (entropy, approximate_kl, clip_fraction)) = (
             jax.lax.scan(
                 self._update_minibatch,
                 (key, state),
@@ -559,7 +559,7 @@ class MAPPO:
         )
 
         metrics = jax.tree.map(
-            lambda x: x.mean(), (actor_loss, critic_loss, entropy, approx_kl, clipfrac)
+            lambda x: x.mean(), (actor_loss, critic_loss, entropy, approximate_kl, clip_fraction)
         )
 
         return (
@@ -642,10 +642,10 @@ class MAPPO:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         def cond_fun(carry):
-            *_, (*_, approx_kl, _), epoch = carry
+            *_, (*_, approximate_kl, _), epoch = carry
             cond = epoch < self.cfg.update_epochs
             if self.cfg.target_kl:
-                cond = cond & (approx_kl < self.cfg.target_kl)
+                cond = cond & (approximate_kl < self.cfg.target_kl)
             return cond
 
         key, state, *_, metrics, _ = jax.lax.while_loop(
@@ -664,7 +664,7 @@ class MAPPO:
             ),
         )
 
-        actor_loss, critic_loss, entropy, approx_kl, clipfrac = jax.tree.map(
+        actor_loss, critic_loss, entropy, approximate_kl, clip_fraction = jax.tree.map(
             lambda x: jnp.expand_dims(x, axis=(0, 1, 2)), metrics
         )
         metadata = {
@@ -672,8 +672,8 @@ class MAPPO:
             "losses/actor_loss": actor_loss,
             "losses/critic_loss": critic_loss,
             "losses/entropy": entropy,
-            "losses/approx_kl": approx_kl,
-            "losses/clipfrac": clipfrac,
+            "losses/approximate_kl": approximate_kl,
+            "losses/clip_fraction": clip_fraction,
         }
 
         return (key, state), transitions.replace(

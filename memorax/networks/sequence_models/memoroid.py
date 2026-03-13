@@ -37,8 +37,20 @@ class MemoroidCellBase(nn.Module):
     def local_jacobian(self, carry, z, inputs, **kwargs):
         return None
 
-    def get_param_indices(self):
-        return {}
+    def compute_phantom(self, sensitivity):
+        params = self.variables["params"]
+        phantom = 0
+        for name, S in sensitivity.items():
+            param = params
+            for key in name.split("/"):
+                param = param[key]
+            diff = param - jax.lax.stop_gradient(param)
+            phantom = phantom + jnp.sum(S * diff, axis=tuple(range(3, S.ndim)))
+        return phantom
+
+    def inject_phantom(self, carry, phantom):
+        state, *rest = carry
+        return (jax.lax.stop_gradient(state) + phantom, *rest)
 
     def initialize_sensitivity(self, key, input_shape):
         return None
@@ -101,21 +113,6 @@ class Memoroid(SequenceModel):
     def initialize_carry(self, key: jax.Array, input_shape: Tuple[int, ...]) -> Carry:
         return self.cell.initialize_carry(key, input_shape)
 
-    def _compute_phantom(self, sensitivity, param_indices, params):
-        if not sensitivity:
-            return None
-        phantom = 0
-        for name, S in sensitivity.items():
-            param = params
-            for key in name.split("/"):
-                param = param[key]
-            diff = param - jax.lax.stop_gradient(param)
-            if name in param_indices:
-                phantom = phantom + S * diff[param_indices[name]]
-            else:
-                phantom = phantom + jnp.sum(S * diff, axis=tuple(range(3, S.ndim)))
-        return phantom
-
     def _propagate_sensitivities(self, decay, jacobians, sensitivity, mask):
         B, T, H = decay.shape
         mask = add_feature_axis(mask)
@@ -140,9 +137,7 @@ class Memoroid(SequenceModel):
             state = jnp.concatenate([S, J], axis=1)
             a = jnp.concatenate([jnp.ones_like(S), a], axis=1)
 
-            state, _ = jax.lax.associative_scan(
-                binary_operator, (state, a), axis=1
-            )
+            state, _ = jax.lax.associative_scan(binary_operator, (state, a), axis=1)
             next_sensitivity[name] = last(state).reshape(B, 1, H, *param_shape)
 
         return next_sensitivity
@@ -150,15 +145,10 @@ class Memoroid(SequenceModel):
     @nn.compact
     def local_jacobian(self, inputs, mask, carry, sensitivity=None, **kwargs):
         z = self.cell(inputs, **kwargs)
-        param_indices = self.cell.get_param_indices()
 
         if sensitivity is not None:
-            phantom = self._compute_phantom(
-                sensitivity, param_indices, self.variables["params"]["cell"]
-            )
-            if phantom is not None:
-                state, *rest = carry
-                carry = (state + phantom, *rest)
+            phantom = self.cell.compute_phantom(sensitivity)
+            carry = self.cell.inject_phantom(carry, phantom)
 
         h, next_carry = self.scan_fn(z, carry, mask)
         y = self.cell.read(h, inputs, **kwargs)
@@ -171,6 +161,11 @@ class Memoroid(SequenceModel):
                 ),
                 carry,
                 h,
+            )
+            reset = add_feature_axis(mask)
+            prev_carry = jax.tree.map(
+                lambda c: jnp.where(broadcast_mask(reset, c), 0, c),
+                prev_carry,
             )
             decay, jacobians = self.cell.local_jacobian(prev_carry, z, inputs)
             if jacobians:

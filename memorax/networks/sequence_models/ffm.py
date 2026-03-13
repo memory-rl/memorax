@@ -134,34 +134,3 @@ class FFMCell(MemoroidCellBase):
         t = jnp.full((*batch_dims, 1), -1, dtype=self._complex_dtype())
         return (S, t)
 
-    def local_jacobian(self, carry, z, inputs, **kwargs):
-        B, T = inputs.shape[:2]
-        H = self.memory_size * self.context_size
-
-        alpha = jnp.clip(self.alpha, min=-self.limit, max=-1e-8)
-        gamma = jnp.exp(jax.lax.complex(alpha[:, None], self.omega[None, :])).reshape(
-            1, 1, H
-        )
-
-        decay = jnp.broadcast_to(gamma, (B, T, H))
-
-        S = carry[0].reshape(B, T, H)
-        # J_alpha[h] = ∂S[h]/∂α[h//cs] = γ[h] * S[h]
-        J_alpha = gamma * S
-        # J_omega[h] = ∂S[h]/∂ω[h%cs] = iγ[h] * S[h]
-        J_omega = 1j * gamma * S
-
-        return decay, {"alpha": J_alpha, "omega": J_omega}
-
-    def get_param_indices(self):
-        H = self.memory_size * self.context_size
-        return {
-            "alpha": jnp.arange(H) // self.context_size,
-            "omega": jnp.arange(H) % self.context_size,
-        }
-
-    def initialize_sensitivity(self, key, input_shape):
-        *batch_dims, _ = input_shape
-        H = self.memory_size * self.context_size
-        zeros = jnp.zeros((*batch_dims, 1, H), dtype=self._complex_dtype())
-        return {"alpha": zeros, "omega": zeros}

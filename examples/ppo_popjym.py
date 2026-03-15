@@ -5,69 +5,92 @@ import flax.linen as nn
 import jax
 import lox
 import optax
-from flashbax import make_item_buffer
-from memorax.algorithms import DQN, DQNConfig
+from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.environments.wrappers import RecordEpisodeStatistics
 from memorax.loggers import DashboardLogger, Logger
-from memorax.networks import FeatureExtractor, Network, heads
+from memorax.networks import RNN, FeatureExtractor, Network, Stack, heads
+from memorax.networks.blocks.ffn import Projection
 
-total_timesteps = 500_000
-num_epochs = 50
+total_timesteps = 15_000_000
+num_epochs = 150
 num_steps = total_timesteps // num_epochs
 seed = 0
 num_seeds = 1
+env_id = "popjym::CountRecallEasy"
 
-env_id = "gxm::Gymnasium/LunarLander-v3"
 env, env_params = environment.make(env_id)
 env = RecordEpisodeStatistics(env)
 
-cfg = DQNConfig(
-    num_envs=10,
-    tau=1.0,
-    target_update_frequency=500,
-    train_frequency=10,
+num_actions = env.action_space(env_params).n
+
+cfg = PPOConfig(
+    num_envs=64,
+    num_steps=1024,
+    gae_lambda=1.0,
+    num_minibatches=8,
+    update_epochs=30,
+    normalize_advantage=True,
+    clip_coefficient=0.3,
+    clip_value_loss=True,
+    entropy_coefficient=0.0,
+    target_kl=0.01,
 )
 
 feature_extractor = FeatureExtractor(
     observation_extractor=nn.Sequential(
-        (nn.Dense(120), nn.relu, nn.Dense(84), nn.relu)
+        (nn.Dense(256), nn.LayerNorm(), nn.leaky_relu)
     ),
 )
 
-q_network = Network(
+optimizer = optax.chain(
+    optax.clip_by_global_norm(0.5),
+    optax.adam(5e-5),
+)
+
+actor_network = Network(
     feature_extractor=feature_extractor,
-    head=heads.DiscreteQNetwork(action_dim=env.action_space(env_params).n),
+    torso=Stack(
+        blocks=(
+            RNN(cell=nn.GRUCell(features=256)),
+            Projection(features=256),
+        )
+    ),
+    head=heads.Categorical(action_dim=num_actions),
 )
 
-optimizer = optax.adam(3e-4)
-buffer = make_item_buffer(
-    max_length=10_000,
-    min_length=64,
-    sample_batch_size=64,
-    add_sequences=True,
-    add_batches=True,
-)
-epsilon = optax.linear_schedule(
-    1.0,
-    0.05,
-    int(total_timesteps * 0.5),
+critic_network = Network(
+    feature_extractor=feature_extractor,
+    torso=Stack(
+        blocks=(
+            RNN(cell=nn.GRUCell(features=256)),
+            Projection(features=256),
+        )
+    ),
+    head=heads.VNetwork(),
 )
 
-agent = DQN(cfg, env, env_params, q_network, optimizer, buffer, epsilon)
+agent = PPO(cfg, env, env_params, actor_network, critic_network, optimizer, optimizer)
 
-logger = Logger([DashboardLogger(title="DQN GXM", name="DQN", env_id=env_id, total_timesteps=total_timesteps)])
+logger = Logger(
+    [
+        DashboardLogger(
+            title="PPO PopJym",
+            name="PPO",
+            env_id=env_id,
+            total_timesteps=total_timesteps,
+        )
+    ]
+)
 logger_state = logger.init(cfg=asdict(cfg))
 
 init = jax.vmap(agent.init)
-warmup = jax.vmap(agent.warmup, in_axes=(0, 0, None))
 train = jax.vmap(lox.spool(agent.train), in_axes=(0, 0, None))
 
 key = jax.random.key(seed)
 keys = jax.random.split(key, num_seeds)
 
 keys, state = init(keys)
-keys, state = warmup(keys, state, 5_000)
 
 for i in range(num_epochs):
     start = time.perf_counter()

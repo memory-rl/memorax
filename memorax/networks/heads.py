@@ -25,7 +25,10 @@ class DiscreteQNetwork(nn.Module):
     @nn.nowrap
     def get_target(self, transition, next_value):
         next_value = jax.lax.stop_gradient(next_value)
-        return transition.second.reward + self.gamma * (1 - transition.second.done) * next_value
+        return (
+            transition.second.reward
+            + self.gamma * (1 - transition.second.done) * next_value
+        )
 
     def loss(
         self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray, **kwargs
@@ -50,7 +53,10 @@ class ContinuousQNetwork(nn.Module):
     @nn.nowrap
     def get_target(self, transition, next_value):
         next_value = jax.lax.stop_gradient(next_value)
-        return transition.second.reward + self.gamma * (1 - transition.second.done) * next_value
+        return (
+            transition.second.reward
+            + self.gamma * (1 - transition.second.done) * next_value
+        )
 
     def loss(
         self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray, **kwargs
@@ -71,7 +77,10 @@ class VNetwork(nn.Module):
     @nn.nowrap
     def get_target(self, transition, next_value):
         next_value = jax.lax.stop_gradient(next_value)
-        return transition.second.reward + self.gamma * (1 - transition.second.done) * next_value
+        return (
+            transition.second.reward
+            + self.gamma * (1 - transition.second.done) * next_value
+        )
 
     def loss(
         self, output: jnp.ndarray, aux: dict, targets: jnp.ndarray, **kwargs
@@ -105,7 +114,10 @@ class HLGaussVNetwork(nn.Module):
     @nn.nowrap
     def get_target(self, transition, next_value):
         next_value = jax.lax.stop_gradient(next_value)
-        return transition.second.reward + self.gamma * (1 - transition.second.done) * next_value
+        return (
+            transition.second.reward
+            + self.gamma * (1 - transition.second.done) * next_value
+        )
 
     @nn.nowrap
     def loss(
@@ -171,7 +183,10 @@ class C51QNetwork(nn.Module):
     @nn.nowrap
     def get_target(self, transition, next_value):
         next_value = jax.lax.stop_gradient(next_value)
-        return transition.second.reward + self.gamma * (1 - transition.second.done) * next_value
+        return (
+            transition.second.reward
+            + self.gamma * (1 - transition.second.done) * next_value
+        )
 
     @nn.nowrap
     def loss(
@@ -223,7 +238,9 @@ class Gaussian(nn.Module):
     bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, **kwargs) -> tuple[distrax.MultivariateNormalDiag, dict]:
+    def __call__(
+        self, x: jnp.ndarray, **kwargs
+    ) -> tuple[distrax.MultivariateNormalDiag, dict]:
         mean = nn.Dense(
             self.action_dim, kernel_init=self.kernel_init, bias_init=self.bias_init
         )(x)
@@ -286,39 +303,6 @@ class Beta(nn.Module):
         return log_beta
 
 
-class Options(nn.Module):
-    head: nn.Module
-    num_options: int
-
-    @nn.compact
-    def __call__(self, x: jnp.ndarray, **kwargs) -> tuple[tuple, dict]:
-        class Option(nn.Module):
-            head: nn.Module
-
-            @nn.compact
-            def __call__(self, x: jnp.ndarray, **kwargs) -> tuple[tuple, dict]:
-                intra_probs, aux = self.head(x, **kwargs)
-                termination_logit = nn.Dense(1)(x)
-                return (intra_probs, termination_logit), aux
-
-        (intra_probs, termination_logits), aux = nn.vmap(
-            Option,
-            variable_axes={"params": 0},
-            split_rngs={"params": True},
-            in_axes=None,
-            out_axes=-2,
-            axis_size=self.num_options,
-        )(head=self.head)(x, **kwargs)
-        termination_logits = jnp.squeeze(termination_logits, -1)
-
-        option_logits = nn.Dense(self.num_options)(x)
-
-        return (intra_probs, termination_logits, option_logits), aux
-
-    @nn.nowrap
-    def loss(self, output, aux, targets, **kwargs):
-        return self.head.loss(output, aux, targets, **kwargs)
-
 
 class GVF(nn.Module):
     head: nn.Module
@@ -332,7 +316,8 @@ class GVF(nn.Module):
     def get_target(self, transition, next_value):
         next_value = jax.lax.stop_gradient(next_value)
         return (
-            self.cumulant(transition) + self.gamma * (1 - transition.second.done) * next_value
+            self.cumulant(transition)
+            + self.gamma * (1 - transition.second.done) * next_value
         )
 
     @nn.nowrap
@@ -367,6 +352,28 @@ class Horde(nn.Module):
             values, _ = aux["demons"][name]
             padding = ((0, 0, 0),) + ((-1, 1, 0),) + ((0, 0, 0),) * (values.ndim - 2)
             next_values = jax.lax.pad(values, 0.0, padding)
-            demon_targets = demon.get_target(transitions, remove_feature_axis(next_values))
-            loss = loss + demon.loss(*aux["demons"][name], add_feature_axis(demon_targets), transitions=transitions)
+            demon_targets = demon.get_target(
+                transitions, remove_feature_axis(next_values)
+            )
+            loss = loss + demon.loss(
+                *aux["demons"][name],
+                add_feature_axis(demon_targets),
+                transitions=transitions,
+            )
         return loss
+
+
+class PredecessorHead(nn.Module):
+    features: int
+    kernel_init: nn.initializers.Initializer = nn.initializers.lecun_normal()
+    bias_init: nn.initializers.Initializer = nn.initializers.zeros_init()
+
+    @nn.compact
+    def __call__(self, x, **kwargs):
+        phi = nn.Dense(
+            self.features, kernel_init=self.kernel_init, bias_init=self.bias_init
+        )(x)
+        psi_back = nn.Dense(
+            self.features, kernel_init=self.kernel_init, bias_init=self.bias_init
+        )(x)
+        return (phi, psi_back), {}

@@ -1,21 +1,20 @@
-from typing import Optional
+from typing import Callable, Optional
 
 import flax.linen as nn
 import jax.numpy as jnp
 
 
 class FeatureExtractor(nn.Module):
-    observation_extractor: nn.Module
-    action_extractor: Optional[nn.Module] = None
-    reward_extractor: Optional[nn.Module] = None
-    done_extractor: Optional[nn.Module] = None
-    features: Optional[int] = None
+    observation_extractor: Callable
+    action_extractor: Optional[Callable] = None
+    reward_extractor: Optional[Callable] = None
+    done_extractor: Optional[Callable] = None
 
     def extract(
         self,
         embeddings: dict,
         key: str,
-        extractor: Optional[nn.Module],
+        extractor: Optional[Callable],
         x: Optional[jnp.ndarray] = None,
     ):
         if extractor is not None and x is not None:
@@ -36,9 +35,6 @@ class FeatureExtractor(nn.Module):
         self.extract(
             embeddings, "done_embedding", self.done_extractor, done.astype(jnp.int32)
         )
-
         x = jnp.concatenate([*embeddings.values()], axis=-1)
-        if self.features is not None:
-            x = nn.Dense(self.features)(x)
 
         return x, embeddings

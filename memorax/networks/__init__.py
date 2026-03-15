@@ -14,6 +14,14 @@ from memorax.networks.blocks import (
 )
 from memorax.networks.feature_extractor import FeatureExtractor
 from memorax.networks.identity import Identity
+from memorax.networks.layers import (
+    BlockDiagonalDense,
+    CausalConv1d,
+    Flatten,
+    Identity,
+    MultiHeadLayerNorm,
+    ParallelCausalConv1d,
+)
 from memorax.networks.network import Network
 from memorax.networks.positional_embeddings import (
     ALiBi,
@@ -22,6 +30,7 @@ from memorax.networks.positional_embeddings import (
 )
 from memorax.networks.sequence_models import (
     RNN,
+    RTRL,
     FFMCell,
     LinearAttentionCell,
     LRUCell,
@@ -30,6 +39,7 @@ from memorax.networks.sequence_models import (
     MemoroidCellBase,
     MinGRUCell,
     RL2Wrapper,
+    RTUCell,
     S5Cell,
     SelfAttention,
     SequenceModel,

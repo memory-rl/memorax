@@ -1,7 +1,7 @@
-```{raw} html
-<div style="text-align: center; padding: 2rem 0;">
-  <img src="_static/memorax_logo.png" alt="Memorax Logo" style="width: 450px;">
-</div>
+```{image} _static/memorax_logo.png
+:alt: Memorax Logo
+:width: 450px
+:align: center
 ```
 
 Most JAX RL libraries treat memory as an afterthought, bolting an LSTM onto an existing agent and calling it done. Memorax makes memory a first-class citizen. It provides a composable set of sequence model primitives (attention, SSMs, linear RNNs, and more) that snap together into full architectures like GTrXL or xLSTM, paired with algorithms and replay buffers designed from the ground up for recurrent training.

@@ -77,7 +77,7 @@ intersphinx_mapping = {
 
 html_theme = "sphinx_book_theme"
 html_title = "Memorax"
-html_logo = "../_static/memorax_logo.png"
+html_logo = "_static/memorax_logo.png"
 
 html_theme_options = {
     "repository_url": "https://github.com/noahfarr/memorax",
@@ -94,7 +94,7 @@ html_theme_options = {
     },
 }
 
-html_static_path = ["../_static"]
+html_static_path = ["_static"]
 html_css_files = ["style.css", "custom.css"]
 
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "**.ipynb_checkpoints"]

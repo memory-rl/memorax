@@ -1,4 +1,4 @@
-```{image} ../_static/memorax_logo.png
+```{image} _static/memorax_logo.png
 :alt: Memorax Logo
 :width: 450px
 :align: center

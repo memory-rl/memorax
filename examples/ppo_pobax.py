@@ -5,6 +5,7 @@ import flax.linen as nn
 import jax
 import lox
 import optax
+
 from memorax.algorithms import PPO, PPOConfig
 from memorax.environments import environment
 from memorax.environments.wrappers import RecordEpisodeStatistics
@@ -13,7 +14,7 @@ from memorax.networks import RNN, FeatureExtractor, Network, Stack, heads
 from memorax.networks.blocks.ffn import Projection
 
 total_timesteps = 1_500_000
-num_epochs = 50
+num_epochs = 10
 num_steps = total_timesteps // num_epochs
 seed = 0
 num_seeds = 1
@@ -25,8 +26,8 @@ env = RecordEpisodeStatistics(env)
 num_actions = env.action_space(env_params).n
 
 cfg = PPOConfig(
-    num_envs=4,
-    num_steps=128,
+    num_envs=256,
+    num_steps=32,
     gae_lambda=0.95,
     num_minibatches=4,
     update_epochs=4,
@@ -37,22 +38,7 @@ cfg = PPOConfig(
 )
 
 feature_extractor = FeatureExtractor(
-    observation_extractor=nn.Sequential(
-        (nn.Dense(128), nn.relu)
-    ),
-)
-
-num_updates = total_timesteps // (cfg.num_steps * cfg.num_envs)
-
-learning_rate = optax.linear_schedule(
-    init_value=2.5e-4,
-    end_value=0.0,
-    transition_steps=num_updates * cfg.update_epochs * cfg.num_minibatches,
-)
-
-optimizer = optax.chain(
-    optax.clip_by_global_norm(0.5),
-    optax.adam(learning_rate, eps=1e-5),
+    observation_extractor=nn.Sequential((nn.Dense(128), nn.relu)),
 )
 
 actor_network = Network(
@@ -75,6 +61,19 @@ critic_network = Network(
         )
     ),
     head=heads.VNetwork(),
+)
+
+num_updates = total_timesteps // (cfg.num_steps * cfg.num_envs)
+
+learning_rate = optax.linear_schedule(
+    init_value=2.5e-4,
+    end_value=0.0,
+    transition_steps=num_updates * cfg.update_epochs * cfg.num_minibatches,
+)
+
+optimizer = optax.chain(
+    optax.clip_by_global_norm(0.5),
+    optax.adam(learning_rate, eps=1e-5),
 )
 
 agent = PPO(cfg, env, env_params, actor_network, critic_network, optimizer, optimizer)

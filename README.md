@@ -59,9 +59,10 @@ from memorax.networks import FeatureExtractor, Network, heads
 env, env_params = environment.make("gymnax::CartPole-v1")
 
 cfg = DQNConfig(
-    num_envs=10, buffer_size=10_000,
-    tau=1.0, target_update_frequency=500, batch_size=64,
-    start_e=1.0, end_e=0.05, exploration_fraction=0.5, train_frequency=10,
+    num_envs=10,
+    tau=1.0,
+    target_update_frequency=500,
+    train_frequency=10,
 )
 
 q_network = Network(
@@ -70,13 +71,13 @@ q_network = Network(
 )
 
 optimizer = optax.adam(3e-4)
-buffer = make_item_buffer(max_length=cfg.buffer_size, min_length=cfg.batch_size,
-                          sample_batch_size=cfg.batch_size, add_sequences=True, add_batches=True)
-epsilon = optax.linear_schedule(cfg.start_e, cfg.end_e, 250_000, 10_000)
+buffer = make_item_buffer(max_length=10_000, min_length=64,
+                          sample_batch_size=64, add_sequences=True, add_batches=True)
+epsilon = optax.linear_schedule(1.0, 0.05, 250_000)
 
 agent = DQN(cfg, env, env_params, q_network, optimizer, buffer, epsilon)
 key, state = agent.init(jax.random.key(0))
-key, state, transitions = agent.train(key, state, num_steps=500_000)
+key, state = agent.train(key, state, num_steps=500_000)
 ```
 
 See `examples/` for complete scripts with logging and evaluation.

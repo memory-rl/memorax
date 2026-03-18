@@ -1,4 +1,4 @@
-from typing import Any, Callable, Protocol, TypeAlias
+from typing import Any, Protocol, TypeAlias
 
 import flashbax as fbx
 import gymnax
@@ -24,17 +24,3 @@ class Logger(Protocol):
     def log(self, state: Any, data: dict[str, Any], step: Any, **kwargs) -> None: ...
     def emit(self, state: Any) -> None: ...
     def finish(self, state: Any) -> None: ...
-
-
-class State(Protocol):
-    """State of the algorithm."""
-
-    step: int
-    ...
-
-
-class Algorithm(Protocol):
-    init: Callable[[Key], tuple[Key, State]]
-    warmup: Callable[[Key, State, int], tuple[Key, State]]
-    train: Callable[[Key, State, int], tuple[Key, State, dict]]
-    evaluate: Callable[[Key, State, int], tuple[Key, dict]]

@@ -44,7 +44,7 @@ def make(env_id: str, **kwargs) -> tuple:
     )
     from pobax.envs.wrappers.observation import NamedObservationWrapper
 
-    env, env_params = get_env(env_id, rand_key=jax.random.PRNGKey(0), **kwargs)
+    env, env_params = get_env(env_id, rand_key=jax.random.key(0), **kwargs)
 
     while isinstance(
         env,

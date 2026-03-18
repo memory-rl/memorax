@@ -6,26 +6,26 @@ from gymnax.environments import EnvParams, spaces
 from memorax.environments.wrappers import GymnaxWrapper, MaskObservationWrapper
 from memorax.utils.typing import Array, Key
 
-mask_dims = {
+masks = {
     "ant": {
-        "F": list(range(27)),
-        "P": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-        "V": [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
+        "F": jnp.ones(27, dtype=jnp.bool),
+        "P": jnp.zeros(27, dtype=jnp.bool).at[:13].set(True),
+        "V": jnp.zeros(27, dtype=jnp.bool).at[13:].set(True),
     },
     "halfcheetah": {
-        "F": list(range(17)),
-        "P": [0, 1, 2, 3, 8, 9, 10, 11, 12],
-        "V": [4, 5, 6, 7, 13, 14, 15, 16],
+        "F": jnp.ones(17, dtype=jnp.bool),
+        "P": jnp.zeros(17, dtype=jnp.bool).at[jnp.array([0, 1, 2, 3, 8, 9, 10, 11, 12])].set(True),
+        "V": jnp.zeros(17, dtype=jnp.bool).at[jnp.array([4, 5, 6, 7, 13, 14, 15, 16])].set(True),
     },
     "hopper": {
-        "F": list(range(11)),
-        "P": [0, 1, 2, 3, 4],
-        "V": [5, 6, 7, 8, 9, 10],
+        "F": jnp.ones(11, dtype=jnp.bool),
+        "P": jnp.zeros(11, dtype=jnp.bool).at[:5].set(True),
+        "V": jnp.zeros(11, dtype=jnp.bool).at[5:].set(True),
     },
     "walker2d": {
-        "F": list(range(17)),
-        "P": [0, 1, 2, 3, 4, 5, 6, 7],
-        "V": [8, 9, 10, 11, 12, 13, 14, 15, 16],
+        "F": jnp.ones(17, dtype=jnp.bool),
+        "P": jnp.zeros(17, dtype=jnp.bool).at[:8].set(True),
+        "V": jnp.zeros(17, dtype=jnp.bool).at[8:].set(True),
     },
 }
 
@@ -79,7 +79,7 @@ def make(env_id: str, mode="F", backend="generalized", **kwargs) -> tuple:
     env = BraxGymnaxWrapper(
         env,
     )
-    env = MaskObservationWrapper(env, mask_dims=mask_dims[env_id][mode])
+    env = MaskObservationWrapper(env, mask=masks[env_id][mode])
 
     env_params = env.default_params
     return env, env_params

@@ -41,12 +41,14 @@ class PeriodicObservationWrapper(GymnaxWrapper):
         params: environment.EnvParams | None = None,
     ) -> tuple[Array, PeriodicObservationWrapperState, float, bool, dict]:
         key, fill_key = jax.random.split(key)
-        obs, env_state, reward, done, info = self._env.step(
+        observation, env_state, reward, done, info = self._env.step(
             key, state.env_state, action, params
         )
         new_step = state.step + 1
         visible = new_step % self.period == 0
-        fill = self.fill_fn(fill_key, obs.shape)
-        obs = jnp.where(visible, obs, fill)
+        observation = jax.tree.map(
+            lambda o: jnp.where(visible, o, self.fill_fn(fill_key, o.shape)),
+            observation,
+        )
         state = PeriodicObservationWrapperState(step=new_step, env_state=env_state)
-        return obs, state, reward, done, info
+        return observation, state, reward, done, info

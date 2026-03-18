@@ -1,42 +1,24 @@
 from typing import Union
 
+import jax
 import jax.numpy as jnp
-from gymnax.environments import environment, spaces
-
-from memorax.utils.typing import Array, Key
+from gymnax.environments import environment
 from gymnax.wrappers.purerl import GymnaxWrapper
+
+from memorax.utils.typing import Array, Key, PyTree
 
 
 class MaskObservationWrapper(GymnaxWrapper):
-    def __init__(self, env, mask_dims: list, **kwargs):
+    def __init__(self, env, mask: PyTree):
         super().__init__(env)
-        self.mask_dims = jnp.array(mask_dims, dtype=int)
-
-    def observation_space(self, params) -> spaces.Box:
-        assert isinstance(
-            self._env.observation_space(params), spaces.Box
-        ), "Only Box spaces are supported for now."
-        low = self._env.observation_space(params).low
-        if isinstance(low, jnp.ndarray):
-            low = low[self.mask_dims]
-
-        high = self._env.observation_space(params).high
-        if isinstance(high, jnp.ndarray):
-            high = high[self.mask_dims]
-
-        return spaces.Box(
-            low=low,
-            high=high,
-            shape=(self.mask_dims.shape[0],),
-            dtype=self._env.observation_space(params).dtype,
-        )
+        self.mask = mask
 
     def reset(
         self, key: Key, params: environment.EnvParams | None = None
     ) -> tuple[Array, environment.EnvState]:
-        obs, state = self._env.reset(key, params)
-        obs = obs[self.mask_dims]
-        return obs, state
+        observation, state = self._env.reset(key, params)
+        observation = jax.tree.map(lambda o, m: o * m, observation, self.mask)
+        return observation, state
 
     def step(
         self,
@@ -45,6 +27,8 @@ class MaskObservationWrapper(GymnaxWrapper):
         action: Union[int, float],
         params: environment.EnvParams | None = None,
     ) -> tuple[Array, environment.EnvState, float, bool, dict]:
-        obs, state, reward, done, info = self._env.step(key, state, action, params)
-        obs = obs[self.mask_dims]
-        return obs, state, reward, done, info
+        observation, state, reward, done, info = self._env.step(
+            key, state, action, params
+        )
+        observation = jax.tree.map(lambda o, m: o * m, observation, self.mask)
+        return observation, state, reward, done, info

@@ -183,14 +183,18 @@ All algorithms follow the same interface. Use `lox.spool` to capture logged metr
 ```python
 import lox
 
-key, state = agent.init(key)
-key, state = agent.warmup(key, state, num_steps=10_000)
+key, init_key = jax.random.split(key)
+state = agent.init(init_key)
+key, warmup_key = jax.random.split(key)
+state = agent.warmup(warmup_key, state, num_steps=10_000)
 
 train = lox.spool(agent.train)
-(key, state), logs = train(key, state, num_steps=100_000)
+key, train_key = jax.random.split(key)
+state, logs = train(train_key, state, num_steps=100_000)
 
 evaluate = lox.spool(agent.evaluate)
-(key, transitions), eval_logs = evaluate(key, state, num_steps=100)
+key, eval_key = jax.random.split(key)
+state, eval_logs = evaluate(eval_key, state, num_steps=100)
 ```
 
 ## Burn-in for Recurrent Networks

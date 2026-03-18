@@ -56,7 +56,7 @@ class PQN:
 
     def _greedy_action(
         self, key: Key, state: PQNState
-    ) -> tuple[Key, PQNState, Array, Array, dict]:
+    ) -> tuple[PQNState, Array, Array, dict]:
         timestep = state.timestep.to_sequence()
         (carry, (q_values, _)), intermediates = self.q_network.apply(
             state.params,
@@ -70,41 +70,39 @@ class PQN:
         q_values = remove_time_axis(q_values)
         action = jnp.argmax(q_values, axis=-1)
         state = state.replace(carry=carry)
-        return key, state, action, q_values, intermediates
+        return state, action, q_values, intermediates
 
     def _random_action(
         self, key: Key, state: PQNState
-    ) -> tuple[Key, PQNState, Array, None, dict]:
-        key, action_key = jax.random.split(key)
-        action_key = jax.random.split(action_key, self.cfg.num_envs)
+    ) -> tuple[PQNState, Array, None, dict]:
+        action_key = jax.random.split(key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
-        return key, state, action, None, {}
+        return state, action, None, {}
 
     def _epsilon_greedy_action(
         self, key: Key, state: PQNState
-    ) -> tuple[Key, PQNState, Array, Array, dict]:
-        key, state, random_action, _, _ = self._random_action(key, state)
+    ) -> tuple[PQNState, Array, Array, dict]:
+        random_key, greedy_key, sample_key = jax.random.split(key, 3)
 
-        key, state, greedy_action, q_values, intermediates = self._greedy_action(
-            key, state
+        state, random_action, _, _ = self._random_action(random_key, state)
+
+        state, greedy_action, q_values, intermediates = self._greedy_action(
+            greedy_key, state
         )
 
-        key, sample_key = jax.random.split(key)
         epsilon = self.epsilon_schedule(state.step)
         action = jnp.where(
             jax.random.uniform(sample_key, greedy_action.shape) < epsilon,
             random_action,
             greedy_action,
         )
-        return key, state, action, q_values, intermediates
+        return state, action, q_values, intermediates
 
     def _step(
-        self, carry, _, *, policy: Callable
-    ) -> tuple[tuple[Key, PQNState], Transition]:
-        key, state = carry
-
-        key, action_key, step_key = jax.random.split(key, 3)
-        key, state, action, q_values, intermediates = policy(action_key, state)
+        self, state: PQNState, key: Key, *, policy: Callable
+    ) -> tuple[PQNState, Transition]:
+        action_key, step_key = jax.random.split(key)
+        state, action, q_values, intermediates = policy(action_key, state)
         num_envs, *_ = state.timestep.obs.shape
         step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
@@ -150,7 +148,7 @@ class PQN:
             ),
             env_state=env_state,
         )
-        return (key, state), transition
+        return state, transition
 
     def _td_lambda(self, carry: tuple, transition: Transition):
         lambda_return, next_q_value = carry
@@ -168,10 +166,10 @@ class PQN:
         q_value = jnp.max(transition.aux["q_values"], axis=-1)
         return (lambda_return, q_value), lambda_return
 
-    def _update_epoch(self, carry: tuple, _):
-        key, state, initial_carry, transitions, lambda_targets = carry
+    def _update_epoch(self, carry: tuple, key: Key):
+        state, initial_carry, transitions, lambda_targets = carry
 
-        key, permutation_key = jax.random.split(key)
+        permutation_key, minibatch_key = jax.random.split(key)
         batch = (initial_carry, transitions, lambda_targets)
 
         def shuffle(batch: PyTree):
@@ -198,18 +196,19 @@ class PQN:
             return minibatches
 
         minibatches = shuffle(batch)
+        minibatch_keys = jax.random.split(minibatch_key, self.cfg.num_minibatches)
 
-        (key, state), metrics = jax.lax.scan(
-            self._update_minibatch, (key, state), minibatches
+        state, metrics = jax.lax.scan(
+            self._update_minibatch, state, (minibatches, minibatch_keys)
         )
-        return (key, state, initial_carry, transitions, lambda_targets), metrics
+        return (state, initial_carry, transitions, lambda_targets), metrics
 
-    def _update_minibatch(self, carry: tuple, minibatch: tuple):
-        key, state = carry
+    def _update_minibatch(self, state: PQNState, xs: tuple):
+        minibatch, key = xs
 
         carry, transitions, target = minibatch
 
-        key, torso_key, dropout_key = jax.random.split(key, 3)
+        torso_key, dropout_key = jax.random.split(key)
 
         if self.cfg.burn_in_length > 0:
             burn_in = jax.tree.map(
@@ -267,21 +266,19 @@ class PQN:
             optimizer_state=optimizer_state,
         )
 
-        return (key, state), (loss, *aux)
+        return state, (loss, *aux)
 
-    def _update_step(
-        self, carry: tuple[Key, PQNState], _
-    ) -> tuple[tuple[Key, PQNState], dict]:
-        key, state = carry
+    def _update_step(self, state: PQNState, key: Key) -> tuple[PQNState, None]:
+        step_key, torso_key, epoch_key = jax.random.split(key, 3)
 
         initial_carry = state.carry
-        (key, state), transitions = jax.lax.scan(
-            partial(self._step, policy=self._epsilon_greedy_action),
-            (key, state),
-            length=self.cfg.num_steps,
-        )
 
-        key, torso_key, dropout_key = jax.random.split(key, 3)
+        step_keys = jax.random.split(step_key, self.cfg.num_steps)
+        state, transitions = jax.lax.scan(
+            partial(self._step, policy=self._epsilon_greedy_action),
+            state,
+            step_keys,
+        )
 
         timestep = state.timestep.to_sequence()
         _, (q_values, _) = self.q_network.apply(
@@ -291,7 +288,7 @@ class PQN:
             action=timestep.action,
             reward=add_feature_axis(timestep.reward),
             initial_carry=state.carry,
-            rngs={"torso": torso_key, "dropout": dropout_key},
+            rngs={"torso": torso_key},
         )
         q_value = jnp.max(q_values, axis=-1) * (1.0 - timestep.done)
         q_value = remove_time_axis(q_value)
@@ -305,11 +302,11 @@ class PQN:
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
         targets = jnp.swapaxes(targets, 0, 1)
 
-        (key, state, _, transitions, _), metrics = jax.lax.scan(
+        epoch_keys = jax.random.split(epoch_key, self.cfg.update_epochs)
+        (state, _, transitions, _), metrics = jax.lax.scan(
             self._update_epoch,
-            (key, state, initial_carry, transitions, targets),
-            None,
-            self.cfg.update_epochs,
+            (state, initial_carry, transitions, targets),
+            epoch_keys,
         )
 
         loss, q_value, q_value_min, q_value_max, q_value_std, td_error, td_error_std = (
@@ -328,11 +325,11 @@ class PQN:
             }
         )
 
-        return (key, state), None
+        return state, None
 
     @partial(jax.jit, static_argnames=["self"])
-    def init(self, key: Key) -> tuple[Key, PQNState]:
-        key, env_key, q_key, torso_key = jax.random.split(key, 4)
+    def init(self, key: Key) -> PQNState:
+        env_key, q_key, torso_key = jax.random.split(key, 3)
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
@@ -359,21 +356,18 @@ class PQN:
         )
         optimizer_state = self.optimizer.init(params)
 
-        return (
-            key,
-            PQNState(
-                step=0,
-                timestep=timestep.from_sequence(),
-                carry=carry,
-                env_state=env_state,
-                params=params,
-                optimizer_state=optimizer_state,
-            ),
+        return PQNState(
+            step=0,
+            timestep=timestep.from_sequence(),
+            carry=carry,
+            env_state=env_state,
+            params=params,
+            optimizer_state=optimizer_state,
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(self, key: Key, state: PQNState, num_steps: int) -> tuple[Key, PQNState]:
-        return key, state
+    def warmup(self, key: Key, state: PQNState, num_steps: int) -> PQNState:
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(
@@ -381,18 +375,20 @@ class PQN:
         key: Key,
         state: PQNState,
         num_steps: int,
-    ):
-        (key, state), _ = jax.lax.scan(
+    ) -> PQNState:
+        num_outer_steps = num_steps // (self.cfg.num_steps * self.cfg.num_envs)
+        keys = jax.random.split(key, num_outer_steps)
+        state, _ = jax.lax.scan(
             self._update_step,
-            (key, state),
-            length=(num_steps // (self.cfg.num_steps * self.cfg.num_envs)),
+            state,
+            keys,
         )
 
-        return key, state
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: Key, state: PQNState, num_steps: int) -> tuple[Key, PQNState]:
-        key, reset_key = jax.random.split(key)
+    def evaluate(self, key: Key, state: PQNState, num_steps: int) -> PQNState:
+        reset_key, eval_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
@@ -408,10 +404,11 @@ class PQN:
 
         state = state.replace(timestep=timestep, carry=carry, env_state=env_state)
 
-        (key, state), _ = jax.lax.scan(
+        step_keys = jax.random.split(eval_key, num_steps)
+        state, _ = jax.lax.scan(
             partial(self._step, policy=self._greedy_action),
-            (key, state),
-            length=num_steps,
+            state,
+            step_keys,
         )
 
-        return key, state
+        return state

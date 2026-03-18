@@ -111,13 +111,13 @@ init = jax.vmap(agent.init)
 train = jax.vmap(lox.spool(agent.train), in_axes=(0, 0, None))
 
 key = jax.random.key(seed)
-keys = jax.random.split(key, num_seeds)
-
-keys, state = init(keys)
+key, init_key = jax.random.split(key)
+state = init(jax.random.split(init_key, num_seeds))
 
 for i in range(num_epochs):
     start = time.perf_counter()
-    (keys, state), logs = train(keys, state, num_steps)
+    key, train_key = jax.random.split(key)
+    state, logs = train(jax.random.split(train_key, num_seeds), state, num_steps)
     jax.block_until_ready(state)
     end = time.perf_counter()
 

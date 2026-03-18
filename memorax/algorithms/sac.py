@@ -65,7 +65,7 @@ class SAC:
     buffer: Buffer
 
     def _deterministic_action(self, key: Key, state: SACState):
-        key, sample_key = jax.random.split(key)
+        sample_key = key
         timestep = state.timestep.to_sequence()
         (next_carry, (dist, _)), intermediates = self.actor_network.apply(
             state.actor_params,
@@ -80,10 +80,10 @@ class SAC:
         action = dist.sample(seed=sample_key)
         action = remove_time_axis(action)
         state = state.replace(actor_carry=next_carry)
-        return key, state, action, intermediates
+        return state, action, intermediates
 
     def _stochastic_action(self, key: Key, state: SACState):
-        key, sample_key = jax.random.split(key)
+        sample_key = key
         timestep = state.timestep.to_sequence()
         (next_carry, (dist, _)), intermediates = self.actor_network.apply(
             state.actor_params,
@@ -97,27 +97,25 @@ class SAC:
         action = dist.sample(seed=sample_key)
         action = remove_time_axis(action)
         state = state.replace(actor_carry=next_carry)
-        return key, state, action, intermediates
+        return state, action, intermediates
 
     def _random_action(self, key: Key, state: SACState):
-        key, action_key = jax.random.split(key)
-        action_keys = jax.random.split(action_key, self.cfg.num_envs)
+        action_keys = jax.random.split(key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_keys)
-        return key, state, action, {}
+        return state, action, {}
 
     def _step(
         self,
-        carry: tuple,
-        _,
+        state: SACState,
+        key: Key,
         *,
         policy: Callable,
     ):
-        key, state = carry
         initial_carry = state.actor_carry
 
-        key, action_key, step_key = jax.random.split(key, 3)
+        action_key, step_key = jax.random.split(key)
 
-        key, state, action, intermediates = policy(action_key, state)
+        state, action, intermediates = policy(action_key, state)
 
         num_envs, *_ = state.timestep.obs.shape
         step_key = jax.random.split(step_key, num_envs)
@@ -174,12 +172,12 @@ class SAC:
             env_state=env_state,
             buffer_state=buffer_state,
         )
-        return (key, state), transition
+        return state, transition
 
     @partial(jax.jit, static_argnames=["self"])
     def init(self, key: Key):
-        key, env_key, actor_key, actor_torso_key, critic_key, critic_torso_key, alpha_key = (
-            jax.random.split(key, 7)
+        env_key, actor_key, actor_torso_key, critic_key, critic_torso_key, alpha_key = (
+            jax.random.split(key, 6)
         )
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
@@ -231,23 +229,20 @@ class SAC:
         )
         buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
 
-        return (
-            key,
-            SACState(
-                step=0,
-                timestep=timestep,
-                actor_carry=actor_carry,
-                critic_carry=critic_carry,
-                env_state=env_state,
-                buffer_state=buffer_state,
-                actor_params=actor_params,
-                critic_params=critic_params,
-                critic_target_params=critic_target_params,
-                alpha_params=alpha_params,
-                actor_optimizer_state=actor_optimizer_state,
-                critic_optimizer_state=critic_optimizer_state,
-                alpha_optimizer_state=alpha_optimizer_state,
-            ),
+        return SACState(
+            step=0,
+            timestep=timestep,
+            actor_carry=actor_carry,
+            critic_carry=critic_carry,
+            env_state=env_state,
+            buffer_state=buffer_state,
+            actor_params=actor_params,
+            critic_params=critic_params,
+            critic_target_params=critic_target_params,
+            alpha_params=alpha_params,
+            actor_optimizer_state=actor_optimizer_state,
+            critic_optimizer_state=critic_optimizer_state,
+            alpha_optimizer_state=alpha_optimizer_state,
         )
 
     def _update_alpha(
@@ -427,7 +422,7 @@ class SAC:
         return state, info
 
     def _update(self, key: Key, state: SACState):
-        key, batch_key, critic_key, actor_key, alpha_key = jax.random.split(key, 5)
+        batch_key, critic_key, actor_key, alpha_key = jax.random.split(key, 4)
         experience = self.buffer.sample(state.buffer_state, batch_key).experience
         experience = jax.tree.map(lambda x: jnp.expand_dims(x, 1), experience)
 
@@ -501,50 +496,53 @@ class SAC:
 
         return state, info
 
-    def _update_step(self, carry: tuple, _):
-        key, state = carry
-        (key, state), transitions = jax.lax.scan(
+    def _update_step(self, state: SACState, key: Key):
+        step_key, gradient_key = jax.random.split(key)
+
+        step_keys = jax.random.split(step_key, self.cfg.train_frequency // self.cfg.num_envs)
+        state, transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),
-            (key, state),
-            length=self.cfg.train_frequency // self.cfg.num_envs,
+            state,
+            step_keys,
         )
 
-        def _gradient_step(carry, _):
-            key, state = carry
-            key, update_key = jax.random.split(key)
-            state, update_info = self._update(update_key, state)
-            return (key, state), update_info
+        def _gradient_step(state, key):
+            state, update_info = self._update(key, state)
+            return state, update_info
 
-        (key, state), update_info = jax.lax.scan(
-            _gradient_step, (key, state), length=self.cfg.gradient_steps
+        gradient_keys = jax.random.split(gradient_key, self.cfg.gradient_steps)
+        state, update_info = jax.lax.scan(
+            _gradient_step, state, gradient_keys
         )
         update_info = jax.tree.map(lambda x: x.mean(axis=0), update_info)
         lox.log(update_info)
 
-        return (key, state), None
+        return state, None
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(self, key: Key, state: SACState, num_steps: int) -> tuple[Key, SACState]:
-        (key, state), _ = jax.lax.scan(
+    def warmup(self, key: Key, state: SACState, num_steps: int) -> SACState:
+        step_keys = jax.random.split(key, num_steps // self.cfg.num_envs)
+        state, _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
-            (key, state),
-            length=num_steps // self.cfg.num_envs,
+            state,
+            step_keys,
         )
-        return key, state
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(self, key: Key, state: SACState, num_steps: int):
-        (key, state), _ = jax.lax.scan(
+        keys = jax.random.split(key, num_steps // self.cfg.train_frequency)
+        state, _ = jax.lax.scan(
             self._update_step,
-            (key, state),
-            length=(num_steps // self.cfg.train_frequency),
+            state,
+            keys,
         )
 
-        return key, state
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: Key, state: SACState, num_steps: int) -> tuple[Key, SACState]:
-        key, reset_key = jax.random.split(key)
+    def evaluate(self, key: Key, state: SACState, num_steps: int) -> SACState:
+        reset_key, eval_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
@@ -564,13 +562,14 @@ class SAC:
             actor_carry=carry,
         )
 
-        (key, state), _ = jax.lax.scan(
+        step_keys = jax.random.split(eval_key, num_steps)
+        state, _ = jax.lax.scan(
             partial(
                 self._step,
                 policy=self._deterministic_action,
             ),
-            (key, state),
-            length=num_steps,
+            state,
+            step_keys,
         )
 
-        return key, state
+        return state

@@ -61,8 +61,8 @@ class DQN:
 
     def _greedy_action(
         self, key: Key, state: DQNState
-    ) -> tuple[Key, DQNState, Array, dict]:
-        key, torso_key = jax.random.split(key)
+    ) -> tuple[DQNState, Array, dict]:
+        torso_key = key
         timestep = state.timestep.to_sequence()
         (carry, (q_values, _)), intermediates = self.q_network.apply(
             state.params,
@@ -77,39 +77,37 @@ class DQN:
         action = jnp.argmax(q_values, axis=-1)
         action = remove_time_axis(action)
         state = state.replace(carry=carry)
-        return key, state, action, intermediates
+        return state, action, intermediates
 
     def _random_action(
         self, key: Key, state: DQNState
-    ) -> tuple[Key, DQNState, Array, dict]:
-        key, action_key = jax.random.split(key)
-        action_key = jax.random.split(action_key, self.cfg.num_envs)
+    ) -> tuple[DQNState, Array, dict]:
+        action_key = jax.random.split(key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
-        return key, state, action, {}
+        return state, action, {}
 
     def _epsilon_greedy_action(
         self, key: Key, state: DQNState
-    ) -> tuple[Key, DQNState, Array, dict]:
-        key, state, random_action, _ = self._random_action(key, state)
+    ) -> tuple[DQNState, Array, dict]:
+        random_key, greedy_key, sample_key = jax.random.split(key, 3)
 
-        key, state, greedy_action, intermediates = self._greedy_action(key, state)
+        state, random_action, _ = self._random_action(random_key, state)
+        state, greedy_action, intermediates = self._greedy_action(greedy_key, state)
 
-        key, sample_key = jax.random.split(key)
         epsilon = self.epsilon_schedule(state.step)
         action = jnp.where(
             jax.random.uniform(sample_key, greedy_action.shape) < epsilon,
             random_action,
             greedy_action,
         )
-        return key, state, action, intermediates
+        return state, action, intermediates
 
-    def _step(self, carry: tuple, _, *, policy: Callable) -> tuple[tuple[Key, DQNState], Transition]:
-        key, state = carry
+    def _step(self, state: DQNState, key: Key, *, policy: Callable) -> tuple[DQNState, Transition]:
+        action_key, step_key = jax.random.split(key)
 
         initial_carry = state.carry
 
-        key, action_key, step_key = jax.random.split(key, 3)
-        key, state, action, intermediates = policy(action_key, state)
+        state, action, intermediates = policy(action_key, state)
         num_envs, *_ = state.timestep.obs.shape
         step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
@@ -161,12 +159,11 @@ class DQN:
             env_state=env_state,
             buffer_state=buffer_state,
         )
-        return (key, state), transition
+        return state, transition
 
     def _update(self, key: Key, state: DQNState) -> DQNState:
-        batch = self.buffer.sample(state.buffer_state, key)
-
-        key, torso_key, next_torso_key = jax.random.split(key, 3)
+        batch_key, torso_key, next_torso_key = jax.random.split(key, 3)
+        batch = self.buffer.sample(state.buffer_state, batch_key)
 
         experience = batch.experience
         experience = jax.tree.map(lambda x: jnp.expand_dims(x, 1), experience)
@@ -260,22 +257,23 @@ class DQN:
 
         return state
 
-    def _update_step(self, carry: tuple, _) -> tuple[tuple[Key, DQNState], None]:
-        key, state = carry
-        (key, state), _ = jax.lax.scan(
+    def _update_step(self, state: DQNState, key: Key) -> tuple[DQNState, None]:
+        step_key, update_key = jax.random.split(key)
+
+        step_keys = jax.random.split(step_key, self.cfg.train_frequency // self.cfg.num_envs)
+        state, _ = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
-            (key, state),
-            length=self.cfg.train_frequency // self.cfg.num_envs,
+            state,
+            step_keys,
         )
 
-        key, update_key = jax.random.split(key)
         state = self._update(update_key, state)
 
-        return (key, state), None
+        return state, None
 
     @partial(jax.jit, static_argnames=["self"])
-    def init(self, key: Key) -> tuple[Key, DQNState]:
-        key, env_key, q_key, torso_key = jax.random.split(key, 4)
+    def init(self, key: Key) -> DQNState:
+        env_key, q_key, torso_key = jax.random.split(key, 3)
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
@@ -310,28 +308,26 @@ class DQN:
         )
         buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
 
-        return (
-            key,
-            DQNState(
-                step=0,
-                timestep=timestep,
-                carry=carry,
-                env_state=env_state,
-                params=params,
-                target_params=target_params,
-                optimizer_state=optimizer_state,
-                buffer_state=buffer_state,
-            ),
+        return DQNState(
+            step=0,
+            timestep=timestep,
+            carry=carry,
+            env_state=env_state,
+            params=params,
+            target_params=target_params,
+            optimizer_state=optimizer_state,
+            buffer_state=buffer_state,
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(self, key: Key, state: DQNState, num_steps: int) -> tuple[Key, DQNState]:
-        (key, state), _ = jax.lax.scan(
+    def warmup(self, key: Key, state: DQNState, num_steps: int) -> DQNState:
+        step_keys = jax.random.split(key, num_steps // self.cfg.num_envs)
+        state, _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
-            (key, state),
-            length=num_steps // self.cfg.num_envs,
+            state,
+            step_keys,
         )
-        return key, state
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(
@@ -339,18 +335,20 @@ class DQN:
         key: Key,
         state: DQNState,
         num_steps: int,
-    ) -> tuple[Key, DQNState]:
-        (key, state), _ = jax.lax.scan(
+    ) -> DQNState:
+        num_outer_steps = num_steps // self.cfg.train_frequency
+        keys = jax.random.split(key, num_outer_steps)
+        state, _ = jax.lax.scan(
             self._update_step,
-            (key, state),
-            length=(num_steps // self.cfg.train_frequency),
+            state,
+            keys,
         )
 
-        return key, state
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: Key, state: DQNState, num_steps: int) -> tuple[Key, DQNState]:
-        key, reset_key = jax.random.split(key)
+    def evaluate(self, key: Key, state: DQNState, num_steps: int) -> DQNState:
+        reset_key, eval_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
@@ -365,10 +363,12 @@ class DQN:
         carry = self.q_network.initialize_carry((self.cfg.num_envs, None))
 
         state = state.replace(timestep=timestep, carry=carry, env_state=env_state)
-        (key, state), _ = jax.lax.scan(
+
+        step_keys = jax.random.split(eval_key, num_steps)
+        state, _ = jax.lax.scan(
             partial(self._step, policy=self._greedy_action),
-            (key, state),
-            length=num_steps,
+            state,
+            step_keys,
         )
 
-        return key, state
+        return state

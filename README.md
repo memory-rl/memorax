@@ -76,8 +76,11 @@ buffer = make_item_buffer(max_length=10_000, min_length=64,
 epsilon = optax.linear_schedule(1.0, 0.05, 250_000)
 
 agent = DQN(cfg, env, env_params, q_network, optimizer, buffer, epsilon)
-key, state = agent.init(jax.random.key(0))
-key, state = agent.train(key, state, num_steps=500_000)
+key = jax.random.key(0)
+key, init_key = jax.random.split(key)
+state = agent.init(init_key)
+key, train_key = jax.random.split(key)
+state = agent.train(train_key, state, num_steps=500_000)
 ```
 
 See `examples/` for complete scripts with logging and evaluation.
@@ -125,8 +128,11 @@ critic_network = Network(feature_extractor, torso, heads.VNetwork())
 optimizer = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(3e-4))
 
 agent = PPO(cfg, env, env_params, actor_network, critic_network, optimizer, optimizer)
-key, state = agent.init(jax.random.key(0))
-key, state, transitions = agent.train(key, state, num_steps=10_000)
+key = jax.random.key(0)
+key, init_key = jax.random.split(key)
+state = agent.init(init_key)
+key, train_key = jax.random.split(key)
+state = agent.train(train_key, state, num_steps=10_000)
 ```
 
 See `examples/architectures` for more architecture compositions including `xLSTM` and `GPT-2` style networks.

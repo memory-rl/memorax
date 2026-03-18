@@ -17,10 +17,14 @@ Unlike JAX-native envs where `reset` creates a fresh state without affecting oth
 ```python
 env, env_params = make("gymnasium::CartPole-v1")
 
-key, state = agent.init(jax.random.key(0))
-key, state = agent.train(key, state, num_steps=10_000)
+key = jax.random.key(0)
+key, init_key = jax.random.split(key)
+state = agent.init(init_key)
+key, train_key = jax.random.split(key)
+state = agent.train(train_key, state, num_steps=10_000)
 
-key, state = agent.evaluate(key, state)
+key, eval_key = jax.random.split(key)
+state = agent.evaluate(eval_key, state)
 ```
 
 ## No `jax.vmap` over seeds with callback envs
@@ -31,11 +35,13 @@ The algorithms internally `vmap` over environments, so multi-env training works 
 env, env_params = make("gymnax::CartPole-v1")
 
 agent = PPO(config, env, env_params, actor, critic, optimizer, optimizer)
-keys = jax.random.split(jax.random.key(0), 4)
+key = jax.random.key(0)
 init = jax.vmap(agent.init)
 train = jax.vmap(agent.train, in_axes=(0, 0, None))
-keys, states = init(keys)
-keys, states = train(keys, states, 10_000)
+key, init_key = jax.random.split(key)
+states = init(jax.random.split(init_key, 4))
+key, train_key = jax.random.split(key)
+states = train(jax.random.split(train_key, 4), states, 10_000)
 ```
 
 ## `env_params` is always `None`

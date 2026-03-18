@@ -70,7 +70,7 @@ class MAPPO:
 
     def _deterministic_action(
         self, key: Key, state: MAPPOState
-    ) -> tuple[Key, MAPPOState, Array, Array, None, dict]:
+    ) -> tuple[MAPPOState, Array, Array, None, dict]:
         timestep = to_sequence(state.timestep)
 
         (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
@@ -91,12 +91,12 @@ class MAPPO:
         log_prob = jax.vmap(remove_time_axis)(log_prob)
 
         state = state.replace(actor_carry=actor_carry)
-        return key, state, action, log_prob, None, intermediates
+        return state, action, log_prob, None, intermediates
 
     def _stochastic_action(
         self, key: Key, state: MAPPOState
-    ) -> tuple[Key, MAPPOState, Array, Array, Array, dict]:
-        key, action_key, actor_torso_key, critic_torso_key = jax.random.split(key, 4)
+    ) -> tuple[MAPPOState, Array, Array, Array, dict]:
+        action_key, actor_torso_key, critic_torso_key = jax.random.split(key, 3)
         timestep = to_sequence(state.timestep)
 
         (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
@@ -133,7 +133,7 @@ class MAPPO:
         value = remove_feature_axis(value)
 
         state = state.replace(actor_carry=actor_carry, critic_carry=critic_carry)
-        return key, state, action, log_prob, value, intermediates
+        return state, action, log_prob, value, intermediates
 
     def _generalized_advantage_estimation(self, carry: tuple, transition: Transition):
         advantage, next_value = carry
@@ -150,11 +150,11 @@ class MAPPO:
         )
         return (advantage, transition.aux["value"]), advantage
 
-    def _step(self, carry: tuple, _, *, policy: Callable):
-        key, state = carry
-
-        key, action_key, step_key = jax.random.split(key, 3)
-        key, state, action, log_prob, value, intermediates = policy(action_key, state)
+    def _step(
+        self, state: MAPPOState, key: Key, *, policy: Callable
+    ) -> tuple[MAPPOState, Transition]:
+        action_key, step_key = jax.random.split(key)
+        state, action, log_prob, value, intermediates = policy(action_key, state)
 
         _, num_envs, *_ = state.timestep.obs.shape
         step_keys = jax.random.split(step_key, num_envs)
@@ -204,12 +204,12 @@ class MAPPO:
             ),
             env_state=env_state,
         )
-        return (key, state), transition
+        return state, transition
 
     def _update_actor(
         self, key: Key, state: MAPPOState, initial_actor_carry: Carry, transitions: Transition, advantages: Array
-    ):
-        key, torso_key, dropout_key = jax.random.split(key, 3)
+    ) -> tuple[MAPPOState, Array, tuple[Array, Array, Array]]:
+        torso_key, dropout_key = jax.random.split(key)
 
         if self.cfg.burn_in_length > 0:
             burn_in = jax.tree.map(
@@ -278,12 +278,12 @@ class MAPPO:
             actor_params=actor_params,
             actor_optimizer_state=actor_optimizer_state,
         )
-        return key, state, actor_loss.mean(), aux
+        return state, actor_loss.mean(), aux
 
     def _update_critic(
         self, key: Key, state: MAPPOState, initial_critic_carry: Carry, transitions: Transition, returns: Array
-    ):
-        key, torso_key, dropout_key = jax.random.split(key, 3)
+    ) -> tuple[MAPPOState, Array]:
+        torso_key, dropout_key = jax.random.split(key)
 
         if self.cfg.burn_in_length > 0:
             burn_in = jax.tree.map(
@@ -347,10 +347,12 @@ class MAPPO:
             critic_params=critic_params,
             critic_optimizer_state=critic_optimizer_state,
         )
-        return key, state, critic_loss.mean()
+        return state, critic_loss.mean()
 
-    def _update_minibatch(self, carry: tuple, minibatch: tuple):
-        key, state = carry
+    def _update_minibatch(
+        self, state: MAPPOState, xs: tuple
+    ) -> tuple[MAPPOState, tuple[Array, Array, tuple[Array, Array, Array]]]:
+        minibatch, key = xs
         (
             initial_actor_carry,
             initial_critic_carry,
@@ -359,18 +361,19 @@ class MAPPO:
             returns,
         ) = minibatch
 
-        key, state, critic_loss = self._update_critic(
-            key, state, initial_critic_carry, transitions, returns
+        actor_key, critic_key = jax.random.split(key)
+
+        state, critic_loss = self._update_critic(
+            critic_key, state, initial_critic_carry, transitions, returns
         )
-        key, state, actor_loss, aux = self._update_actor(
-            key, state, initial_actor_carry, transitions, advantages
+        state, actor_loss, aux = self._update_actor(
+            actor_key, state, initial_actor_carry, transitions, advantages
         )
 
-        return (key, state), (actor_loss, critic_loss, aux)
+        return state, (actor_loss, critic_loss, aux)
 
-    def _update_epoch(self, carry: tuple):
+    def _update_epoch(self, carry: tuple) -> tuple:
         (
-            key,
             state,
             initial_actor_carry,
             initial_critic_carry,
@@ -378,10 +381,12 @@ class MAPPO:
             advantages,
             returns,
             *_,
+            base_key,
             epoch,
         ) = carry
 
-        key, permutation_key = jax.random.split(key)
+        key = jax.random.fold_in(base_key, epoch)
+        permutation_key, minibatch_key = jax.random.split(key)
 
         batch = (
             initial_actor_carry,
@@ -431,15 +436,16 @@ class MAPPO:
             return minibatches
 
         minibatches = shuffle(batch)
+        minibatch_keys = jax.random.split(minibatch_key, self.cfg.num_minibatches)
 
-        (key, state), (
+        state, (
             actor_loss,
             critic_loss,
             (entropy, approximate_kl, clip_fraction),
         ) = jax.lax.scan(
             self._update_minibatch,
-            (key, state),
-            minibatches,
+            state,
+            (minibatches, minibatch_keys),
         )
 
         metrics = jax.tree.map(
@@ -448,7 +454,6 @@ class MAPPO:
         )
 
         return (
-            key,
             state,
             initial_actor_carry,
             initial_critic_carry,
@@ -456,18 +461,21 @@ class MAPPO:
             advantages,
             returns,
             metrics,
+            base_key,
             epoch + 1,
         )
 
-    def _update_step(self, carry: tuple, _):
-        key, state = carry
+    def _update_step(self, state: MAPPOState, key: Key) -> tuple[MAPPOState, None]:
+        step_key, epoch_key = jax.random.split(key)
+
         initial_actor_carry = state.actor_carry
         initial_critic_carry = state.critic_carry
 
-        (key, state), transitions = jax.lax.scan(
+        step_keys = jax.random.split(step_key, self.cfg.num_steps)
+        state, transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),
-            (key, state),
-            length=self.cfg.num_steps,
+            state,
+            step_keys,
         )
 
         timestep = to_sequence(state.timestep)
@@ -503,17 +511,19 @@ class MAPPO:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         def cond_fun(carry):
-            *_, (*_, approximate_kl, _), epoch = carry
+            *_, (*_, approximate_kl, _), _base_key, epoch = carry
+
             cond = epoch < self.cfg.update_epochs
+
             if self.cfg.target_kl:
                 cond = cond & (approximate_kl < self.cfg.target_kl)
+
             return cond
 
-        key, state, *_, metrics, _ = jax.lax.while_loop(
+        state, *_, metrics, _base_key, _ = jax.lax.while_loop(
             cond_fun,
             self._update_epoch,
             (
-                key,
                 state,
                 initial_actor_carry,
                 initial_critic_carry,
@@ -521,6 +531,7 @@ class MAPPO:
                 advantages,
                 returns,
                 (0.0, 0.0, 0.0, 0.0, 0.0),
+                epoch_key,
                 0,
             ),
         )
@@ -536,12 +547,11 @@ class MAPPO:
             }
         )
 
-        return (key, state), None
+        return state, None
 
     @partial(jax.jit, static_argnames=["self"])
-    def init(self, key: Key):
+    def init(self, key: Key) -> MAPPOState:
         (
-            key,
             env_key,
             actor_key,
             actor_torso_key,
@@ -549,7 +559,7 @@ class MAPPO:
             critic_key,
             critic_torso_key,
             critic_dropout_key,
-        ) = jax.random.split(key, 8)
+        ) = jax.random.split(key, 7)
 
         agent_ids = self.env.agents
         num_agents = self.env.num_agents
@@ -605,40 +615,39 @@ class MAPPO:
             critic_carry,
         )
 
-        return (
-            key,
-            MAPPOState(
-                step=0,
-                timestep=from_sequence(timestep),
-                env_state=env_state,
-                actor_params=actor_params,
-                critic_params=critic_params,
-                actor_optimizer_state=self.actor_optimizer.init(actor_params),
-                critic_optimizer_state=self.critic_optimizer.init(critic_params),
-                actor_carry=actor_carry,
-                critic_carry=critic_carry,
-            ),
+        return MAPPOState(
+            step=0,
+            timestep=from_sequence(timestep),
+            env_state=env_state,
+            actor_params=actor_params,
+            critic_params=critic_params,
+            actor_optimizer_state=self.actor_optimizer.init(actor_params),
+            critic_optimizer_state=self.critic_optimizer.init(critic_params),
+            actor_carry=actor_carry,
+            critic_carry=critic_carry,
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(
         self, key: Key, state: MAPPOState, num_steps: int
-    ) -> tuple[Key, MAPPOState]:
-        return key, state
+    ) -> MAPPOState:
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def train(self, key: Key, state: MAPPOState, num_steps: int):
-        (key, state), _ = jax.lax.scan(
+    def train(self, key: Key, state: MAPPOState, num_steps: int) -> MAPPOState:
+        num_outer_steps = num_steps // (self.cfg.num_envs * self.cfg.num_steps)
+        keys = jax.random.split(key, num_outer_steps)
+        state, _ = jax.lax.scan(
             self._update_step,
-            (key, state),
-            length=num_steps // (self.cfg.num_envs * self.cfg.num_steps),
+            state,
+            keys,
         )
 
-        return key, state
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: Key, state: MAPPOState, num_steps: int) -> tuple[Key, MAPPOState]:
-        key, reset_key = jax.random.split(key)
+    def evaluate(self, key: Key, state: MAPPOState, num_steps: int) -> MAPPOState:
+        reset_key, eval_key = jax.random.split(key)
         num_agents = self.env.num_agents
 
         reset_keys = jax.random.split(reset_key, self.cfg.num_envs)
@@ -666,10 +675,11 @@ class MAPPO:
             critic_carry=critic_carry,
         )
 
-        (key, state), _ = jax.lax.scan(
+        step_keys = jax.random.split(eval_key, num_steps)
+        state, _ = jax.lax.scan(
             partial(self._step, policy=self._deterministic_action),
-            (key, state),
-            length=num_steps,
+            state,
+            step_keys,
         )
 
-        return key, state
+        return state

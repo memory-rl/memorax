@@ -97,11 +97,13 @@ train = lox.spool(agent.train)
 
 key = jax.random.key(seed)
 
-key, state = init(key)
+key, init_key = jax.random.split(key)
+state = init(init_key)
 
 for i in range(num_epochs):
     start = time.perf_counter()
-    (key, state), logs = train(key, state, num_steps)
+    key, train_key = jax.random.split(key)
+    state, logs = train(train_key, state, num_steps)
     jax.block_until_ready(state)
     end = time.perf_counter()
 

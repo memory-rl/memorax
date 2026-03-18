@@ -97,8 +97,8 @@ class R2D2:
 
     def _greedy_action(
         self, key: Key, state: R2D2State
-    ) -> tuple[Key, R2D2State, Array, dict]:
-        key, torso_key = jax.random.split(key)
+    ) -> tuple[R2D2State, Array, dict]:
+        torso_key = key
         timestep = state.timestep.to_sequence()
         (carry, (q_values, _)), intermediates = self.q_network.apply(
             state.params,
@@ -113,38 +113,37 @@ class R2D2:
         action = jnp.argmax(q_values, axis=-1)
         action = remove_time_axis(action)
         state = state.replace(carry=carry)
-        return key, state, action, intermediates
+        return state, action, intermediates
 
     def _random_action(
         self, key: Key, state: R2D2State
-    ) -> tuple[Key, R2D2State, Array, dict]:
-        key, action_key = jax.random.split(key)
-        action_key = jax.random.split(action_key, self.cfg.num_envs)
+    ) -> tuple[R2D2State, Array, dict]:
+        action_key = jax.random.split(key, self.cfg.num_envs)
         action = jax.vmap(self.env.action_space(self.env_params).sample)(action_key)
-        return key, state, action, {}
+        return state, action, {}
 
     def _epsilon_greedy_action(
         self, key: Key, state: R2D2State
-    ) -> tuple[Key, R2D2State, Array, dict]:
-        key, state, random_action, _ = self._random_action(key, state)
-        key, state, greedy_action, intermediates = self._greedy_action(key, state)
+    ) -> tuple[R2D2State, Array, dict]:
+        random_key, greedy_key, sample_key = jax.random.split(key, 3)
 
-        key, sample_key = jax.random.split(key)
+        state, random_action, _ = self._random_action(random_key, state)
+        state, greedy_action, intermediates = self._greedy_action(greedy_key, state)
+
         epsilon = self.epsilon_schedule(state.step)
         action = jnp.where(
             jax.random.uniform(sample_key, greedy_action.shape) < epsilon,
             random_action,
             greedy_action,
         )
-        return key, state, action, intermediates
+        return state, action, intermediates
 
-    def _step(self, carry: tuple, _, *, policy: Callable):
-        key, state = carry
+    def _step(self, state: R2D2State, key: Key, *, policy: Callable) -> tuple[R2D2State, Transition]:
+        action_key, step_key = jax.random.split(key)
 
         initial_carry = state.carry
 
-        key, action_key, step_key = jax.random.split(key, 3)
-        key, state, action, intermediates = policy(action_key, state)
+        state, action, intermediates = policy(action_key, state)
         num_envs, *_ = state.timestep.obs.shape
         step_key = jax.random.split(step_key, num_envs)
         next_obs, env_state, reward, done, info = jax.vmap(
@@ -198,13 +197,11 @@ class R2D2:
             env_state=env_state,
             buffer_state=buffer_state,
         )
-        return (key, state), transition
+        return state, transition
 
     def _update(self, key: Key, state: R2D2State):
-        key, sample_key = jax.random.split(key)
+        sample_key, torso_key, next_torso_key = jax.random.split(key, 3)
         batch = self.buffer.sample(state.buffer_state, sample_key)
-
-        key, torso_key, next_torso_key = jax.random.split(key, 3)
 
         experience = batch.experience
 
@@ -343,24 +340,25 @@ class R2D2:
 
         return state, info
 
-    def _update_step(self, carry: tuple, _):
-        key, state = carry
-        (key, state), transitions = jax.lax.scan(
+    def _update_step(self, state: R2D2State, key: Key) -> tuple[R2D2State, None]:
+        step_key, update_key = jax.random.split(key)
+
+        step_keys = jax.random.split(step_key, self.cfg.train_frequency // self.cfg.num_envs)
+        state, _ = jax.lax.scan(
             partial(self._step, policy=self._epsilon_greedy_action),
-            (key, state),
-            length=self.cfg.train_frequency // self.cfg.num_envs,
+            state,
+            step_keys,
         )
 
-        key, update_key = jax.random.split(key)
         state, info = self._update(update_key, state)
 
         lox.log(info)
 
-        return (key, state), None
+        return state, None
 
     @partial(jax.jit, static_argnames=["self"])
-    def init(self, key: Key):
-        key, env_key, q_key, torso_key = jax.random.split(key, 4)
+    def init(self, key: Key) -> R2D2State:
+        env_key, q_key, torso_key = jax.random.split(key, 3)
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
 
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
@@ -396,30 +394,26 @@ class R2D2:
         )
         buffer_state = self.buffer.init(jax.tree.map(lambda x: x[0], transition))
 
-        return (
-            key,
-            R2D2State(
-                step=0,
-                timestep=timestep,
-                carry=carry,
-                env_state=env_state,
-                params=params,
-                target_params=target_params,
-                optimizer_state=optimizer_state,
-                buffer_state=buffer_state,
-            ),
+        return R2D2State(
+            step=0,
+            timestep=timestep,
+            carry=carry,
+            env_state=env_state,
+            params=params,
+            target_params=target_params,
+            optimizer_state=optimizer_state,
+            buffer_state=buffer_state,
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(
-        self, key: Key, state: R2D2State, num_steps: int
-    ) -> tuple[Key, R2D2State]:
-        (key, state), _ = jax.lax.scan(
+    def warmup(self, key: Key, state: R2D2State, num_steps: int) -> R2D2State:
+        step_keys = jax.random.split(key, num_steps // self.cfg.num_envs)
+        state, _ = jax.lax.scan(
             partial(self._step, policy=self._random_action),
-            (key, state),
-            length=num_steps // self.cfg.num_envs,
+            state,
+            step_keys,
         )
-        return key, state
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(
@@ -427,18 +421,20 @@ class R2D2:
         key: Key,
         state: R2D2State,
         num_steps: int,
-    ):
-        (key, state), _ = jax.lax.scan(
+    ) -> R2D2State:
+        num_outer_steps = num_steps // self.cfg.train_frequency
+        keys = jax.random.split(key, num_outer_steps)
+        state, _ = jax.lax.scan(
             self._update_step,
-            (key, state),
-            length=(num_steps // self.cfg.train_frequency),
+            state,
+            keys,
         )
 
-        return key, state
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: Key, state: R2D2State, num_steps: int) -> tuple[Key, R2D2State]:
-        key, reset_key = jax.random.split(key)
+    def evaluate(self, key: Key, state: R2D2State, num_steps: int) -> R2D2State:
+        reset_key, eval_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
@@ -454,10 +450,11 @@ class R2D2:
 
         state = state.replace(timestep=timestep, carry=carry, env_state=env_state)
 
-        (key, state), _ = jax.lax.scan(
+        step_keys = jax.random.split(eval_key, num_steps)
+        state, _ = jax.lax.scan(
             partial(self._step, policy=self._greedy_action),
-            (key, state),
-            length=num_steps,
+            state,
+            step_keys,
         )
 
-        return key, state
+        return state

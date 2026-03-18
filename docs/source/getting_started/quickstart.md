@@ -105,11 +105,13 @@ init = jax.vmap(agent.init)
 train = jax.vmap(lox.spool(agent.train), in_axes=(0, 0, None))
 
 key = jax.random.key(0)
-keys = jax.random.split(key, 1)
-keys, state = init(keys)
+num_seeds = 1
+key, init_key = jax.random.split(key)
+state = init(jax.random.split(init_key, num_seeds))
 
 for i in range(0, 500_000, 10_000):
-    (keys, state), logs = train(keys, state, 10_000)
+    key, train_key = jax.random.split(key)
+    state, logs = train(jax.random.split(train_key, num_seeds), state, 10_000)
 
     info = logs.pop("info")
     episode_returns = info["returned_episode_returns"][info["returned_episode"]]

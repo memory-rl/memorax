@@ -58,8 +58,10 @@ config = PPOConfig(
 )
 
 agent = PPO(config, env, env_params, actor, critic, optimizer, optimizer)
-key, state = agent.init(key)
-key, state = agent.train(key, state, num_steps=1000)
+key, init_key = jax.random.split(key)
+state = agent.init(init_key)
+key, train_key = jax.random.split(key)
+state = agent.train(train_key, state, num_steps=1000)
 ```
 
 All algorithms share this interface, so switching from PPO to DQN or SAC is just a matter of changing the config and providing the right networks.
@@ -84,12 +86,14 @@ See the {doc}`../guides/networks` guide for the full list of available torsos, h
 
 ## JAX Patterns
 
-Memorax is built on JAX, which brings a few patterns that differ from typical PyTorch workflows. **Vectorized environments**: all training runs `num_envs` environments in parallel, fully JIT-compiled. **Explicit random state**: JAX uses functional random keys that you thread through calls. `agent.init` and `agent.train` both consume and return a key. **JIT compilation**: the first call to `train` may be slow as JAX traces and compiles the computation graph, but subsequent calls are fast.
+Memorax is built on JAX, which brings a few patterns that differ from typical PyTorch workflows. **Vectorized environments**: all training runs `num_envs` environments in parallel, fully JIT-compiled. **Explicit random state**: JAX uses functional random keys. Callers split and pass keys to each method call; methods consume their key without returning one. **JIT compilation**: the first call to `train` may be slow as JAX traces and compiles the computation graph, but subsequent calls are fast.
 
 ```python
 key = jax.random.key(0)
-key, state = agent.init(key)
-key, state = agent.train(key, state, num_steps=1000)
+key, init_key = jax.random.split(key)
+state = agent.init(init_key)
+key, train_key = jax.random.split(key)
+state = agent.train(train_key, state, num_steps=1000)
 ```
 
 ## Logging
@@ -102,7 +106,8 @@ from memorax.environments.wrappers import RecordEpisodeStatistics
 
 env = RecordEpisodeStatistics(env)
 train = jax.vmap(lox.spool(agent.train), in_axes=(0, 0, None))
-(keys, state), logs = train(keys, state, num_steps)
+key, train_key = jax.random.split(key)
+state, logs = train(jax.random.split(train_key, num_seeds), state, num_steps)
 ```
 
 Memorax provides several logger backends: `DashboardLogger` for a live terminal UI, `WandbLogger`, `TensorBoardLogger`, `FileLogger`, and `CheckpointLogger`. Combine multiple backends with the `MultiLogger` wrapper.

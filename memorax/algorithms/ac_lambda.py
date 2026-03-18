@@ -51,7 +51,7 @@ class ACLambda:
 
     def _deterministic_action(
         self, key: Key, state: ACLambdaState
-    ) -> tuple[Key, ACLambdaState, Array, Array, None, dict]:
+    ) -> tuple[ACLambdaState, Array, Array, None, dict]:
         timestep = state.timestep.to_sequence()
         (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
@@ -71,12 +71,12 @@ class ACLambda:
         action = remove_time_axis(action)
         log_prob = remove_time_axis(log_prob)
         state = state.replace(actor_carry=actor_carry)
-        return key, state, action, log_prob, None, intermediates
+        return state, action, log_prob, None, intermediates
 
     def _stochastic_action(
         self, key: Key, state: ACLambdaState
-    ) -> tuple[Key, ACLambdaState, Array, Array, Array, dict]:
-        key, action_key, actor_torso_key, critic_torso_key = jax.random.split(key, 4)
+    ) -> tuple[ACLambdaState, Array, Array, Array, dict]:
+        action_key, actor_torso_key, critic_torso_key = jax.random.split(key, 3)
         timestep = state.timestep.to_sequence()
 
         (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
@@ -106,13 +106,13 @@ class ACLambda:
         value = remove_feature_axis(value)
 
         state = state.replace(actor_carry=actor_carry, critic_carry=critic_carry)
-        return key, state, action, log_prob, value, intermediates
+        return state, action, log_prob, value, intermediates
 
-    def _step(self, carry: tuple, _, *, policy: Callable):
-        key, state = carry
-
-        key, step_key = jax.random.split(key)
-        key, state, action, log_prob, value, intermediates = policy(key, state)
+    def _step(
+        self, state: ACLambdaState, key: Key, *, policy: Callable
+    ) -> tuple[ACLambdaState, Transition]:
+        action_key, step_key = jax.random.split(key)
+        state, action, log_prob, value, intermediates = policy(action_key, state)
 
         num_envs, *_ = state.timestep.obs.shape
         step_keys = jax.random.split(step_key, num_envs)
@@ -154,7 +154,7 @@ class ACLambda:
             ),
             env_state=env_state,
         )
-        return (key, state), transition
+        return state, transition
 
     def _obgd_update(self, traces: PyTree, td_error: Array, lr: float, kappa: float):
         z_leaves = jax.tree.leaves(traces)
@@ -172,10 +172,8 @@ class ACLambda:
 
         return jax.tree.map(compute_update, traces)
 
-    def _update_step(self, carry: tuple, _):
-        key, state = carry
-
-        key, action_key, step_key, actor_torso_key, critic_torso_key = jax.random.split(key, 5)
+    def _update_step(self, state: ACLambdaState, key: Key) -> tuple[ACLambdaState, None]:
+        action_key, step_key, actor_torso_key, critic_torso_key = jax.random.split(key, 4)
 
         timestep = state.timestep.to_sequence()
 
@@ -315,12 +313,11 @@ class ACLambda:
             critic_carry=critic_carry,
         )
 
-        return (key, state), None
+        return state, None
 
     @partial(jax.jit, static_argnames=["self"])
-    def init(self, key: Key):
+    def init(self, key: Key) -> ACLambdaState:
         (
-            key,
             env_key,
             actor_key,
             actor_torso_key,
@@ -328,7 +325,7 @@ class ACLambda:
             critic_key,
             critic_torso_key,
             critic_dropout_key,
-        ) = jax.random.split(key, 8)
+        ) = jax.random.split(key, 7)
 
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
@@ -377,37 +374,35 @@ class ACLambda:
             lambda p: jnp.zeros((self.cfg.num_envs, *p.shape)), critic_params
         )
 
-        return (
-            key,
-            ACLambdaState(
-                step=0,
-                timestep=timestep.from_sequence(),
-                env_state=env_state,
-                actor_params=actor_params,
-                actor_traces=actor_traces,
-                actor_carry=actor_carry,
-                critic_params=critic_params,
-                critic_traces=critic_traces,
-                critic_carry=critic_carry,
-            ),
+        return ACLambdaState(
+            step=0,
+            timestep=timestep.from_sequence(),
+            env_state=env_state,
+            actor_params=actor_params,
+            actor_traces=actor_traces,
+            actor_carry=actor_carry,
+            critic_params=critic_params,
+            critic_traces=critic_traces,
+            critic_carry=critic_carry,
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def warmup(self, key: Key, state: ACLambdaState, num_steps: int) -> tuple[Key, ACLambdaState]:
-        return key, state
+    def warmup(self, key: Key, state: ACLambdaState, num_steps: int) -> ACLambdaState:
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def train(self, key: Key, state: ACLambdaState, num_steps: int):
-        (key, state), _ = jax.lax.scan(
+    def train(self, key: Key, state: ACLambdaState, num_steps: int) -> ACLambdaState:
+        keys = jax.random.split(key, num_steps // self.cfg.num_envs)
+        state, _ = jax.lax.scan(
             self._update_step,
-            (key, state),
-            length=num_steps // self.cfg.num_envs,
+            state,
+            keys,
         )
-        return key, state
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def evaluate(self, key: Key, state: ACLambdaState, num_steps: int) -> tuple[Key, ACLambdaState]:
-        key, reset_key = jax.random.split(key)
+    def evaluate(self, key: Key, state: ACLambdaState, num_steps: int) -> ACLambdaState:
+        reset_key, eval_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
@@ -429,10 +424,11 @@ class ACLambda:
             env_state=env_state,
         )
 
-        (key, state), _ = jax.lax.scan(
+        step_keys = jax.random.split(eval_key, num_steps)
+        state, _ = jax.lax.scan(
             partial(self._step, policy=self._deterministic_action),
-            (key, state),
-            length=num_steps,
+            state,
+            step_keys,
         )
 
-        return key, state
+        return state

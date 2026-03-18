@@ -64,7 +64,7 @@ class GradientPPO:
 
     def _deterministic_action(
         self, key: Key, state: GradientPPOState
-    ) -> tuple[Key, GradientPPOState, Array, Array, None, dict]:
+    ) -> tuple[GradientPPOState, Array, Array, None, dict]:
         timestep = state.timestep.to_sequence()
         (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
             state.actor_params,
@@ -89,17 +89,12 @@ class GradientPPO:
         state = state.replace(
             actor_carry=actor_carry,
         )
-        return key, state, action, log_prob, None, intermediates
+        return state, action, log_prob, None, intermediates
 
     def _stochastic_action(
         self, key: Key, state: GradientPPOState
-    ) -> tuple[Key, GradientPPOState, Array, Array, Array, dict]:
-        (
-            key,
-            action_key,
-            actor_torso_key,
-            critic_torso_key,
-        ) = jax.random.split(key, 4)
+    ) -> tuple[GradientPPOState, Array, Array, Array, dict]:
+        action_key, actor_torso_key, critic_torso_key = jax.random.split(key, 3)
 
         timestep = state.timestep.to_sequence()
         (actor_carry, (probs, _)), intermediates = self.actor_network.apply(
@@ -134,14 +129,15 @@ class GradientPPO:
             actor_carry=actor_carry,
             critic_carry=critic_carry,
         )
-        return key, state, action, log_prob, value, intermediates
+        return state, action, log_prob, value, intermediates
 
-    def _step(self, carry: tuple, _, *, policy: Callable):
-        key, state = carry
+    def _step(
+        self, state: GradientPPOState, key: Key, *, policy: Callable
+    ) -> tuple[GradientPPOState, Transition]:
         step_carry = (state.actor_carry, state.critic_carry, state.h_carry)
 
-        key, action_key, step_key = jax.random.split(key, 3)
-        key, state, action, log_prob, value, intermediates = policy(action_key, state)
+        action_key, step_key = jax.random.split(key)
+        state, action, log_prob, value, intermediates = policy(action_key, state)
 
         num_envs, *_ = state.timestep.obs.shape
         step_key = jax.random.split(step_key, num_envs)
@@ -192,12 +188,12 @@ class GradientPPO:
             ),
             env_state=env_state,
         )
-        return (key, state), transition
+        return state, transition
 
     def _update_actor(
         self, key: Key, state: GradientPPOState, initial_actor_carry: Carry, transitions: Transition, advantages: Array
-    ):
-        key, torso_key, dropout_key = jax.random.split(key, 3)
+    ) -> tuple[GradientPPOState, Array, tuple[Array, Array, Array]]:
+        torso_key, dropout_key = jax.random.split(key)
 
         if self.cfg.burn_in_length > 0:
             burn_in = jax.tree.map(
@@ -262,7 +258,7 @@ class GradientPPO:
             actor_params=actor_params,
             actor_optimizer_state=actor_optimizer_state,
         )
-        return key, state, actor_loss.mean(), aux
+        return state, actor_loss.mean(), aux
 
     def _compute_delta_lambda(self, critic_params: PyTree, transitions: Transition, initial_critic_carry: Carry):
         gamma = self.critic_network.head.gamma
@@ -304,7 +300,7 @@ class GradientPPO:
         return delta_lambda, values
 
     def _update_critic(self, key: Key, state: GradientPPOState, transitions: Transition, h_values: Array, initial_critic_carry: Carry):
-        key, torso_key, dropout_key = jax.random.split(key, 3)
+        torso_key, dropout_key = jax.random.split(key)
 
         def critic_loss_fn(params: PyTree):
             delta_lambda, values = self._compute_delta_lambda(params, transitions, initial_critic_carry)
@@ -325,10 +321,10 @@ class GradientPPO:
         state = state.replace(
             critic_params=critic_params, critic_optimizer_state=critic_optimizer_state
         )
-        return key, state, critic_loss.mean(), delta_lambda
+        return state, critic_loss.mean(), delta_lambda
 
     def _update_h(self, key: Key, state: GradientPPOState, transitions: Transition, delta_lambda: Array, initial_h_carry: Carry):
-        key, torso_key, dropout_key = jax.random.split(key, 3)
+        torso_key, dropout_key = jax.random.split(key)
         delta_lambda = jax.lax.stop_gradient(delta_lambda)
 
         def h_loss_fn(params: PyTree):
@@ -358,10 +354,12 @@ class GradientPPO:
         state = state.replace(
             h_params=h_params, h_optimizer_state=h_optimizer_state
         )
-        return key, state, h_loss.mean()
+        return state, h_loss.mean()
 
-    def _update_minibatch(self, carry: tuple, minibatch: tuple):
-        key, state = carry
+    def _update_minibatch(
+        self, state: GradientPPOState, xs: tuple
+    ) -> tuple[GradientPPOState, tuple[Array, Array, tuple[Array, Array, Array]]]:
+        minibatch, key = xs
         (
             initial_actor_carry,
             initial_critic_carry,
@@ -370,6 +368,8 @@ class GradientPPO:
             advantages,
             returns,
         ) = minibatch
+
+        critic_key, h_key, actor_key = jax.random.split(key, 3)
 
         _, (h_values, _) = self.h_network.apply(
             state.h_params,
@@ -382,12 +382,12 @@ class GradientPPO:
         h_values = remove_feature_axis(h_values)
         h_values = jax.lax.stop_gradient(h_values)
 
-        key, state, critic_loss, delta_lambda = self._update_critic(
-            key, state, transitions, h_values, initial_critic_carry
+        state, critic_loss, delta_lambda = self._update_critic(
+            critic_key, state, transitions, h_values, initial_critic_carry
         )
 
-        key, state, h_loss = self._update_h(
-            key, state, transitions, delta_lambda, initial_h_carry
+        state, h_loss = self._update_h(
+            h_key, state, transitions, delta_lambda, initial_h_carry
         )
 
         delta_lambda = jax.lax.stop_gradient(delta_lambda)
@@ -396,15 +396,14 @@ class GradientPPO:
                 (delta_lambda - delta_lambda.mean())
                 / (delta_lambda.std() + 1e-8)
             )
-        key, state, actor_loss, aux = self._update_actor(
-            key, state, initial_actor_carry, transitions, delta_lambda
+        state, actor_loss, aux = self._update_actor(
+            actor_key, state, initial_actor_carry, transitions, delta_lambda
         )
 
-        return (key, state), (actor_loss, critic_loss, aux)
+        return state, (actor_loss, critic_loss, aux)
 
-    def _update_epoch(self, carry: tuple):
+    def _update_epoch(self, carry: tuple) -> tuple:
         (
-            key,
             state,
             initial_actor_carry,
             initial_critic_carry,
@@ -413,10 +412,12 @@ class GradientPPO:
             advantages,
             returns,
             *_,
+            base_key,
             epoch,
         ) = carry
 
-        key, permutation_key = jax.random.split(key)
+        key = jax.random.fold_in(base_key, epoch)
+        permutation_key, minibatch_key = jax.random.split(key)
 
         def shuffle(batch: PyTree):
             shuffle_time_axis = (
@@ -455,12 +456,13 @@ class GradientPPO:
                 returns,
             )
         )
+        minibatch_keys = jax.random.split(minibatch_key, self.cfg.num_minibatches)
 
-        (key, state), (actor_loss, critic_loss, (entropy, approximate_kl, clip_fraction)) = (
+        state, (actor_loss, critic_loss, (entropy, approximate_kl, clip_fraction)) = (
             jax.lax.scan(
                 self._update_minibatch,
-                (key, state),
-                minibatches,
+                state,
+                (minibatches, minibatch_keys),
             )
         )
 
@@ -469,7 +471,6 @@ class GradientPPO:
         )
 
         return (
-            key,
             state,
             initial_actor_carry,
             initial_critic_carry,
@@ -478,15 +479,18 @@ class GradientPPO:
             advantages,
             returns,
             metrics,
+            base_key,
             epoch + 1,
         )
 
-    def _update_step(self, carry: tuple, _):
-        key, state = carry
-        (key, state), transitions = jax.lax.scan(
+    def _update_step(self, state: GradientPPOState, key: Key) -> tuple[GradientPPOState, None]:
+        step_key, epoch_key = jax.random.split(key)
+
+        step_keys = jax.random.split(step_key, self.cfg.num_steps)
+        state, transitions = jax.lax.scan(
             partial(self._step, policy=self._stochastic_action),
-            (key, state),
-            length=self.cfg.num_steps,
+            state,
+            step_keys,
         )
 
         transitions = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), transitions)
@@ -515,7 +519,7 @@ class GradientPPO:
         )
 
         def cond_fun(carry):
-            *_, (*_, approximate_kl, _), epoch = carry
+            *_, (*_, approximate_kl, _), _base_key, epoch = carry
 
             cond = epoch < self.cfg.update_epochs
 
@@ -524,11 +528,10 @@ class GradientPPO:
 
             return cond
 
-        key, state, *_, metrics, _ = jax.lax.while_loop(
+        state, *_, metrics, _base_key, _ = jax.lax.while_loop(
             cond_fun,
             self._update_epoch,
             (
-                key,
                 state,
                 initial_actor_carry,
                 initial_critic_carry,
@@ -537,6 +540,7 @@ class GradientPPO:
                 advantages,
                 returns,
                 (0.0, 0.0, 0.0, 0.0, 0.0),
+                epoch_key,
                 0,
             ),
         )
@@ -550,12 +554,11 @@ class GradientPPO:
             "losses/clip_fraction": clip_fraction,
         })
 
-        return (key, state), None
+        return state, None
 
     @partial(jax.jit, static_argnames=["self"])
-    def init(self, key: Key):
+    def init(self, key: Key) -> GradientPPOState:
         (
-            key,
             env_key,
             actor_key,
             actor_torso_key,
@@ -566,7 +569,7 @@ class GradientPPO:
             h_key,
             h_torso_key,
             h_dropout_key,
-        ) = jax.random.split(key, 11)
+        ) = jax.random.split(key, 10)
 
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
@@ -626,45 +629,44 @@ class GradientPPO:
         critic_optimizer_state = self.critic_optimizer.init(critic_params)
         h_optimizer_state = self.h_optimizer.init(h_params)
 
-        return (
-            key,
-            GradientPPOState(
-                step=0,
-                timestep=timestep.from_sequence(),
-                actor_carry=actor_carry,
-                critic_carry=critic_carry,
-                h_carry=h_carry,
-                env_state=env_state,
-                actor_params=actor_params,
-                critic_params=critic_params,
-                h_params=h_params,
-                actor_optimizer_state=actor_optimizer_state,
-                critic_optimizer_state=critic_optimizer_state,
-                h_optimizer_state=h_optimizer_state,
-            ),
+        return GradientPPOState(
+            step=0,
+            timestep=timestep.from_sequence(),
+            actor_carry=actor_carry,
+            critic_carry=critic_carry,
+            h_carry=h_carry,
+            env_state=env_state,
+            actor_params=actor_params,
+            critic_params=critic_params,
+            h_params=h_params,
+            actor_optimizer_state=actor_optimizer_state,
+            critic_optimizer_state=critic_optimizer_state,
+            h_optimizer_state=h_optimizer_state,
         )
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(
         self, key: Key, state: GradientPPOState, num_steps: int
-    ) -> tuple[Key, GradientPPOState]:
-        return key, state
+    ) -> GradientPPOState:
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
-    def train(self, key: Key, state: GradientPPOState, num_steps: int):
-        (key, state), _ = jax.lax.scan(
+    def train(self, key: Key, state: GradientPPOState, num_steps: int) -> GradientPPOState:
+        num_outer_steps = num_steps // (self.cfg.num_envs * self.cfg.num_steps)
+        keys = jax.random.split(key, num_outer_steps)
+        state, _ = jax.lax.scan(
             self._update_step,
-            (key, state),
-            length=num_steps // (self.cfg.num_envs * self.cfg.num_steps),
+            state,
+            keys,
         )
 
-        return key, state
+        return state
 
     @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(
         self, key: Key, state: GradientPPOState, num_steps: int
-    ) -> tuple[Key, GradientPPOState]:
-        key, reset_key = jax.random.split(key)
+    ) -> GradientPPOState:
+        reset_key, eval_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_envs)
         obs, env_state = jax.vmap(self.env.reset, in_axes=(0, None))(
             reset_key, self.env_params
@@ -689,10 +691,11 @@ class GradientPPO:
             env_state=env_state,
         )
 
-        (key, state), _ = jax.lax.scan(
+        step_keys = jax.random.split(eval_key, num_steps)
+        state, _ = jax.lax.scan(
             partial(self._step, policy=self._deterministic_action),
-            (key, state),
-            length=num_steps,
+            state,
+            step_keys,
         )
 
-        return key, state
+        return state

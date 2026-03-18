@@ -8,14 +8,12 @@ Logging utilities for tracking training progress.
 Core
 ----
 
-:class:`Logger` - Composite logger that dispatches to multiple backends.
+:class:`Logger` - Protocol that all loggers implement.
 
-:class:`LoggerState` - State container for logger.
+:class:`MultiLogger` - Composite logger that dispatches to multiple backends.
 
 Backends
 --------
-
-:class:`ConsoleLogger` - Logs to console/stdout.
 
 :class:`DashboardLogger` - Rich terminal dashboard.
 
@@ -25,17 +23,16 @@ Backends
 
 :class:`TensorBoardLogger` - TensorBoard integration.
 
-:class:`NeptuneLogger` - Neptune.ai integration.
+:class:`CheckpointLogger` - Orbax checkpoint saving.
 
 .. autosummary::
    :toctree: generated
    :hidden:
 
    Logger
-   LoggerState
-   ConsoleLogger
+   MultiLogger
+   CheckpointLogger
    DashboardLogger
    FileLogger
    WandbLogger
    TensorBoardLogger
-   NeptuneLogger

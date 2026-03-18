@@ -9,7 +9,7 @@ import optax
 from memorax.algorithms.gradient_ppo import GradientPPO, GradientPPOConfig
 from memorax.environments import environment
 from memorax.environments.wrappers import RecordEpisodeStatistics
-from memorax.loggers import DashboardLogger, Logger
+from memorax.loggers import DashboardLogger, MultiLogger
 from memorax.networks import (
     FeatureExtractor,
     MambaCell,
@@ -110,17 +110,14 @@ agent = GradientPPO(
     optimizer,
 )
 
-logger = Logger(
+logger = MultiLogger(
     [
         DashboardLogger(
-            title="GradientPPO Craftax",
-            name="GradientPPO",
-            env_id=env_id,
             total_timesteps=total_timesteps,
+            summary={"Algorithm": "GradientPPO", "Environment": env_id, "Torso": "Mamba", "Total Timesteps": f"{total_timesteps:_}"},
         )
     ]
 )
-logger_state = logger.init(cfg=asdict(config))
 
 init = jax.vmap(agent.init)
 train = jax.vmap(lox.spool(agent.train), in_axes=(0, 0, None))
@@ -148,7 +145,6 @@ for i in range(num_epochs):
         "training/episode_lengths": episode_lengths,
         **logs,
     }
-    logger_state = logger.log(logger_state, data, step=state.step[0].item())
-    logger.emit(logger_state)
+    logger.log(data, step=state.step[0].item())
 
-logger.finish(logger_state)
+logger.finish()

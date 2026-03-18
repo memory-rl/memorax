@@ -97,10 +97,9 @@ from dataclasses import asdict
 
 import jax
 import lox
-from memorax.loggers import DashboardLogger, Logger
+from memorax.loggers import DashboardLogger, MultiLogger
 
-logger = Logger([DashboardLogger(title="PPO-GRU CartPole", total_timesteps=500_000)])
-logger_state = logger.init(cfg=asdict(config))
+logger = MultiLogger([DashboardLogger(total_timesteps=500_000, summary={"Algorithm": "PPO-GRU", "Environment": "CartPole"})])
 
 init = jax.vmap(agent.init)
 train = jax.vmap(lox.spool(agent.train), in_axes=(0, 0, None))
@@ -121,10 +120,9 @@ for i in range(0, 500_000, 10_000):
         "training/episode_lengths": episode_lengths,
         **logs,
     }
-    logger_state = logger.log(logger_state, data, step=state.step[0].item())
-    logger.emit(logger_state)
+    logger.log(data, step=state.step[0].item())
 
-logger.finish(logger_state)
+logger.finish()
 ```
 
 ## Next Steps

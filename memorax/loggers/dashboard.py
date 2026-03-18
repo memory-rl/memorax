@@ -1,145 +1,84 @@
 from collections import defaultdict
-from dataclasses import field
-from typing import Any, DefaultDict, Optional
+from typing import Any
 
 import jax
 import jax.numpy as jnp
-from flax import struct
 from rich import box
 from rich.console import Console
 from rich.live import Live
-from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
 
-from .logger import BaseLogger, BaseLoggerState, PyTree
+from memorax.utils.typing import PyTree
 
 
-@struct.dataclass(frozen=True)
-class DashboardLoggerState(BaseLoggerState):
-    console: Console
-    live: Live
-    progress: Progress
-    progress_task: Any
-    buffer: DefaultDict[int, dict[str, PyTree]] = field(
-        default_factory=lambda: defaultdict(dict)
-    )
-    stats: dict[str, Any] = field(
-        default_factory=lambda: {
-            "global_step": 0,
-            "training/SPS": 0,
-            "evaluation/SPS": 0,
-            "losses": {},
-            "metrics": {},
-            "info": {},
-        }
-    )
+class DashboardLogger:
+    def __init__(self, total_timesteps=0, refresh_per_second=10, summary=None, **kwargs):
+        self.summary = summary or {}
 
+        self.console = Console()
 
-@struct.dataclass(frozen=True)
-class DashboardLogger(BaseLogger[DashboardLoggerState]):
-    title: Optional[str]
-    name: Optional[str] = None
-    total_timesteps: int = 0
-    refresh_per_second: int = 10
-    env_id: Optional[str] = None
-
-    def init(self, **kwargs) -> DashboardLoggerState:
-        console = Console()
-
-        progress = Progress(
+        self.progress = Progress(
             TextColumn("[progress.description]{task.description}"),
+            SpinnerColumn(),
+            TimeElapsedColumn(),
             BarColumn(bar_width=None),
             TimeRemainingColumn(),
             expand=True,
-            console=console,
+            console=self.console,
         )
-        task = progress.add_task("Progress", total=self.total_timesteps)
+        self.progress_task = self.progress.add_task("Progress", total=total_timesteps)
 
-        dashboard = self.get_dashboard(
-            stats={
-                "global_step": 0,
-                "training/SPS": 0,
-                "evaluation/SPS": 0,
-                "losses": {},
-                "metrics": {},
-                "info": {},
-            },
-            progress=progress,
-            task=task,
-        )
+        dashboard = self.build_dashboard({}, 0, self.progress, self.progress_task)
 
-        live = Live(
+        self.live = Live(
             dashboard,
-            console=console,
-            refresh_per_second=self.refresh_per_second,
+            console=self.console,
+            refresh_per_second=refresh_per_second,
             transient=False,
         )
-        live.start()
+        self.live.start()
 
-        return DashboardLoggerState(
-            console=console,
-            live=live,
-            progress=progress,
-            progress_task=task,
-        )
+    def log(self, data: PyTree, step: int, **kwargs):
+        self.progress.update(self.progress_task, completed=int(step))
+        dashboard = self.build_dashboard(data, step, self.progress, self.progress_task)
+        self.live.update(dashboard, refresh=True)
 
-    def log(
-        self, state: DashboardLoggerState, data: PyTree, step: int
-    ) -> DashboardLoggerState:
-        state.buffer[step].update(data)
-        return state
+    def finish(self) -> None:
+        self.live.stop()
+        self.console.show_cursor(True)
 
-    def emit(self, state: DashboardLoggerState) -> DashboardLoggerState:
-        for step, data in sorted(state.buffer.items()):
-            state.stats["global_step"] = max(state.stats["global_step"], step)
+    def group(self, data: dict[str, PyTree]) -> dict[str, dict[str, Any]]:
+        data = {
+            "/".join(str(p.key) for p in path): leaf
+            for path, leaf in jax.tree_util.tree_leaves_with_path(data)
+        }
+        groups = defaultdict(dict)
+        for key, value in data.items():
+            if "/" in key:
+                prefix, name = key.split("/", 1)
+                groups[prefix][name] = value
+            else:
+                groups[""][key] = value
+        return dict(groups)
 
-            state.stats["training/SPS"] = data.pop(
-                "training/SPS", state.stats["training/SPS"]
-            )
-            state.stats["evaluation/SPS"] = data.pop(
-                "evaluation/SPS", state.stats["evaluation/SPS"]
-            )
+    def build_table(self, heading: str, metrics: dict[str, PyTree]) -> Table:
+        table = Table(box=None, expand=True)
+        table.add_column(heading, justify="left", width=20, style="yellow")
+        table.add_column("Value", justify="right", width=10, style="green")
+        for name, value in metrics.items():
+            table.add_row(name, f"{jnp.mean(value):.3f}")
+        return table
 
-            losses = {k: data.pop(k) for k in list(data) if k.startswith("losses/")}
-            state.stats["losses"].update({k: v.mean() for k, v in losses.items()})
-
-            metrics = {
-                k: data.pop(k)
-                for k in list(data)
-                if k.startswith("training/") or k.startswith("evaluation/")
-            }
-            state.stats["metrics"].update({k: v.mean() for k, v in metrics.items()})
-
-            info = {
-                "/".join(
-                    p.key if hasattr(p, "key") else str(p) for p in path
-                ): jnp.mean(leaf)
-                for path, leaf in jax.tree_util.tree_leaves_with_path(data)
-            }
-            state.stats["info"].update(info)
-
-        state.buffer.clear()
-
-        state.progress.update(
-            state.progress_task, completed=int(state.stats["global_step"])
-        )
-        dashboard = self.get_dashboard(state.stats, state.progress, state.progress_task)
-        state.live.update(dashboard, refresh=True)
-        return state
-
-    def finish(self, state: DashboardLoggerState) -> None:
-        state.progress.update(
-            state.progress_task, completed=int(state.stats["global_step"])
-        )
-        state.live.update(
-            self.get_dashboard(state.stats, state.progress, state.progress_task),
-            refresh=True,
-        )
-        state.live.stop()
-        state.console.show_cursor(True)
-
-    def get_dashboard(
-        self, stats: dict[str, Any], progress: Progress, task: Any
+    def build_dashboard(
+        self, data: dict[str, PyTree], step: int, progress: Progress, task: Any
     ) -> Table:
         dashboard = Table(
             box=box.ROUNDED,
@@ -148,83 +87,38 @@ class DashboardLogger(BaseLogger[DashboardLoggerState]):
             border_style="white",
         )
 
-        header = Table(box=None, expand=True, show_header=False)
-        header.add_column(justify="left")
-        header.add_row(f"[bold white]{self.title} - {self.name}[/]")
-        dashboard.add_row(header)
+        dynamic_summary = {
+            k.split("/", 1)[1]: v for k, v in data.items() if k.startswith("summary/")
+        }
+        items = [*self.summary.items(), *dynamic_summary.items()]
+        if data:
+            items.append(("Step", f"{int(step):_}"))
+        left = Table(box=None, expand=True)
+        left.add_column("Summary", justify="left", width=16, style="white")
+        left.add_column("Value", justify="right", width=8, style="white")
+        right = Table(box=None, expand=True)
+        right.add_column("Summary", justify="left", width=16, style="white")
+        right.add_column("Value", justify="right", width=8, style="white")
+        for i, (key, value) in enumerate(items):
+            table = left if i % 2 == 0 else right
+            table.add_row(key, f"{value}", style="white")
+        summary_row = Table(box=None, expand=True, pad_edge=False)
+        summary_row.add_row(left, right)
+        dashboard.add_row(summary_row)
 
-        summary_table = Table(box=None, expand=True)
-        summary_table.add_column(
-            "Summary", justify="left", vertical="top", width=16, style="white"
-        )
-        summary_table.add_column(
-            "Value", justify="right", vertical="top", width=8, style="white"
-        )
-        summary_table.add_row("Environment", f"{self.env_id}", style="white")
-        summary_table.add_row(
-            "Total Timesteps", f"{self.total_timesteps:_}", style="white"
-        )
-        summary_table.add_row(
-            "Global Step", f"{int(stats['global_step']):_}", style="white"
-        )
-        summary_table.add_row(
-            "training/SPS", f"{int(stats['training/SPS']):_}", style="white"
-        )
-        summary_table.add_row(
-            "evaluation/SPS", f"{int(stats['evaluation/SPS']):_}", style="white"
-        )
+        groups = self.group(data)
+        groups.pop("summary", None)
+        group_names = list(groups.keys())
 
-        losses_table = Table(box=None, expand=True)
-        losses_table.add_column("Losses", justify="left", width=16, style="white")
-        losses_table.add_column("Value", justify="right", width=8, style="white")
-        for metric, value in stats["losses"].items():
-            losses_table.add_row(str(metric), f"{value:.{3}f}")
-
-        monitor = Table(box=None, expand=True, pad_edge=False)
-        monitor.add_row(summary_table, losses_table)
-        dashboard.add_row(monitor)
-
-        statistics = Table(box=None, expand=True, pad_edge=False)
-        left_stats = Table(box=None, expand=True)
-        right_stats = Table(box=None, expand=True)
-        left_stats.add_column("Training", justify="left", width=20, style="yellow")
-        left_stats.add_column("Value", justify="right", width=10, style="green")
-        right_stats.add_column("Evaluation", justify="left", width=20, style="yellow")
-        right_stats.add_column("Value", justify="right", width=10, style="green")
-        for i, (metric, value) in enumerate(stats["metrics"].items()):
-            if metric.startswith("training/"):
-                table = left_stats
-            elif metric.startswith("evaluation/"):
-                table = right_stats
-            else:
-                print(f"Unknown metric: {metric}")
-                continue
-
-            name = metric.split("/")[-1]
-            table.add_row(name, f"{value:.{3}f}")
-
-        statistics.add_row(left_stats, right_stats)
-        dashboard.add_row(statistics)
-
-        if stats["info"]:
-            dashboard.add_row("")
-            items = list(stats["info"].items())
-            mid = (len(items) + 1) // 2
-            left = Table(box=None, expand=True)
-            left.add_column("Metrics", justify="left", width=20, style="yellow")
-            left.add_column("Value", justify="right", width=10, style="green")
-            right = Table(box=None, expand=True)
-            right.add_column("Metrics", justify="left", width=20, style="yellow")
-            right.add_column("Value", justify="right", width=10, style="green")
-            for i, (metric, value) in enumerate(items):
-                table = left if i < mid else right
-                table.add_row(str(metric), f"{value:.{3}f}")
-            info_row = Table(box=None, expand=True, pad_edge=False)
-            info_row.add_row(left, right)
-            dashboard.add_row(info_row)
+        for i in range(0, len(group_names), 2):
+            pair = group_names[i : i + 2]
+            tables = [self.build_table(name, groups[name]) for name in pair]
+            row = Table(box=None, expand=True, pad_edge=False)
+            row.add_row(*tables)
+            dashboard.add_row(row)
 
         dashboard.add_row("")
-        progress.update(task, completed=int(stats["global_step"]))
+        progress.update(task, completed=int(step))
         dashboard.add_row(progress)
 
         return dashboard

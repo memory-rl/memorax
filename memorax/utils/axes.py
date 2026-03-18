@@ -55,6 +55,11 @@ def get_time_axis_and_input_shape(inputs: jax.Array, num_feature_axes=1):
     return time_axis, input_shape
 
 
+def ensure_axis(value, size):
+    value = jnp.atleast_1d(jnp.asarray(value))
+    return jnp.broadcast_to(value, (size,))
+
+
 def broadcast_done(done: jax.Array, carry: jax.Array) -> jax.Array:
     while done.ndim != carry.ndim:
         done = done[..., None] if done.ndim < carry.ndim else done[..., 0]

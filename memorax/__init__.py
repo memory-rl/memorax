@@ -30,12 +30,11 @@ from memorax.algorithms import (
 )
 from memorax.environments import make
 from memorax.loggers import (
-    ConsoleLogger,
+    CheckpointLogger,
     DashboardLogger,
     FileLogger,
     Logger,
-    LoggerState,
-    NeptuneLogger,
+    MultiLogger,
     TensorBoardLogger,
     WandbLogger,
 )
@@ -78,11 +77,10 @@ __all__ = [
     "SequenceModel",
     "SequenceModelWrapper",
     "Logger",
-    "LoggerState",
-    "ConsoleLogger",
+    "MultiLogger",
+    "CheckpointLogger",
     "DashboardLogger",
     "FileLogger",
     "TensorBoardLogger",
     "WandbLogger",
-    "NeptuneLogger",
 ]

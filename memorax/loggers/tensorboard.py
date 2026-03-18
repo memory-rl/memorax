@@ -1,50 +1,23 @@
-from collections import defaultdict
-from dataclasses import field
-
-from flax import struct
+import jax
 from tensorboardX import SummaryWriter
 
-from .logger import BaseLogger, BaseLoggerState, PyTree
+from memorax.utils.axes import ensure_axis
+from memorax.utils.typing import PyTree
 
 
-@struct.dataclass(frozen=True)
-class TensorBoardLoggerState(BaseLoggerState):
-    writers: dict[int, SummaryWriter]
-    buffer: defaultdict[int, dict[str, PyTree]] = field(
-        default_factory=lambda: defaultdict(dict)
-    )
-
-
-@struct.dataclass(frozen=True)
-class TensorBoardLogger(BaseLogger[TensorBoardLoggerState]):
-    log_dir: str = "tensorboard"
-
-    def init(self, **kwargs) -> TensorBoardLoggerState:
-        cfg = kwargs["cfg"]
-        writers = {
-            seed: SummaryWriter(log_dir=self.log_dir)
-            for seed in range(cfg["num_seeds"])
+class TensorBoardLogger:
+    def __init__(self, directory="tensorboard", num_seeds=1, **kwargs):
+        self.writers = {
+            seed: SummaryWriter(log_dir=directory) for seed in range(num_seeds)
         }
-        return TensorBoardLoggerState(writers=writers)
 
-    def log(
-        self, state: TensorBoardLoggerState, data: PyTree, step: int
-    ) -> TensorBoardLoggerState:
-        state.buffer[step].update(data)
-        return state
+    def log(self, data: PyTree, step: int, **kwargs):
+        num_seeds = len(self.writers)
+        data = jax.tree.map(lambda v: ensure_axis(v, num_seeds), data)
+        for seed, writer in self.writers.items():
+            for metric, value in data.items():
+                writer.add_scalar(metric, value[seed], step)
 
-    def emit(self, state: TensorBoardLoggerState) -> TensorBoardLoggerState:
-        for step, data in sorted(state.buffer.items()):
-            for seed, writer in state.writers.items():
-                for metric, value in data.items():
-                    writer.add_scalar(
-                        metric,
-                        value[seed] if metric != "SPS" else value,
-                        step,
-                    )
-        state.buffer.clear()
-        return state
-
-    def finish(self, state: TensorBoardLoggerState) -> None:
-        for writer in state.writers.values():
+    def finish(self) -> None:
+        for writer in self.writers.values():
             writer.close()

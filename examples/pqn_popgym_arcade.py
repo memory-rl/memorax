@@ -10,7 +10,7 @@ import optax
 from memorax.algorithms import PQN, PQNConfig
 from memorax.environments import environment
 from memorax.environments.wrappers import RecordEpisodeStatistics
-from memorax.loggers import DashboardLogger, Logger
+from memorax.loggers import DashboardLogger, MultiLogger
 from memorax.networks import (
     RNN,
     FeatureExtractor,
@@ -98,17 +98,14 @@ q_network = Network(
 
 agent = PQN(cfg, env, env_params, q_network, optimizer, epsilon)
 
-logger = Logger(
+logger = MultiLogger(
     [
         DashboardLogger(
-            title="PQN PopGym Arcade",
-            name="PQN",
-            env_id=env_id,
             total_timesteps=total_timesteps,
+            summary={"Algorithm": "PQN", "Environment": env_id, "Torso": "GRU", "Total Timesteps": f"{total_timesteps:_}"},
         )
     ]
 )
-logger_state = logger.init(cfg=asdict(cfg))
 
 init = jax.vmap(agent.init)
 train = jax.vmap(lox.spool(agent.train), in_axes=(0, 0, None))
@@ -136,7 +133,6 @@ for i in range(num_epochs):
         "training/episode_lengths": episode_lengths,
         **logs,
     }
-    logger_state = logger.log(logger_state, data, step=state.step[0].item())
-    logger.emit(logger_state)
+    logger.log(data, step=state.step[0].item())
 
-logger.finish(logger_state)
+logger.finish()

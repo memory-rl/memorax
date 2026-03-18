@@ -105,7 +105,7 @@ train = jax.vmap(lox.spool(agent.train), in_axes=(0, 0, None))
 (keys, state), logs = train(keys, state, num_steps)
 ```
 
-Memorax provides several logger backends: `DashboardLogger` for a live terminal UI, `WandbLogger`, `TensorBoardLogger`, `NeptuneLogger`, `FileLogger`, and `ConsoleLogger`. Combine multiple backends with the `Logger` wrapper.
+Memorax provides several logger backends: `DashboardLogger` for a live terminal UI, `WandbLogger`, `TensorBoardLogger`, `FileLogger`, and `CheckpointLogger`. Combine multiple backends with the `MultiLogger` wrapper.
 
 ## Buffers
 

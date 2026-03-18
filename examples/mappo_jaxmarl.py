@@ -11,7 +11,7 @@ from flax import struct
 
 from memorax.algorithms import MAPPO, MAPPOConfig
 from memorax.environments import MultiAgentRecordEpisodeStatistics, environment
-from memorax.loggers import DashboardLogger, Logger
+from memorax.loggers import DashboardLogger, MultiLogger
 from memorax.networks import RNN, FeatureExtractor, Network, Stack, heads
 from memorax.networks.blocks.ffn import Projection
 
@@ -94,17 +94,14 @@ critic_network = nn.vmap(
 
 agent = MAPPO(cfg, env, env_params, actor_network, critic_network, optimizer, optimizer)
 
-logger = Logger(
+logger = MultiLogger(
     [
         DashboardLogger(
-            title="MAPPO JaxMARL",
-            name="MAPPO",
-            env_id=env_id,
             total_timesteps=total_timesteps,
+            summary={"Algorithm": "MAPPO", "Environment": env_id, "Torso": "GRU", "Total Timesteps": f"{total_timesteps:_}"},
         )
     ]
 )
-logger_state = logger.init(cfg=asdict(cfg))
 
 init = jax.vmap(agent.init)
 train = jax.vmap(lox.spool(agent.train), in_axes=(0, 0, None))
@@ -132,7 +129,6 @@ for i in range(num_epochs):
         "training/episode_lengths": episode_lengths,
         **logs,
     }
-    logger_state = logger.log(logger_state, data, step=state.step[0].item())
-    logger.emit(logger_state)
+    logger.log(data, step=state.step[0].item())
 
-logger.finish(logger_state)
+logger.finish()

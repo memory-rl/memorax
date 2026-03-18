@@ -11,7 +11,7 @@ from memorax.algorithms import R2D2, R2D2Config
 from memorax.buffers import make_prioritised_episode_buffer
 from memorax.environments import environment
 from memorax.environments.wrappers import RecordEpisodeStatistics
-from memorax.loggers import DashboardLogger, Logger
+from memorax.loggers import DashboardLogger, MultiLogger
 from memorax.networks import (
     RNN,
     FeatureExtractor,
@@ -110,17 +110,14 @@ agent = R2D2(
     beta,
 )
 
-logger = Logger(
+logger = MultiLogger(
     [
         DashboardLogger(
-            title="R2D2 Navix",
-            name="R2D2",
-            env_id=env_id,
             total_timesteps=total_timesteps,
+            summary={"Algorithm": "R2D2", "Environment": env_id, "Torso": "GRU", "Total Timesteps": f"{total_timesteps:_}"},
         )
     ]
 )
-logger_state = logger.init(cfg=asdict(cfg))
 
 init = jax.vmap(agent.init)
 warmup = jax.vmap(agent.warmup, in_axes=(0, 0, None))
@@ -150,7 +147,6 @@ for i in range(num_epochs):
         "training/episode_lengths": episode_lengths,
         **logs,
     }
-    logger_state = logger.log(logger_state, data, step=state.step[0].item())
-    logger.emit(logger_state)
+    logger.log(data, step=state.step[0].item())
 
-logger.finish(logger_state)
+logger.finish()

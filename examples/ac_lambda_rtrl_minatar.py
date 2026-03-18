@@ -7,7 +7,7 @@ import lox
 from memorax.algorithms import ACLambda, ACLambdaConfig
 from memorax.environments import environment
 from memorax.environments.wrappers import RecordEpisodeStatistics
-from memorax.loggers import DashboardLogger, Logger
+from memorax.loggers import DashboardLogger, MultiLogger
 from memorax.networks import RTRL, RNN, Flatten, FeatureExtractor, Network, Stack, heads
 from memorax.networks.blocks.ffn import Projection
 from memorax.networks.sequence_models import RTUCell
@@ -72,17 +72,14 @@ critic_network = Network(
 
 agent = ACLambda(config, env, env_params, actor_network, critic_network)
 
-logger = Logger(
+logger = MultiLogger(
     [
         DashboardLogger(
-            title="AC-Lambda RTRL MinAtar",
-            name="AC-Lambda",
-            env_id=env_id,
             total_timesteps=total_timesteps,
+            summary={"Algorithm": "AC-Lambda", "Environment": env_id, "Torso": "RTRL-RTU", "Total Timesteps": f"{total_timesteps:_}"},
         )
     ]
 )
-logger_state = logger.init(cfg=asdict(config))
 
 init = jax.vmap(agent.init)
 train = jax.vmap(lox.spool(agent.train), in_axes=(0, 0, None))
@@ -110,7 +107,6 @@ for i in range(num_epochs):
         "training/episode_lengths": episode_lengths,
         **logs,
     }
-    logger_state = logger.log(logger_state, data, step=state.step[0].item())
-    logger.emit(logger_state)
+    logger.log(data, step=state.step[0].item())
 
-logger.finish(logger_state)
+logger.finish()

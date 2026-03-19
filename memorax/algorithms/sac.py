@@ -124,7 +124,7 @@ class SAC:
         )(step_key, state.env_state, action, self.env_params)
 
         intermediates = jax.tree.map(
-            lambda x: jnp.mean(x, axis=(1, 2)),
+            jnp.mean,
             intermediates.get("intermediates", {}),
         )
 

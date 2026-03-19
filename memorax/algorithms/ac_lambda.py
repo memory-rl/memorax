@@ -121,7 +121,7 @@ class ACLambda:
         )(step_keys, state.env_state, action, self.env_params)
 
         intermediates = jax.tree.map(
-            lambda x: jnp.mean(x, axis=(1, 2)),
+            jnp.mean,
             intermediates.get("intermediates", {}),
         )
 
@@ -273,7 +273,7 @@ class ACLambda:
         actor_params = jax.tree.map(lambda p, u: p + u, state.actor_params, actor_updates)
 
         intermediates = jax.tree.map(
-            lambda x: jnp.mean(x, axis=(1, 2)),
+            jnp.mean,
             intermediates.get("intermediates", {}),
         )
 

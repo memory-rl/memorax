@@ -57,7 +57,8 @@ def get_time_axis_and_input_shape(inputs: Array, num_feature_axes: int = 1) -> t
 
 def ensure_axis(value: Array, size: int) -> Array:
     value = jnp.atleast_1d(jnp.asarray(value))
-    return jnp.broadcast_to(value, (size,))
+    _, *shape = value.shape
+    return jnp.broadcast_to(value, (size, *shape))
 
 
 def broadcast_done(done: Array, carry: Array) -> Array:

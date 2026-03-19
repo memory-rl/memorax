@@ -1,5 +1,5 @@
 from memorax.environments import (
-    atari,
+    ale,
     brax,
     craftax,
     grimax,
@@ -17,7 +17,7 @@ from memorax.environments import (
 )
 
 register = {
-    "atari": atari.make,
+    "ale": ale.make,
     "brax": brax.make,
     "craftax": craftax.make,
     "grimax": grimax.make,

@@ -8,11 +8,11 @@ from memorax.utils.typing import Array, Key
 
 
 @struct.dataclass
-class AtariState:
+class ALEState:
     step: int = 0
 
 
-class AtariWrapper:
+class ALEWrapper:
 
     def __init__(self, environment):
         self._environment = environment
@@ -28,7 +28,7 @@ class AtariWrapper:
     def default_params(self) -> None:
         return None
 
-    def reset(self, key: Key, params=None) -> tuple[Array, AtariState]:
+    def reset(self, key: Key, params=None) -> tuple[Array, ALEState]:
 
         def _reset(key):
             observation, _ = self._environment.reset()
@@ -41,16 +41,16 @@ class AtariWrapper:
             vmap_method="broadcast_all",
         )
 
-        state = AtariState(step=0)
+        state = ALEState(step=0)
         return observation, state
 
     def step(
         self,
         key: Key,
-        state: AtariState,
+        state: ALEState,
         action: Array,
         params=None,
-    ) -> tuple[Array, AtariState, Array, Array, dict]:
+    ) -> tuple[Array, ALEState, Array, Array, dict]:
 
         def _step(action):
             action = np.asarray(action, dtype=np.int32)
@@ -75,7 +75,7 @@ class AtariWrapper:
             vmap_method="broadcast_all",
         )
 
-        new_state = AtariState(step=state.step + 1)
+        new_state = ALEState(step=state.step + 1)
         return observation, new_state, rewards, dones, {}
 
     def observation_space(self, params=None) -> spaces.Box:
@@ -94,4 +94,4 @@ def make(env_id, num_envs=1, **kwargs) -> tuple:
     from ale_py.vector_env import AtariVectorEnv
 
     environment = AtariVectorEnv(game=env_id, num_envs=num_envs, **kwargs)
-    return AtariWrapper(environment), None
+    return ALEWrapper(environment), None

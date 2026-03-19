@@ -8,7 +8,7 @@ import optax
 from flashbax import make_item_buffer
 
 from memorax.algorithms import DQN, DQNConfig
-from memorax.environments.atari import make
+from memorax.environments.ale import make
 from memorax.environments.wrappers import RecordEpisodeStatistics
 from memorax.loggers import DashboardLogger, MultiLogger
 from memorax.networks import RNN, FeatureExtractor, Flatten, Network, Residual, Stack, heads

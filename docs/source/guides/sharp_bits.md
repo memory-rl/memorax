@@ -1,10 +1,10 @@
 # 🔪 Sharp Bits 🔪
 
-Memorax supports both JAX-native environments (gymnax, craftax, navix, etc.) and CPU callback-based environments (gymnasium, atari, pufferlib). The callback environments bridge external CPU-side envs into JAX via `jax.pure_callback`, which introduces several gotchas.
+Memorax supports both JAX-native environments (gymnax, craftax, navix, etc.) and CPU callback-based environments (gymnasium, ale, pufferlib). The callback environments bridge external CPU-side envs into JAX via `jax.pure_callback`, which introduces several gotchas.
 
 ## CPU callback environments are opaque
 
-The gymnasium, atari, and pufferlib wrappers use `jax.pure_callback` to bridge external CPU environments into JAX. The env state (`GymnasiumState`, `AtariState`, etc.) only tracks a step counter — the actual environment state lives in the external process. You cannot inspect, copy, or fork it.
+The gymnasium, ale, and pufferlib wrappers use `jax.pure_callback` to bridge external CPU environments into JAX. The env state (`GymnasiumState`, `ALEState`, etc.) only tracks a step counter — the actual environment state lives in the external process. You cannot inspect, copy, or fork it.
 
 This rules out algorithms that need to clone or restore env state, such as MCTS or other planning methods.
 

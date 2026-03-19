@@ -92,9 +92,9 @@ logger = MultiLogger(
     ]
 )
 
-init = agent.init
-warmup = agent.warmup
-train = lox.spool(agent.train)
+init = jax.jit(agent.init)
+warmup = jax.jit(agent.warmup, static_argnames=["num_steps"])
+train = lox.spool(jax.jit(agent.train, static_argnames=["num_steps"]))
 
 key = jax.random.key(seed)
 

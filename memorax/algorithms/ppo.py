@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from functools import partial
 from typing import Any, Callable
 
@@ -54,7 +55,7 @@ class PPOState:
     critic_carry: Array
 
 
-@struct.dataclass(frozen=True)
+@dataclass
 class PPO:
     cfg: PPOConfig
     env: Environment
@@ -524,7 +525,6 @@ class PPO:
 
         return state, None
 
-    @partial(jax.jit, static_argnames=["self"])
     def init(self, key: Key) -> PPOState:
         (
             env_key,
@@ -592,11 +592,9 @@ class PPO:
             critic_optimizer_state=critic_optimizer_state,
         )
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key: Key, state: PPOState, num_steps: int) -> PPOState:
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(self, key: Key, state: PPOState, num_steps: int) -> PPOState:
         num_outer_steps = num_steps // (self.cfg.num_envs * self.cfg.num_steps)
         keys = jax.random.split(key, num_outer_steps)
@@ -608,7 +606,6 @@ class PPO:
 
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(
         self, key: Key, state: PPOState, num_steps: int
     ) -> PPOState:

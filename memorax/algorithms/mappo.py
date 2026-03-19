@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from functools import partial
 from typing import Any, Callable
 
@@ -58,7 +59,7 @@ class MAPPOState:
     critic_carry: Array
 
 
-@struct.dataclass(frozen=True)
+@dataclass
 class MAPPO:
     cfg: MAPPOConfig
     env: Environment
@@ -550,7 +551,6 @@ class MAPPO:
 
         return state, None
 
-    @partial(jax.jit, static_argnames=["self"])
     def init(self, key: Key) -> MAPPOState:
         (
             env_key,
@@ -628,13 +628,11 @@ class MAPPO:
             critic_carry=critic_carry,
         )
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(
         self, key: Key, state: MAPPOState, num_steps: int
     ) -> MAPPOState:
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(self, key: Key, state: MAPPOState, num_steps: int) -> MAPPOState:
         num_outer_steps = num_steps // (self.cfg.num_envs * self.cfg.num_steps)
         keys = jax.random.split(key, num_outer_steps)
@@ -646,7 +644,6 @@ class MAPPO:
 
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: Key, state: MAPPOState, num_steps: int) -> MAPPOState:
         reset_key, eval_key = jax.random.split(key)
         num_agents = self.env.num_agents

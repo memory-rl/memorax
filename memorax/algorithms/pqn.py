@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from functools import partial
 from typing import Any, Callable
 
@@ -45,7 +46,7 @@ class PQNState:
     optimizer_state: optax.OptState
 
 
-@struct.dataclass(frozen=True)
+@dataclass
 class PQN:
     cfg: PQNConfig
     env: Environment
@@ -328,7 +329,6 @@ class PQN:
 
         return state, None
 
-    @partial(jax.jit, static_argnames=["self"])
     def init(self, key: Key) -> PQNState:
         env_key, q_key, torso_key = jax.random.split(key, 3)
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
@@ -366,11 +366,9 @@ class PQN:
             optimizer_state=optimizer_state,
         )
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key: Key, state: PQNState, num_steps: int) -> PQNState:
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(
         self,
         key: Key,
@@ -387,7 +385,6 @@ class PQN:
 
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: Key, state: PQNState, num_steps: int) -> PQNState:
         reset_key, eval_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_envs)

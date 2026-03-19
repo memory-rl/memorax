@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from functools import partial
 from typing import Any, Callable
 
@@ -50,7 +51,7 @@ class GradientPPOState:
     h_carry: Array
 
 
-@struct.dataclass(frozen=True)
+@dataclass
 class GradientPPO:
     cfg: GradientPPOConfig
     env: Environment
@@ -557,7 +558,6 @@ class GradientPPO:
 
         return state, None
 
-    @partial(jax.jit, static_argnames=["self"])
     def init(self, key: Key) -> GradientPPOState:
         (
             env_key,
@@ -645,13 +645,11 @@ class GradientPPO:
             h_optimizer_state=h_optimizer_state,
         )
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(
         self, key: Key, state: GradientPPOState, num_steps: int
     ) -> GradientPPOState:
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(self, key: Key, state: GradientPPOState, num_steps: int) -> GradientPPOState:
         num_outer_steps = num_steps // (self.cfg.num_envs * self.cfg.num_steps)
         keys = jax.random.split(key, num_outer_steps)
@@ -663,7 +661,6 @@ class GradientPPO:
 
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(
         self, key: Key, state: GradientPPOState, num_steps: int
     ) -> GradientPPOState:

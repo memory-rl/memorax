@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from functools import partial
 from typing import Any, Callable
 
@@ -84,7 +85,7 @@ def compute_n_step_returns(
     return targets
 
 
-@struct.dataclass(frozen=True)
+@dataclass
 class R2D2:
     cfg: R2D2Config
     env: Environment
@@ -357,7 +358,6 @@ class R2D2:
 
         return state, None
 
-    @partial(jax.jit, static_argnames=["self"])
     def init(self, key: Key) -> R2D2State:
         env_key, q_key, torso_key = jax.random.split(key, 3)
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
@@ -406,7 +406,6 @@ class R2D2:
             buffer_state=buffer_state,
         )
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key: Key, state: R2D2State, num_steps: int) -> R2D2State:
         step_keys = jax.random.split(key, num_steps // self.cfg.num_envs)
         state, _ = jax.lax.scan(
@@ -416,7 +415,6 @@ class R2D2:
         )
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(
         self,
         key: Key,
@@ -433,7 +431,6 @@ class R2D2:
 
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: Key, state: R2D2State, num_steps: int) -> R2D2State:
         reset_key, eval_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_envs)

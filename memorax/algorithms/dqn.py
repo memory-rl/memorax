@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from functools import partial
 from typing import Any, Callable
 
@@ -49,7 +50,7 @@ class DQNState:
     buffer_state: BufferState
 
 
-@struct.dataclass(frozen=True)
+@dataclass
 class DQN:
     cfg: DQNConfig
     env: Environment
@@ -272,7 +273,6 @@ class DQN:
 
         return state, None
 
-    @partial(jax.jit, static_argnames=["self"])
     def init(self, key: Key) -> DQNState:
         env_key, q_key, torso_key = jax.random.split(key, 3)
         env_keys = jax.random.split(env_key, self.cfg.num_envs)
@@ -320,7 +320,6 @@ class DQN:
             buffer_state=buffer_state,
         )
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key: Key, state: DQNState, num_steps: int) -> DQNState:
         step_keys = jax.random.split(key, num_steps // self.cfg.num_envs)
         state, _ = jax.lax.scan(
@@ -330,7 +329,6 @@ class DQN:
         )
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(
         self,
         key: Key,
@@ -347,7 +345,6 @@ class DQN:
 
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: Key, state: DQNState, num_steps: int) -> DQNState:
         reset_key, eval_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_envs)

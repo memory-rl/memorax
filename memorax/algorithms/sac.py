@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from functools import partial
 from typing import Any, Callable
 
@@ -51,7 +52,7 @@ class SACState:
     critic_carry: Array
 
 
-@struct.dataclass(frozen=True)
+@dataclass
 class SAC:
     cfg: SACConfig
     env: Environment
@@ -175,7 +176,6 @@ class SAC:
         )
         return state, transition
 
-    @partial(jax.jit, static_argnames=["self"])
     def init(self, key: Key):
         env_key, actor_key, actor_torso_key, critic_key, critic_torso_key, alpha_key = (
             jax.random.split(key, 6)
@@ -520,7 +520,6 @@ class SAC:
 
         return state, None
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def warmup(self, key: Key, state: SACState, num_steps: int) -> SACState:
         step_keys = jax.random.split(key, num_steps // self.cfg.num_envs)
         state, _ = jax.lax.scan(
@@ -530,7 +529,6 @@ class SAC:
         )
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def train(self, key: Key, state: SACState, num_steps: int):
         keys = jax.random.split(key, num_steps // self.cfg.train_frequency)
         state, _ = jax.lax.scan(
@@ -541,7 +539,6 @@ class SAC:
 
         return state
 
-    @partial(jax.jit, static_argnames=["self", "num_steps"])
     def evaluate(self, key: Key, state: SACState, num_steps: int) -> SACState:
         reset_key, eval_key = jax.random.split(key)
         reset_key = jax.random.split(reset_key, self.cfg.num_envs)
